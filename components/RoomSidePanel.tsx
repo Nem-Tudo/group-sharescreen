@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { LuPanelRightClose } from "react-icons/lu";
 import { Tooltip } from "@/components/Tooltip";
+import { useFeature } from "@/lib/features";
+import { SETTINGS_HUB_FEATURE } from "@/lib/settingsHub";
 import { useT } from "@/lib/useI18n";
 
 // The room's chat column on a desktop, in the room redesign (see
@@ -39,6 +41,8 @@ export function RoomSidePanel({
   onCollapse?: () => void;
 }) {
   const t = useT();
+  // With the "Configurações" dialog around, two things can't have that name.
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE, { track: false }).enabled;
   const shown: RoomSideTab = settings === null ? "chat" : tab;
   const tabClass = (active: boolean) =>
     `relative flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
@@ -74,7 +78,7 @@ export function RoomSidePanel({
               onClick={() => onTab("settings")}
               className={tabClass(shown === "settings")}
             >
-              {t("watch.watchRoom.roomSettingsTab")}
+              {settingsHub ? t("settingsHub.roomTab") : t("watch.watchRoom.roomSettingsTab")}
             </button>
           )}
         </div>

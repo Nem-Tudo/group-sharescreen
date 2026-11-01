@@ -1,11 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
 import { nameStyleOf } from "@/lib/nameStyle";
 import { BsCoin, BsShop } from "react-icons/bs";
-import { MdLogin, MdPalette } from "react-icons/md";
+import { MdLogin, MdOutlineSettings, MdPalette } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectAccountName } from "@/lib/signalingSelectors";
@@ -17,6 +17,8 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
+import { useFeature } from "@/lib/features";
+import { openSettings, reportAccountCardOnScreen, SETTINGS_HUB_FEATURE } from "@/lib/settingsHub";
 
 // Who you are, at the foot of the room's chat column (see WatchRoom, from lg
 // up). It used to be a chip wedged into the header between "Compartilhar
@@ -56,6 +58,31 @@ export function RoomAccountCard({
   const state = useSignalingSelector(selectAccountName, shallow);
   const { account, points } = useAuth();
   const { openPopup } = useNtPopups();
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE).enabled;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const hasName = Boolean(state.name);
+
+  // Mounted is not the same as seen: the chat column folds away around this
+  // card, and a call can be drawn nowhere. See lib/settingsHub.
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!settingsHub || !hasName || !node) return;
+    let seen = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const now = entry.intersectionRatio >= 0.5;
+        if (now === seen) return;
+        seen = now;
+        reportAccountCardOnScreen(now ? 1 : -1);
+      },
+      { threshold: [0, 0.5, 1] }
+    );
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      if (seen) reportAccountCardOnScreen(-1);
+    };
+  }, [settingsHub, hasName]);
 
   // Nothing to show before an identity exists — a name is what mints even the
   // guest one, and until then the room is still asking for it.
@@ -108,7 +135,7 @@ export function RoomAccountCard({
   );
 
   return (
-    <div className="mt-2 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:p-2 dark:border-zinc-800 dark:bg-zinc-950">
+    <div ref={rootRef} className="mt-2 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:p-2 dark:border-zinc-800 dark:bg-zinc-950">
       {/* Wrapping, and it is the points chip below that decides whether it
           wraps: `basis-full` gives it a line of its own, and dropping that on
           a short viewport pulls it up beside the name. */}
@@ -186,6 +213,19 @@ export function RoomAccountCard({
             <BsShop className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
           </button>
         </Tooltip>
+
+        {settingsHub && (
+          <Tooltip content={t("settingsHub.title")} placement="top">
+            <button
+              type="button"
+              onClick={() => openSettings("card")}
+              aria-label={t("settingsHub.title")}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            >
+              <MdOutlineSettings className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
+            </button>
+          </Tooltip>
+        )}
 
         {/* A row of its own where there is height for it, a chip on the name's
             line where there isn't. Same coin the rest of the site uses for

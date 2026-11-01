@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { MdExpandMore } from "react-icons/md";
+import { MdExpandMore, MdOutlineSettings } from "react-icons/md";
 import { signalingClient } from "@/lib/signalingClient";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectAccountMenu } from "@/lib/signalingSelectors";
@@ -22,6 +22,8 @@ import { openDirectMessages } from "@/lib/dmWindow";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
+import { NewBadge } from "@/components/NewBadge";
+import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE } from "@/lib/settingsHub";
 import dynamic from "next/dynamic";
 import Tippy from "@tippyjs/react";
 import {
@@ -70,6 +72,7 @@ export function AccountMenu() {
   const t = useT();
   const state = useSignalingSelector(selectAccountMenu, shallow);
   const { account: authAccount, logout } = useAuth();
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE).enabled;
 
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PanelMode>("menu");
@@ -126,6 +129,23 @@ export function AccountMenu() {
   if (!name) return null;
 
   const initial = name.trim().slice(0, 1).toUpperCase();
+
+  // In the settings-hub experiment, the way to everything this panel used to
+  // hold itself: the connections, the theme and the language.
+  const settingsRow = settingsHub && (
+    <button
+      type="button"
+      onClick={() => {
+        close();
+        openSettings("menu");
+      }}
+      className={itemClass}
+    >
+      <MdOutlineSettings className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+      <span className="flex-1">{t("settingsHub.title")}</span>
+      <NewBadge id={SETTINGS_HUB_BADGE} />
+    </button>
+  );
 
   const panel = (
     <div className="w-72 rounded-xl border border-black/10 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-zinc-950">
@@ -220,9 +240,15 @@ export function AccountMenu() {
                   // email, the connections, the authorized apps — only exists
                   // on /me. Naming it "Gerenciar conta" says which of the two
                   // this is before it is clicked.
-                  <Link href="/me" onClick={close} className={itemClass}>
-                    {t("accountMenu.manageAccount")}
-                  </Link>
+                  settingsHub ? (
+                    <Link href={`/user/${authAccount.username}`} onClick={close} className={itemClass}>
+                      {t("accountMenu.myProfile")}
+                    </Link>
+                  ) : (
+                    <Link href="/me" onClick={close} className={itemClass}>
+                      {t("accountMenu.manageAccount")}
+                    </Link>
+                  )
                 )}
                 <button
                   type="button"
@@ -259,7 +285,7 @@ export function AccountMenu() {
                     includes an address already confirmed: this panel is a
                     list of places to go, not a place to read a setting back. */}
                 <EmailVerification hideWhenVerified />
-                <AccountConnections />
+                {settingsHub ? settingsRow : <AccountConnections />}
                 <button type="button" onClick={() => { logout(); close(); }} className={itemClass}>
                   {t("accountMenu.signOut")}
                 </button>
@@ -282,6 +308,7 @@ export function AccountMenu() {
                 <button type="button" onClick={() => setMode("login")} className={itemClass}>
                   {t("common.iAlreadyHaveAnAccount")}
                 </button>
+                {settingsRow}
               </>
             )}
           </div>
@@ -289,6 +316,7 @@ export function AccountMenu() {
               this browser, not about who is signed in. Moved here out of the
               site header, where a permanent button spent a slot in the bar on
               a choice people make once. */}
+          {!settingsHub && (
           <div className="mt-1 border-t border-black/5 px-3 pt-2 pb-1 dark:border-white/5">
             <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
               {t("common.theme")}
@@ -302,6 +330,7 @@ export function AccountMenu() {
             </p>
             <LanguagePicker />
           </div>
+          )}
         </>
       )}
     </div>

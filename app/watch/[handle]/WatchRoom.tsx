@@ -95,8 +95,6 @@ import { useAndroidCallService } from "@/lib/androidCallService";
 import { useTaskbarCallControls } from "@/lib/taskbarCallControls";
 import { recentRoomPresentation } from "@/lib/recentRooms";
 import {
-  getSoundEffectsEnabled,
-  setSoundEffectsEnabled,
   playMicOnSound,
   playMicOffSound,
   playDeafenSound,
@@ -122,12 +120,16 @@ import {
   setStoredGuestAccountBannerDismissed,
   getStoredMicHintSeen,
   setStoredMicHintSeen,
-  getStoredDoubleClickFocus,
-  setStoredDoubleClickFocus,
-  getStoredOpenRoomsInApp,
-  setStoredOpenRoomsInApp,
-  setStoredOpenInAppDismissed,
 } from "@/lib/mediaPreferences";
+import { useStoredDoubleClickFocus } from "@/lib/usePreferences";
+import {
+  DoubleClickFocusToggle,
+  OpenRoomsInAppToggle,
+  ProfileSongToggle,
+  RoomThemeToggle,
+  SoundEffectsToggle,
+} from "@/components/SitePreferenceToggles";
+import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE, useSettingsCallSlot } from "@/lib/settingsHub";
 import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
 import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
@@ -179,7 +181,7 @@ import { ToolMediaTileById } from "@/components/roomTools/ToolMediaTile";
 import { ToolPipLabel } from "@/components/roomTools/ToolPip";
 import { ChatToolsStrip, PollCreateDialog } from "@/components/roomTools/ChatToolsStrip";
 import { HandsQueue, RaiseHandButton } from "@/components/roomTools/HandRaise";
-import { MdAutoAwesome, MdBackHand, MdCloseFullscreen, MdHandyman, MdOpenInFull, MdPoll } from "react-icons/md";
+import { MdAutoAwesome, MdBackHand, MdCloseFullscreen, MdHandyman, MdOpenInFull, MdOutlineSettings, MdPoll } from "react-icons/md";
 import { MOBILE_CHAT_EVENTS, MOBILE_CHAT_FEATURE, trackMobileChatEvent } from "@/lib/mobileChat";
 import { useSoftKeyboardOpen } from "@/lib/mobileShell";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -209,15 +211,12 @@ import {
   ShieldOffIcon,
   LinkIcon,
   CheckIcon,
-  SpeakerIcon,
-  SpeakerMuteIcon,
   MoreIcon,
   ClipIcon,
   RecordIcon,
   ChevronDownIcon,
   EyeIcon,
   EyeOffIcon,
-  FocusIcon,
   OrientationIcon,
   ScreenIcon,
   CameraIcon,
@@ -322,7 +321,6 @@ import { getRoomProOffer } from "@/components/RoomProOffer";
 import TurnUpsellNotice from "@/components/TurnUpsellNotice";
 import { APP_REVIEW_FEATURE, maybeRequestAppReview } from "@/lib/appReview";
 import { isAppShell } from "@/lib/desktop";
-import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
 import { useMediaQuery, SM_BREAKPOINT_QUERY, LG_BREAKPOINT_QUERY } from "@/lib/useMediaQuery";
 import {
   MdArrowBack,
@@ -331,7 +329,6 @@ import {
   MdMenu,
   MdVolumeUp,
   MdOutlineOndemandVideo,
-  MdOutlineDesktopWindows,
   MdOutlineMap,
   MdPalette,
   MdLogin,
@@ -384,10 +381,6 @@ import { useScreenPen } from "@/lib/screenPen";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { useRoomTheme } from "@/lib/useRoomTheme";
 import {
-  isRoomThemeOptedOut,
-  isRoomThemeOptedOutServer,
-  setRoomThemeOptedOut,
-  subscribeRoomThemeOptOut,
   THEME_EDITOR_PARAM,
   wantsThemeEditor,
 } from "@/lib/roomThemes";
@@ -2006,13 +1999,10 @@ function WatchRoomView({
     root.setAttribute("data-room-redesign-on", redesignInGroup ? "group" : "");
     return () => root.removeAttribute("data-room-redesign-on");
   }, [roomRedesign, visible, redesignInGroup]);
-  // Whether this browser refuses room themes (see the toggle in the menu). Read
-  // here as well as inside the hook, because the row has to draw its own state.
-  const roomThemeOptedOut = useSyncExternalStore(
-    subscribeRoomThemeOptOut,
-    isRoomThemeOptedOut,
-    isRoomThemeOptedOutServer
-  );
+  // The "Configurações" dialog: from here on the room's menu keeps the room's
+  // own things, and the switches about a running call go to the dialog's spot.
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE, { track: visible }).enabled;
+  const settingsCallSlot = useSettingsCallSlot();
   // Whether "Impedir conexões diretas" has a TURN server to force through —
   // the build's own, or Cloudflare's once lib/iceServers.ts has them.
   const turnConfigured = useSyncExternalStore(subscribeIceServers, isTurnConfigured, () => TURN_CONFIGURED);
@@ -2162,12 +2152,6 @@ function WatchRoomView({
   // button (someone who already has an account); either side switches to
   // the other, so neither entry point is a dead end.
   const [accountModal, setAccountModal] = useState<"login" | "create" | null>(null);
-  // "Sempre abrir salas no aplicativo" — the same preference the
-  // RoomAppGate sets, surfaced here so it can be turned back off. Read
-  // through the mounted gate below rather than a lazy initializer, because
-  // whether we are *inside* the app is a client-only fact and rendering the
-  // row differently on the server would hydrate into a mismatch.
-  const [openRoomsInApp, setOpenRoomsInApp] = useState(false);
   const [micsMuted, setMicsMuted] = useState(() => getStoredMicsMuted());
   // Read by the join announcement below, which is registered once and must see
   // the current value rather than the one that existed at mount. Written in an
@@ -2294,11 +2278,7 @@ function WatchRoomView({
   }, [micsMuted, isMicOn, toggleMicDevice]);
   // Which shell this is, read once — see lib/desktop's isAppShell.
   const [appShell] = useState(() => isAppShell());
-  const [soundEffectsOn, setSoundEffectsOn] = useState(() => getSoundEffectsEnabled());
-  const [profileSongAutoplay, setProfileSongAutoplayState] = useState(() =>
-    getProfileSongAutoplay()
-  );
-  const [doubleClickFocus, setDoubleClickFocus] = useState(() => getStoredDoubleClickFocus());
+  const doubleClickFocus = useStoredDoubleClickFocus();
   const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
   // Whom a manager turned the mic off for (see the server's "room-silence"),
   // by stable user id: shown in red everywhere a mic is, never played here,
@@ -2823,25 +2803,9 @@ function WatchRoomView({
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
-      // Read here rather than from a lazy initializer: localStorage does not
-      // exist during the server render, and this is already the one deferred
-      // point where client-only facts become safe to look at.
-      setOpenRoomsInApp(getStoredOpenRoomsInApp());
     }, 0);
     return () => clearTimeout(id);
   }, []);
-
-  function toggleOpenRoomsInApp() {
-    setOpenRoomsInApp((prev) => {
-      const next = !prev;
-      setStoredOpenRoomsInApp(next);
-      // Turning it on from here also clears any earlier "agora não", so the
-      // two controls cannot end up disagreeing about what was decided.
-      if (next) setStoredOpenInAppDismissed(false);
-      trackEvent(next ? "open_rooms_in_app_on" : "open_rooms_in_app_off");
-      return next;
-    });
-  }
 
   // Closes the rename popover once the name actually changes — covers both
   // success (server confirmed the new name) and a plain reconnect, without
@@ -3182,25 +3146,6 @@ function WatchRoomView({
     isResizingChatRef.current = true;
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
-  }
-
-  function toggleDoubleClickFocus() {
-    const next = !doubleClickFocus;
-    setDoubleClickFocus(next);
-    setStoredDoubleClickFocus(next);
-  }
-
-  function toggleProfileSongAutoplay() {
-    const next = !profileSongAutoplay;
-    setProfileSongAutoplayState(next);
-    setProfileSongAutoplay(next);
-  }
-
-  function toggleSoundEffects() {
-    const next = !soundEffectsOn;
-    setSoundEffectsOn(next);
-    setSoundEffectsEnabled(next);
-    trackEvent(next ? "sound_effects_on" : "sound_effects_off");
   }
 
   function toggleMicsMuted() {
@@ -7305,6 +7250,45 @@ function WatchRoomView({
     />
   );
 
+  const autoJoinToggle = (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.joinBroadcastsAutomatically")}
+      active={autoJoin}
+      onToggle={toggleAutoJoin}
+      hint={translate("watch.watchRoom.whenOffANewScreenCamera")}
+      activeIcon={<EyeIcon className="h-4 w-4" />}
+      inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
+    />
+  );
+
+  // Pro Max only — see useRoomMedia. Hidden rather than shown locked: somebody
+  // without the plan has no switch to see, and the stored value, if any,
+  // already stopped counting.
+  const forceRelayRows = (
+    <>
+      {forceRelayAllowed && (
+        <MenuToggleRow
+          label={translate("watch.watchRoom.preventDirectConnections")}
+          active={forceRelayIce}
+          onToggle={toggleForceRelayIce}
+          disabled={!turnConfigured}
+          hint={
+            turnConfigured
+              ? translate("watch.watchRoom.forcesYourConnectionsThroughATurn")
+              : translate("watch.watchRoom.unavailableNoTurnServerConfiguredOn")
+          }
+          activeIcon={<ShieldIcon className="h-4 w-4" />}
+          inactiveIcon={<ShieldOffIcon className="h-4 w-4" />}
+        />
+      )}
+      {forceRelayIce && (
+        <p className="mb-1 px-2 text-xs text-amber-600 dark:text-amber-500">
+          {translate("watch.watchRoom.yourConnectionsAlwaysGoThroughAn")}
+        </p>
+      )}
+    </>
+  );
+
   // "Apertar para falar", the same way: one definition, rendered both in "Mais
   // opções" and in the mic's own panel — the mic button is where somebody
   // wondering why nobody hears them right-clicks first, and the key it waits
@@ -7532,8 +7516,23 @@ function WatchRoomView({
         {translate("watch.watchRoom.reportABug")}
       </a>
 
+      {settingsHub && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            openSettings("room", "general");
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdOutlineSettings className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+          <span className="flex-1">{translate("settingsHub.title")}</span>
+          <NewBadge id={SETTINGS_HUB_BADGE} />
+        </button>
+      )}
+
       {/* A keyboard's shortcuts, for the screens that have one. */}
-      {isDesktopLayout && (
+      {isDesktopLayout && !settingsHub && (
         <button
           type="button"
           data-tour="shortcuts"
@@ -7620,6 +7619,8 @@ function WatchRoomView({
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
+      {!settingsHub && (
+        <>
       {/* Above the toggles rather than among them: it is the only setting in
           here that changes how the whole site looks, and it is three states
           rather than the on/off every MenuToggleRow below is. The same
@@ -7637,20 +7638,11 @@ function WatchRoomView({
           Worded as the *permission* rather than as the result — "usar o tema
           da sala" reads as a thing you are turning off, where "sempre usar o
           meu" would read as a second theme picker. */}
-      <MenuToggleRow
-        label={translate("watch.watchRoom.useTheRoomSTheme")}
-        active={!roomThemeOptedOut}
-        onToggle={() => setRoomThemeOptedOut(!roomThemeOptedOut)}
-        activeIcon={<MdPalette className="h-4 w-4" />}
-        inactiveIcon={<MdPalette className="h-4 w-4" />}
-        hint={
-          roomThemeOptedOut
-            ? translate("watch.watchRoom.roomsWillNeverChangeYourTheme")
-            : translate("watch.watchRoom.turnItOffToNeverEnd")
-        }
-      />
+      <RoomThemeToggle />
 
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+        </>
+      )}
 
       {/* Below lg the header's control row does not exist — the bottom dock
           replaces it, and a dock wide enough for a phone has room for the
@@ -7730,78 +7722,24 @@ function WatchRoomView({
         />
         </div>
       )}
-      <MenuToggleRow
-        label={translate("watch.watchRoom.doubleClickToFocus")}
-        active={doubleClickFocus}
-        onToggle={toggleDoubleClickFocus}
-        hint={translate("watch.watchRoom.whenOffFocusingAVideoIs")}
-        activeIcon={<FocusIcon className="h-4 w-4" />}
-        inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
-      />
-      <MenuToggleRow
-        label={translate("watch.watchRoom.musicOnProfiles")}
-        active={profileSongAutoplay}
-        onToggle={toggleProfileSongAutoplay}
-        hint={translate("watch.watchRoom.whenOffAProfileSMusic")}
-        activeIcon={<SpeakerIcon className="h-4 w-4" />}
-        inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
-      />
-      <MenuToggleRow
-        label={translate("watch.watchRoom.siteSoundEffects")}
-        active={soundEffectsOn}
-        onToggle={toggleSoundEffects}
-        activeIcon={<SpeakerIcon className="h-4 w-4" />}
-        inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
-      />
-      <div data-tour="noise" className="contents">{noiseSuppressionToggle}</div>
-      <MenuToggleRow
-        label={translate("watch.watchRoom.joinBroadcastsAutomatically")}
-        active={autoJoin}
-        onToggle={toggleAutoJoin}
-        hint={translate("watch.watchRoom.whenOffANewScreenCamera")}
-        activeIcon={<EyeIcon className="h-4 w-4" />}
-        inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
-      />
-      {/* Only outside the desktop app: inside it, asking whether to use the
-          app is a question about something already true. Gated on `mounted`
-          too, since isDesktopApp() reads a client-only global.
-
-          The stored value doubles as "this browser has the app" — RoomAppGate
-          sets it the first time a handoff demonstrably worked, and this row is
-          how somebody turns the asking off again, or on if they installed the
-          app without ever using the banner. */}
-      {mounted && !isDesktopApp() && (
-        <MenuToggleRow
-          label={translate("watch.watchRoom.askBeforeOpeningRooms")}
-          active={openRoomsInApp}
-          onToggle={toggleOpenRoomsInApp}
-          hint={translate("watch.watchRoom.whenYouOpenARoomLink")}
-          activeIcon={<MdOutlineDesktopWindows className="h-4 w-4" />}
-          inactiveIcon={<MdOutlineDesktopWindows className="h-4 w-4 opacity-50" />}
-        />
+      {!settingsHub && (
+        <>
+          <DoubleClickFocusToggle />
+          <ProfileSongToggle />
+          <SoundEffectsToggle />
+        </>
       )}
-      {/* Pro Max only — see useRoomMedia. Hidden rather than shown locked:
-          somebody without the plan has no switch to see, and the stored
-          value, if any, already stopped counting. */}
-      {forceRelayAllowed && (
-      <MenuToggleRow
-        label={translate("watch.watchRoom.preventDirectConnections")}
-        active={forceRelayIce}
-        onToggle={toggleForceRelayIce}
-        disabled={!turnConfigured}
-        hint={
-          turnConfigured
-            ? translate("watch.watchRoom.forcesYourConnectionsThroughATurn")
-            : translate("watch.watchRoom.unavailableNoTurnServerConfiguredOn")
-        }
-        activeIcon={<ShieldIcon className="h-4 w-4" />}
-        inactiveIcon={<ShieldOffIcon className="h-4 w-4" />}
-      />
+      {/* In the experiment a phone keeps this one here too: its mic button has
+          no panel to put it in, unlike the desktop's (see mainControls). */}
+      {(!settingsHub || !isDesktopLayout) && (
+        <div data-tour="noise" className="contents">{noiseSuppressionToggle}</div>
       )}
-      {forceRelayIce && (
-        <p className="mb-1 px-2 text-xs text-amber-600 dark:text-amber-500">
-          {translate("watch.watchRoom.yourConnectionsAlwaysGoThroughAn")}
-        </p>
+      {!settingsHub && (
+        <>
+          {autoJoinToggle}
+          <OpenRoomsInAppToggle />
+          {forceRelayRows}
+        </>
       )}
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
@@ -7828,7 +7766,7 @@ function WatchRoomView({
           would just error on every attempt (or worse, silently
           look like it did nothing), so it's hidden entirely
           instead of a confusing dead end. */}
-      {!state.account && (
+      {!state.account && !settingsHub && (
         <>
           <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
           <button
@@ -8010,6 +7948,19 @@ function WatchRoomView({
               {pushToTalkToggle}
               {pushToTalkKeyRow}
               {phoneCameraAvailable && <PhoneCameraPanel on={phoneCameraMode.on} kind="mic" />}
+              {settingsHub && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickShortcutAction(null);
+                    openSettings("mic", "call");
+                  }}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-zinc-200 px-2 py-2 text-left text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                >
+                  <MdOutlineSettings className="h-4 w-4 shrink-0" />
+                  {translate("settingsHub.allSettings")}
+                </button>
+              )}
             </div>
           }
         >
@@ -11180,6 +11131,16 @@ function WatchRoomView({
           itself whether there is anything to ask and whether this person is
           on the experiment — see lib/gpuShareSurvey.ts. */}
       <GpuShareSurveyModal />
+
+      {settingsCallSlot &&
+        createPortal(
+          <>
+            {noiseSuppressionToggle}
+            {autoJoinToggle}
+            {forceRelayRows}
+          </>,
+          settingsCallSlot
+        )}
 
       <KeyboardShortcutsModal
         open={shortcutsModalOpen}

@@ -4329,7 +4329,6 @@
   "pro.cards.signUpAndSubscribe": "Crear cuenta y elegir {plan}",
   "pro.cards.everyPlanTitle": "En todos los planes",
   "pro.cards.tableTitle": "Lo que obtienes en cada plan",
-  "pro.compare.choose": "Elegir",
   "pro.compare.chosen": "Elegido",
   "admin.features.weights": "División entre variantes",
   "admin.features.weightFor": "Porcentaje de {variant}",
@@ -5680,5 +5679,19 @@
   "avatarBuilder.slot.earrings": "Aretes",
   "avatarBuilder.slot.background": "Color de fondo",
   "avatarBuilder.tip": "Nuevo: ¡crea tu avatar gratis! Elige piel, cabello, ropa, accesorios y fondo.",
-  "avatarBuilder.tipAction": "Crear ahora"
+  "avatarBuilder.tipAction": "Crear ahora",
+  "settingsHub.title": "Configuración",
+  "settingsHub.roomTab": "Sala",
+  "settingsHub.allSettings": "Toda la configuración",
+  "settingsHub.scopeDevice": "Guardado solo en este dispositivo.",
+  "settingsHub.scopeAccount": "Guardado en tu cuenta, en todos tus dispositivos.",
+  "settingsHub.section.account": "Cuenta",
+  "settingsHub.section.appearance": "Apariencia",
+  "settingsHub.section.general": "Preferencias",
+  "settingsHub.section.call": "Llamada",
+  "settingsHub.section.shortcuts": "Atajos",
+  "settingsHub.section.extras": "Extras e integraciones",
+  "discordRpc.rowOn": "Activo (mostrando tu estado en Discord)",
+  "discordRpc.rowOff": "Desactivado",
+  "discordRpc.rowConfigure": "Configurar"
 }

@@ -29,6 +29,7 @@ import { RoomCallHost } from "@/components/RoomCallHost";
 import { PushRegistrar } from "@/components/PushRegistrar";
 import { ProModalHost } from "@/components/ProModalHost";
 import { NtPopups } from "@/components/NtPopups";
+import { SettingsHost } from "@/components/settings/SettingsHost";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { NEWCOMER_INIT_SCRIPT } from "@/lib/newcomer";
 import { LAST_SCREEN_INIT_SCRIPT } from "@/lib/lastScreenInit";
@@ -390,6 +391,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <PushRegistrar />
                 {/* GoLive Pro subscription modal */}
                 <ProModalHost />
+                <SettingsHost />
                 {/* Above the announcement bar: this one says why nothing is
                     working, and the admin's message of the day is only worth
                     reading after that. See StatusBanner — it renders nothing

@@ -20,6 +20,7 @@ import {
   MdMonitor,
   MdNotificationsNone,
   MdOutlineMap,
+  MdOutlineSettings,
   MdPalette,
   MdPeopleOutline,
   MdPersonAdd,
@@ -28,7 +29,7 @@ import {
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
 import { DiscordRpcSettingsModal } from "@/components/DiscordRpcSettingsModal";
-import { useDiscordRpcSettings } from "@/lib/discordRpc";
+import { DISCORD_RPC_FEATURE, useDiscordRpcSettings } from "@/lib/discordRpc";
 import { EmailVerification } from "@/components/EmailVerification";
 import { AuthorizedApps } from "@/components/oauth2/AuthorizedApps";
 import { DEVELOPERS_URL } from "@/lib/botsApi";
@@ -74,6 +75,7 @@ import {
   NOTIFICATION_SETTINGS_BADGE,
   NOTIFICATION_SETTINGS_FEATURE,
 } from "@/lib/notificationSettings";
+import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE } from "@/lib/settingsHub";
 
 // "Você" — the last of the bottom tabs (see components/MobileTabBar), and the
 // one screen that holds everything about the person and the app that the
@@ -86,7 +88,7 @@ import {
 
 type Mode = "home" | "rename" | "create" | "login";
 
-const card = "overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950";
+export const card = "overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950";
 const rowClass =
   "flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-medium text-zinc-800 transition active:bg-zinc-100 dark:text-zinc-200 dark:active:bg-zinc-900 lg:hover:bg-zinc-50 lg:dark:hover:bg-zinc-900";
 const primaryButton =
@@ -103,15 +105,17 @@ export function MeScreen() {
   const [mode, setMode] = useState<Mode>("home");
   const [nameInput, setNameInput] = useState("");
   const [oauthTicket, setOAuthTicket] = useState<Extract<OAuthResult, { kind: "ticket" }> | null>(null);
-  const [discordRpcOpen, setDiscordRpcOpen] = useState(false);
-  const [rpcSettings] = useDiscordRpcSettings();
   const appShell = useIsAppShell();
+  // In the settings-hub experiment this screen keeps who you are and your
+  // places, and everything you can change moves to the "Configurações" dialog,
+  // which counts the exposures of what it took with it.
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE).enabled;
   // The exposure is counted here because this row is the only place the
   // screen is offered — see lib/notificationSettings.ts.
-  const notificationSettings = useFeature(NOTIFICATION_SETTINGS_FEATURE);
+  const notificationSettings = useFeature(NOTIFICATION_SETTINGS_FEATURE, { track: !settingsHub });
   // Counted here, the one place deleting the account is offered — see
   // lib/accountDelete.ts.
-  const accountDelete = useFeature(ACCOUNT_DELETE_FEATURE, { track: Boolean(account && !account.bot) });
+  const accountDelete = useFeature(ACCOUNT_DELETE_FEATURE, { track: Boolean(account && !account.bot && !settingsHub) });
 
   const name = account?.displayName ?? state.name ?? "";
   const isAdmin = Boolean(account?.flags?.includes("ADMIN") || state.account?.flags?.includes("ADMIN"));
@@ -255,7 +259,7 @@ export function MeScreen() {
                 lib/notificationSettings.ts) because it is new; the fixes it
                 was built with are not. Counted as an exposure here, which is
                 the one place it is actually offered. */}
-            {notificationSettings.enabled && (
+            {notificationSettings.enabled && !settingsHub && (
               <Row
                 href="/me/notifications"
                 icon={MdNotificationsNone}
@@ -289,14 +293,22 @@ export function MeScreen() {
           )
         )}
         <Row href={pro.href} onClick={pro.onClick} icon={pro.Icon} iconClassName={pro.iconClassName} label={pro.label} />
+        {settingsHub && (
+          <Row
+            onClick={() => openSettings("me")}
+            icon={MdOutlineSettings}
+            label={t("settingsHub.title")}
+            badge={<NewBadge id={SETTINGS_HUB_BADGE} />}
+          />
+        )}
       </Section>
 
-      {account && !account.bot && <MyEmojisSetting flags={account.flags} />}
+      {!settingsHub && account && !account.bot && <MyEmojisSetting flags={account.flags} />}
 
-      {account && !account.bot && <PartnerAdsSetting features={account.features} />}
-      {account && !account.bot && <ReceiveCameraEffectsSetting cardClassName={card} />}
+      {!settingsHub && account && !account.bot && <PartnerAdsSetting features={account.features} />}
+      {!settingsHub && account && !account.bot && <ReceiveCameraEffectsSetting cardClassName={card} />}
 
-      {account && (
+      {!settingsHub && account && (
         // Its own collapsible block, padding included — see AccountConnections.
         // AuthorizedApps sits in the same card and hides itself when this
         // account has never signed into anything with "Entrar com GoLive",
@@ -304,22 +316,7 @@ export function MeScreen() {
         <div className={`${card} py-1 empty:hidden`}>
           <EmailVerification />
           <AccountConnections />
-          <button
-            type="button"
-            onClick={() => setDiscordRpcOpen(true)}
-            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-white/5 transition border-t border-white/5"
-          >
-            <div className="flex items-center gap-3">
-              <FaDiscord className="h-5 w-5 text-[#5865F2]" />
-              <div>
-                <div className="text-sm font-medium text-white">Discord Rich Presence</div>
-                <div className="text-xs text-neutral-400">
-                  {rpcSettings.enabled ? "Ativo (mostrando status no Discord)" : "Desativado"}
-                </div>
-              </div>
-            </div>
-            <span className="text-xs text-[#5865F2] font-semibold">Configurar</span>
-          </button>
+          <DiscordRpcSetting bare />
           <AuthorizedApps />
         </div>
       )}
@@ -331,17 +328,19 @@ export function MeScreen() {
         <Row href="/workshop" icon={MdPalette} label={t("common.themes")} />
       </Section>
 
-      <section className={`${card} p-4`}>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t("common.theme")}</p>
-        <ThemeSegmented />
-        <p className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          {t("languageToggle.language")}
-        </p>
-        <LanguagePicker />
-      </section>
+      {!settingsHub && (
+        <section className={`${card} p-4`}>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t("common.theme")}</p>
+          <ThemeSegmented />
+          <p className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            {t("languageToggle.language")}
+          </p>
+          <LanguagePicker />
+        </section>
+      )}
 
       {/* Only the app is ever reopened anywhere (see lib/lastScreen). */}
-      {appShell && <ReopenLastScreenSetting />}
+      {!settingsHub && appShell && <ReopenLastScreenSetting />}
 
       <Section title={t("mobile.about")}>
         {/* The desktop app's page is about a program for a computer: worth
@@ -357,7 +356,7 @@ export function MeScreen() {
           {/* Last, under signing out: the one row on this screen that cannot
               be undone. Leads to a page that asks for a fresh sign-in and the
               username typed back before anything happens. */}
-          {accountDelete.enabled && !account.bot && (
+          {!settingsHub && accountDelete.enabled && !account.bot && (
             <Row href="/me/excluir" icon={MdDeleteOutline} label={t("accountDelete.row")} tone="danger" />
           )}
         </Section>
@@ -374,7 +373,6 @@ export function MeScreen() {
         <img src="https://cdn.squarecloud.app/assets/powered-by.svg" alt={t("siteHeader.squareCloud")} className="w-44" />
       </a>
       <AppVersion />
-      <DiscordRpcSettingsModal open={discordRpcOpen} onClose={() => setDiscordRpcOpen(false)} />
     </Screen>
   );
 }
@@ -383,7 +381,7 @@ function Screen({ children }: { children: ReactNode }) {
   return <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-4 pt-4 pb-6">{children}</div>;
 }
 
-function Section({ title, children }: { title?: string; children: ReactNode }) {
+export function Section({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <section>
       {title && (
@@ -394,7 +392,7 @@ function Section({ title, children }: { title?: string; children: ReactNode }) {
   );
 }
 
-function Row({
+export function Row({
   href,
   onClick,
   icon: Icon,
@@ -452,7 +450,7 @@ function Row({
  * PlanRing): the gold ring, the button off, and "Disponível no Pro Max" as
  * the way to it. Only inside the experiment.
  */
-function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
+export function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
   const t = useT();
   const { openPopup } = useNtPopups();
   const { enabled } = useFeature(CUSTOM_EMOJI_FEATURE, { track: true });
@@ -496,7 +494,7 @@ function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
  * Saved on the account at once, so there is no save button; only inside the
  * experiment, whose exposure is counted here, the one place it is offered.
  */
-function PartnerAdsSetting({ features }: { features: readonly string[] | undefined }) {
+export function PartnerAdsSetting({ features }: { features: readonly string[] | undefined }) {
   const t = useT();
   const { enabled } = useFeature(PARTNER_ADS_MODE_FEATURE, { track: true });
   if (!enabled) return null;
@@ -522,8 +520,43 @@ function PartnerAdsSetting({ features }: { features: readonly string[] | undefin
   );
 }
 
+/**
+ * The Discord status (see lib/discordRpc), and the way into its settings. Inside
+ * the experiment only. `bare` is for a card that already holds other rows.
+ */
+export function DiscordRpcSetting({ bare = false }: { bare?: boolean }) {
+  const t = useT();
+  const { enabled } = useFeature(DISCORD_RPC_FEATURE, { track: false });
+  const [settings] = useDiscordRpcSettings();
+  const [open, setOpen] = useState(false);
+  if (!enabled) return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900 ${
+          bare ? "border-t border-zinc-100 dark:border-zinc-900" : card
+        }`}
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <FaDiscord className="h-5 w-5 shrink-0 text-[#5865F2]" />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">Discord Rich Presence</span>
+            <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+              {settings.enabled ? t("discordRpc.rowOn") : t("discordRpc.rowOff")}
+            </span>
+          </span>
+        </span>
+        <span className="shrink-0 text-xs font-semibold text-[#5865F2]">{t("discordRpc.rowConfigure")}</span>
+      </button>
+      <DiscordRpcSettingsModal open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 /** Whether the app reopens on the screen it was closed on — this device only. */
-function ReopenLastScreenSetting() {
+export function ReopenLastScreenSetting() {
   const t = useT();
   const on = useReopenLastScreen();
   return (
@@ -563,7 +596,7 @@ function ReopenLastScreenSetting() {
  * everywhere, plus the desktop shell's own version inside the app — the two
  * move independently (the site deploys without a new installer).
  */
-function AppVersion() {
+export function AppVersion() {
   const shell = useIsAppShell();
   const shellVersion = shell ? getDesktopBridge()?.appVersion ?? null : null;
   return (

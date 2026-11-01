@@ -1,30 +1,23 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
-import { MdOutlineDesktopWindows, MdPalette } from "react-icons/md";
-import { EyeOffIcon, FocusIcon, MoreIcon, SpeakerIcon, SpeakerMuteIcon } from "@/components/icons";
-import { MenuToggleRow } from "@/components/MenuToggleRow";
+import { useState } from "react";
+import { MdOutlineSettings } from "react-icons/md";
+import { MoreIcon } from "@/components/icons";
 import { MobileSheet } from "@/components/MobileSheet";
+import { NewBadge } from "@/components/NewBadge";
 import { useRoomProOffer } from "@/components/RoomProOffer";
+import {
+  DoubleClickFocusToggle,
+  OpenRoomsInAppToggle,
+  ProfileSongToggle,
+  RoomThemeToggle,
+  SoundEffectsToggle,
+} from "@/components/SitePreferenceToggles";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { Popover } from "@/components/Tooltip";
 import { trackEvent } from "@/lib/analytics";
-import { isDesktopApp } from "@/lib/desktop";
-import {
-  getStoredDoubleClickFocus,
-  getStoredOpenRoomsInApp,
-  setStoredDoubleClickFocus,
-  setStoredOpenInAppDismissed,
-  setStoredOpenRoomsInApp,
-} from "@/lib/mediaPreferences";
-import { getProfileSongAutoplay, setProfileSongAutoplay } from "@/lib/profileSong";
-import {
-  isRoomThemeOptedOut,
-  isRoomThemeOptedOutServer,
-  setRoomThemeOptedOut,
-  subscribeRoomThemeOptOut,
-} from "@/lib/roomThemes";
-import { getSoundEffectsEnabled, setSoundEffectsEnabled } from "@/lib/soundEffects";
+import { useFeature } from "@/lib/features";
+import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE } from "@/lib/settingsHub";
 import { SM_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useT } from "@/lib/useI18n";
 
@@ -38,10 +31,9 @@ import { useT } from "@/lib/useI18n";
 // The call's own (noise suppression, joining broadcasts, direct connections,
 // quality) stay in the room's menu: they change a call that is running, which
 // a menu drawn with no call in reach cannot do.
-
-function noopSubscribe() {
-  return () => {};
-}
+//
+// In the settings-hub experiment those all live in the "Configurações" dialog,
+// and this keeps only what a phone's bar has no room for and the way there.
 
 export function GroupHeaderMenu() {
   const t = useT();
@@ -50,18 +42,7 @@ export function GroupHeaderMenu() {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
 
-  const roomThemeOptedOut = useSyncExternalStore(
-    subscribeRoomThemeOptOut,
-    isRoomThemeOptedOut,
-    isRoomThemeOptedOutServer
-  );
-  // The desktop app never asks whether to open rooms in the app. True on the
-  // server, so the row only ever appears once the client has said otherwise.
-  const inDesktopApp = useSyncExternalStore(noopSubscribe, isDesktopApp, () => true);
-  const [doubleClickFocus, setDoubleClickFocus] = useState(getStoredDoubleClickFocus);
-  const [profileSongAutoplay, setProfileSongAutoplayState] = useState(getProfileSongAutoplay);
-  const [soundEffectsOn, setSoundEffectsOn] = useState(getSoundEffectsEnabled);
-  const [openRoomsInApp, setOpenRoomsInApp] = useState(getStoredOpenRoomsInApp);
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE).enabled;
 
   const items = (
     <>
@@ -90,79 +71,36 @@ export function GroupHeaderMenu() {
         {t("watch.watchRoom.reportABug")}
       </a>
 
-      <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
-
-      <div className="mb-1 px-1">
-        <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.theme")}</p>
-        <ThemeSegmented />
-      </div>
-      <MenuToggleRow
-        label={t("watch.watchRoom.useTheRoomSTheme")}
-        active={!roomThemeOptedOut}
-        onToggle={() => setRoomThemeOptedOut(!roomThemeOptedOut)}
-        activeIcon={<MdPalette className="h-4 w-4" />}
-        inactiveIcon={<MdPalette className="h-4 w-4" />}
-        hint={
-          roomThemeOptedOut
-            ? t("watch.watchRoom.roomsWillNeverChangeYourTheme")
-            : t("watch.watchRoom.turnItOffToNeverEnd")
-        }
-      />
-
-      <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
-
-      <MenuToggleRow
-        label={t("watch.watchRoom.doubleClickToFocus")}
-        active={doubleClickFocus}
-        onToggle={() => {
-          const next = !doubleClickFocus;
-          setDoubleClickFocus(next);
-          setStoredDoubleClickFocus(next);
-        }}
-        hint={t("watch.watchRoom.whenOffFocusingAVideoIs")}
-        activeIcon={<FocusIcon className="h-4 w-4" />}
-        inactiveIcon={<EyeOffIcon className="h-4 w-4" />}
-      />
-      <MenuToggleRow
-        label={t("watch.watchRoom.musicOnProfiles")}
-        active={profileSongAutoplay}
-        onToggle={() => {
-          const next = !profileSongAutoplay;
-          setProfileSongAutoplayState(next);
-          setProfileSongAutoplay(next);
-        }}
-        hint={t("watch.watchRoom.whenOffAProfileSMusic")}
-        activeIcon={<SpeakerIcon className="h-4 w-4" />}
-        inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
-      />
-      <MenuToggleRow
-        label={t("watch.watchRoom.siteSoundEffects")}
-        active={soundEffectsOn}
-        onToggle={() => {
-          const next = !soundEffectsOn;
-          setSoundEffectsOn(next);
-          setSoundEffectsEnabled(next);
-          trackEvent(next ? "sound_effects_on" : "sound_effects_off");
-        }}
-        activeIcon={<SpeakerIcon className="h-4 w-4" />}
-        inactiveIcon={<SpeakerMuteIcon className="h-4 w-4" />}
-      />
-      {!inDesktopApp && (
-        <MenuToggleRow
-          label={t("watch.watchRoom.askBeforeOpeningRooms")}
-          active={openRoomsInApp}
-          onToggle={() => {
-            const next = !openRoomsInApp;
-            setOpenRoomsInApp(next);
-            setStoredOpenRoomsInApp(next);
-            // Same as the room's row: turning it on clears an earlier "agora não".
-            if (next) setStoredOpenInAppDismissed(false);
-            trackEvent(next ? "open_rooms_in_app_on" : "open_rooms_in_app_off");
+      {settingsHub ? (
+        <button
+          type="button"
+          onClick={() => {
+            close();
+            openSettings("group", "general");
           }}
-          hint={t("watch.watchRoom.whenYouOpenARoomLink")}
-          activeIcon={<MdOutlineDesktopWindows className="h-4 w-4" />}
-          inactiveIcon={<MdOutlineDesktopWindows className="h-4 w-4 opacity-50" />}
-        />
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <MdOutlineSettings className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+          <span className="flex-1">{t("settingsHub.title")}</span>
+          <NewBadge id={SETTINGS_HUB_BADGE} />
+        </button>
+      ) : (
+        <>
+          <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+
+          <div className="mb-1 px-1">
+            <p className="mb-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("common.theme")}</p>
+            <ThemeSegmented />
+          </div>
+          <RoomThemeToggle />
+
+          <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+
+          <DoubleClickFocusToggle />
+          <ProfileSongToggle />
+          <SoundEffectsToggle />
+          <OpenRoomsInAppToggle />
+        </>
       )}
     </>
   );
