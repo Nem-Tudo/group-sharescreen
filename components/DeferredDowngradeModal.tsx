@@ -1,31 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { MdClose, MdCalendarToday, MdCreditCard, MdEventRepeat, MdSwapVert, MdCancel } from "react-icons/md";
+import { ProBadgeLossWarning, useProBadgeAtRisk } from "@/components/ProBadgeLossWarning";
 import { useT } from "@/lib/useI18n";
 
-/**
- * Shown before subscribing to a plan *lower* than the one still running.
- *
- * The purchase is unusual enough to need saying out loud before the money
- * moves: the card is charged today, but the plan bought only starts when the
- * higher one ends, and the renewal date follows that start — not today. See
- * the API's /premium/subscribe (`deferred`). Laid out as the dates the person
- * will actually live through, because that is the question they have: "what
- * happens to me, and when am I charged?"
- */
-export function DeferredDowngradeModal({
-  open,
-  currentTitle,
-  newTitle,
-  priceLabel,
-  yearly,
-  currentEndLabel,
-  nextChargeLabel,
-  replacesCardSubscription,
-  busy,
-  onConfirm,
-  onClose,
-}: {
+type DeferredDowngradeModalProps = {
   open: boolean;
   currentTitle: string;
   newTitle: string;
@@ -38,9 +18,39 @@ export function DeferredDowngradeModal({
   busy: boolean;
   onConfirm: () => void;
   onClose: () => void;
-}) {
-  const t = useT();
+};
+
+/**
+ * Shown before subscribing to a plan *lower* than the one still running.
+ *
+ * The purchase is unusual enough to need saying out loud before the money
+ * moves: the card is charged today, but the plan bought only starts when the
+ * higher one ends, and the renewal date follows that start — not today. See
+ * the API's /premium/subscribe (`deferred`). Laid out as the dates the person
+ * will actually live through, because that is the question they have: "what
+ * happens to me, and when am I charged?"
+ */
+export function DeferredDowngradeModal({ open, ...rest }: DeferredDowngradeModalProps) {
+  // Mounted fresh each time, so the checkbox below never starts out ticked.
   if (!open) return null;
+  return <DeferredDowngradeContent {...rest} />;
+}
+
+function DeferredDowngradeContent({
+  currentTitle,
+  newTitle,
+  priceLabel,
+  yearly,
+  currentEndLabel,
+  nextChargeLabel,
+  replacesCardSubscription,
+  busy,
+  onConfirm,
+  onClose,
+}: Omit<DeferredDowngradeModalProps, "open">) {
+  const t = useT();
+  const badgeRisk = useProBadgeAtRisk();
+  const [badgeLossConfirmed, setBadgeLossConfirmed] = useState(false);
 
   const params = { current: currentTitle, plan: newTitle, price: priceLabel };
   const steps = [
@@ -81,6 +91,12 @@ export function DeferredDowngradeModal({
         </div>
 
         <div className="overflow-y-auto px-5 pb-5">
+          {badgeRisk && (
+            <div className="mb-4">
+              <ProBadgeLossWarning risk={badgeRisk} body={t("badges.proBadgeLoss.downgradeBody", params)} />
+            </div>
+          )}
+
           <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             {t("deferredDowngrade.intro", { ...params, date: currentEndLabel })}
           </p>
@@ -96,6 +112,17 @@ export function DeferredDowngradeModal({
 
           <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t("deferredDowngrade.cardOnly")}</p>
 
+          {badgeRisk && (
+            <div className="mt-4">
+              <ProBadgeLossWarning
+                risk={badgeRisk}
+                body={t("badges.proBadgeLoss.downgradeBody", params)}
+                confirmed={badgeLossConfirmed}
+                onConfirmedChange={setBadgeLossConfirmed}
+              />
+            </div>
+          )}
+
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
@@ -107,7 +134,7 @@ export function DeferredDowngradeModal({
             <button
               type="button"
               onClick={onConfirm}
-              disabled={busy}
+              disabled={busy || (badgeRisk !== null && !badgeLossConfirmed)}
               className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
               {t("deferredDowngrade.confirm", params)}

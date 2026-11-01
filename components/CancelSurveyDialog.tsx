@@ -10,6 +10,7 @@ import {
   type CancelSurvey,
   type CancelUsage,
 } from "@/lib/premiumApi";
+import { ProBadgeLossWarning, useProBadgeAtRisk } from "@/components/ProBadgeLossWarning";
 import { useI18n } from "@/lib/useI18n";
 import { useShake } from "@/lib/useShake";
 
@@ -79,6 +80,8 @@ function CancelSurveyContent({
   const [improvement, setImprovement] = useState("");
   const [comeback, setComeback] = useState("");
   const [usage, setUsage] = useState<CancelUsage | null>(null);
+  const badgeRisk = useProBadgeAtRisk();
+  const [badgeLossConfirmed, setBadgeLossConfirmed] = useState(false);
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Shakes when the answers are being sent, the same signal the Pix dialog
@@ -189,6 +192,10 @@ function CancelSurveyContent({
         </div>
 
         <div className="flex flex-col gap-4 p-5">
+          {step === "reason" && badgeRisk && (
+            <ProBadgeLossWarning risk={badgeRisk} body={t("badges.proBadgeLoss.cancelBody")} />
+          )}
+
           {step === "reason" && (
             <Question text={t("cancelSurvey.reasonQuestion")}>
               <Choices
@@ -255,6 +262,14 @@ function CancelSurveyContent({
               <p className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-300">
                 {t("cancelSurvey.confirmAccessUntil", { value: accessUntilLabel })}
               </p>
+              {badgeRisk && (
+                <ProBadgeLossWarning
+                  risk={badgeRisk}
+                  body={t("badges.proBadgeLoss.cancelBody")}
+                  confirmed={badgeLossConfirmed}
+                  onConfirmedChange={setBadgeLossConfirmed}
+                />
+              )}
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
                 {t("cancelSurvey.confirmThanks")}
               </p>
@@ -285,8 +300,8 @@ function CancelSurveyContent({
                 <button
                   type="button"
                   onClick={submit}
-                  disabled={busy}
-                  className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-red-600 underline-offset-2 transition hover:underline disabled:opacity-60 dark:text-red-400"
+                  disabled={busy || (badgeRisk !== null && !badgeLossConfirmed)}
+                  className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-red-600 underline-offset-2 transition hover:underline disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-400"
                 >
                   {busy ? t("cancelSurvey.cancelling") : t("cancelSurvey.confirmButton")}
                 </button>
