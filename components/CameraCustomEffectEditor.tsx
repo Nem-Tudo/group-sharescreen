@@ -4,12 +4,14 @@ import useNtPopups from "ntpopups";
 import { useEffect, useRef, useState } from "react";
 import { MdAdd, MdBrush, MdCreate, MdDelete, MdUpload } from "react-icons/md";
 import { CameraDrawingPad } from "@/components/CameraDrawingPad";
+import { CameraEffectPublish } from "@/components/CameraEffectPublish";
 import { CameraWarpBrushPad } from "@/components/CameraWarpBrushPad";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
 import {
   addEmojiSticker,
   addImageSticker,
+  CUSTOM_EFFECT_WORKSHOP,
   ADJUST_RANGES,
   CUSTOM_ANCHORS,
   DEFAULT_ADJUST,
@@ -125,6 +127,16 @@ export function CameraCustomEffectHost({
     if (editingId === openedFor.current) return;
     openedFor.current = editingId;
     if (!editingId) return;
+    if (editingId === CUSTOM_EFFECT_WORKSHOP) {
+      void openPopup("camera_effect_workshop", {
+        maxWidth: "min(52rem, calc(100vw - 2rem))",
+        width: "min(52rem, calc(100vw - 2rem))",
+        maxHeight: "90dvh",
+        onClose: () => openCustomEffectEditor(null),
+        data: {},
+      });
+      return;
+    }
     void openPopup("camera_custom_effect", {
       maxWidth: "min(34rem, calc(100vw - 2rem))",
       width: "min(34rem, calc(100vw - 2rem))",
@@ -441,6 +453,8 @@ export function CameraCustomEffectEditor({
             />
           ))}
         </section>
+
+        <CameraEffectPublish effect={effect} />
 
         <button
           type="button"

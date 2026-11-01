@@ -36,6 +36,8 @@ import { AURAS_PER_PLAN, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
 import { FEATURE_TIERS, accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
+import { CAMERA_WORKSHOP_FEATURE, PUBLISHED_EFFECT_LIMITS } from "@/lib/cameraEffectWorkshop";
+import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
 import {
   fetchPremiumPlans,
   fetchPremiumStatus,
@@ -121,6 +123,7 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get profile_links() { return translate("pro.proPanel.linkYourSocialNetworksOnYour"); },
   get room_theme() { return translate("pro.proPanel.createThemesAndGiveRoomsYour"); },
   get room_theme_publish() { return translate("pro.proPanel.publishYourThemesOnDiscoverFor"); },
+  get camera_effect_publish() { return translate("pro.proPanel.publishCameraEffects"); },
   get room_theme_set() { return translate("pro.proPanel.changeTheThemeOfAnyRoom"); },
   get uncapped_relay() { return translate("pro.proPanel.noQualityLimitOnRelayedConnections"); },
   get force_relay() { return translate("pro.proPanel.hideYourIpFromEveryoneInA"); },
@@ -367,6 +370,10 @@ export function ProPanel({
   const emojiPerk = useFeature(CUSTOM_EMOJI_FEATURE, { track: false }).enabled;
   // Free for this person (see lib/useCallTranscript): not something to sell them.
   const transcriptFree = useFeature(CALL_TRANSCRIPT_FREE_FEATURE, { track: false }).enabled;
+  // Only sold to who would get it: outside these experiments, somebody paying for
+  // it would find nowhere to publish.
+  const effectsWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: false }).enabled;
+  const customEffects = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
   const translationFree = useFeature(LIVE_TRANSLATION_FREE_FEATURE, { track: false }).enabled;
   // Where the subscription's card form opens (the checkout-inline experiment).
   // The API decides and counts the exposure (premiumRoutes' checkoutUiFor);
@@ -581,6 +588,7 @@ export function ProPanel({
     (feature) =>
       plans.some((entry) => entry.features.includes(feature)) &&
       !(feature === "call_transcript" && transcriptFree) &&
+      !(feature === "camera_effect_publish" && !(effectsWorkshop && customEffects)) &&
       !(feature === "live_translation" && translationFree)
   );
 
@@ -605,6 +613,10 @@ export function ProPanel({
     if (feature === "room_theme_publish" && entry && included) {
       const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
       if (limit) return t("pro.proPanel.publishThemesWithLimit", { limit });
+    }
+    if (feature === "camera_effect_publish" && entry && included) {
+      const limit = PUBLISHED_EFFECT_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_EFFECT_LIMITS];
+      if (limit) return t("pro.proPanel.publishCameraEffectsWithLimit", { limit });
     }
     return FEATURE_LABELS[feature];
   };
@@ -869,6 +881,10 @@ export function ProPanel({
             // The one perk that differs by a number between paying rungs.
             if (feature === "room_theme_publish" && included) {
               const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
+              if (limit) return amount(limit);
+            }
+            if (feature === "camera_effect_publish" && included) {
+              const limit = PUBLISHED_EFFECT_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_EFFECT_LIMITS];
               if (limit) return amount(limit);
             }
             return included;

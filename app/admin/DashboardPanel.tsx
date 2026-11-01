@@ -21,6 +21,7 @@ import { AntiSpamPanel } from "./AntiSpamPanel";
 import { BannedWordsPanel } from "./BannedWordsPanel";
 import { BansPanel } from "./BansPanel";
 import { ThemeModerationPanel } from "./ThemeModerationPanel";
+import { CameraEffectModerationPanel } from "./CameraEffectModerationPanel";
 import { SupportersPanel } from "./SupportersPanel";
 import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
 import { EvalPanel } from "./EvalPanel";
@@ -171,6 +172,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {/* Under the bans, because it is one: content taken down and a person
             stopped from posting more, just scoped to themes. */}
         {can("themes") && <ThemeModerationPanel />}
+        {can("themes") && <CameraEffectModerationPanel />}
         {can("banned_words") && <BannedWordsPanel />}
         {can("antispam") && <AntiSpamPanel />}
         {can("eval") && <EvalPanel />}

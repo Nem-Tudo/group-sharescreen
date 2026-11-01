@@ -45,6 +45,12 @@ export interface CustomAdjust {
 export interface CustomCameraEffect {
   id: string;
   name: string;
+  // Shown in the effects workshop, once published.
+  description?: string;
+  // The workshop's id for it, when this browser published it.
+  publishedId?: string;
+  // Or the id it was taken from (see lib/cameraEffectWorkshop).
+  sourceId?: string;
   adjust: CustomAdjust;
   // Whether it has a painted distortion (see lib/cameraWarpBrush), stored apart.
   hasWarp: boolean;
@@ -114,6 +120,9 @@ export function sanitizeCustomEffects(raw: unknown): CustomCameraEffect[] {
         hue: clamp(adjust.hue, ADJUST_RANGES.hue, DEFAULT_ADJUST.hue),
         vignette: clamp(adjust.vignette, ADJUST_RANGES.vignette, DEFAULT_ADJUST.vignette),
       },
+      ...(typeof e.description === "string" && e.description ? { description: e.description.slice(0, 200) } : {}),
+      ...(typeof e.publishedId === "string" && e.publishedId ? { publishedId: e.publishedId } : {}),
+      ...(typeof e.sourceId === "string" && e.sourceId ? { sourceId: e.sourceId } : {}),
       hasWarp: e.hasWarp === true,
       stickers: (Array.isArray(e.stickers) ? e.stickers : [])
         .map(sanitizeSticker)

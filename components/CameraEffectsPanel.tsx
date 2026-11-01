@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { MdAdd, MdAutoAwesome, MdEdit, MdLock, MdMovie, MdScreenShare, MdUpload, MdVideocam } from "react-icons/md";
+import { MdAdd, MdAutoAwesome, MdEdit, MdExplore, MdLock, MdMovie, MdScreenShare, MdUpload, MdVideocam } from "react-icons/md";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
@@ -37,11 +37,13 @@ import {
 } from "@/lib/cameraStreamBackground";
 import {
   CAMERA_CUSTOM_FEATURE,
+  CUSTOM_EFFECT_WORKSHOP,
   createCustomCameraEffect,
   MAX_CUSTOM_EFFECTS,
   openCustomEffectEditor,
   useCustomCameraEffects,
 } from "@/lib/cameraCustomEffects";
+import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
 import { setTileExperimentMode, trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "@/lib/clipsMode";
 import { useAuth } from "@/lib/AuthContext";
 import { TIER_NAMES } from "@/lib/entitlements";
@@ -274,6 +276,8 @@ export function CustomBackgroundChips({ selected, turnOn }: { selected: boolean;
 export function CustomEffectChips({ selected, turnOn }: { selected: string; turnOn?: () => void }) {
   const t = useT();
   const effects = useCustomCameraEffects();
+  // Experiment "camera-effects-workshop". An exposure is this chip being shown.
+  const hasWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: true }).enabled;
   const picked = effects.some((effect) => effect.id === selected) ? selected : "none";
   const create = () => {
     const effect = createCustomCameraEffect(t("watch.watchRoom.cameraCustomDefaultName", { count: effects.length + 1 }));
@@ -323,6 +327,17 @@ export function CustomEffectChips({ selected, turnOn }: { selected: string; turn
           <MdAdd className="h-3.5 w-3.5" />
           {t("watch.watchRoom.cameraCustomCreate")}
           <NewBadge id={CAMERA_CUSTOM_FEATURE} />
+        </button>
+      )}
+      {hasWorkshop && (
+        <button
+          type="button"
+          onClick={() => openCustomEffectEditor(CUSTOM_EFFECT_WORKSHOP)}
+          className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+        >
+          <MdExplore className="h-3.5 w-3.5" />
+          {t("cameraWorkshop.discover")}
+          <NewBadge id={CAMERA_WORKSHOP_FEATURE} />
         </button>
       )}
     </>

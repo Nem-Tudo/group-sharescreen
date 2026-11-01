@@ -1253,6 +1253,53 @@ export async function deleteAdminTheme(
   );
 }
 
+export type AdminCameraEffectHit = {
+  id: string;
+  name: string;
+  authorId: string;
+  authorUsername: string | null;
+  uses: number;
+  updatedAt: number;
+  authorBanned: boolean;
+};
+
+/** The effects workshop's effects, by name, by id, or by who made them. */
+export async function searchAdminCameraEffects(query: string): Promise<AdminCameraEffectHit[]> {
+  const data = await adminFetch<{ effects: AdminCameraEffectHit[] }>(
+    `/admin/camera-effects?q=${encodeURIComponent(query)}`
+  );
+  return data.effects;
+}
+
+export type AdminCameraEffectReport = {
+  reason: string;
+  note: string;
+  createdAt: number;
+  reporterUsername: string | null;
+};
+
+/** What is waiting for a moderator: most reported first. */
+export async function fetchAdminCameraEffectReports(): Promise<
+  { effect: AdminCameraEffectHit; reports: AdminCameraEffectReport[] }[]
+> {
+  const data = await adminFetch<{ queue: { effect: AdminCameraEffectHit; reports: AdminCameraEffectReport[] }[] }>(
+    "/admin/camera-effects/reports"
+  );
+  return data.queue;
+}
+
+export async function dismissAdminCameraEffectReports(id: string): Promise<void> {
+  await adminFetch<{ ok: true }>(`/admin/camera-effects/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+}
+
+export async function deleteAdminCameraEffect(id: string, banAuthor = false): Promise<void> {
+  await adminFetch<{ ok: true }>(`/admin/camera-effects/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ banAuthor }),
+  });
+}
+
 /** Sets or lifts the theme ban on one account. */
 export async function setThemeBan(userId: string, banned: boolean): Promise<boolean> {
   const data = await adminFetch<{ banned: boolean }>(

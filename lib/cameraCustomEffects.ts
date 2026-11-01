@@ -8,6 +8,7 @@ import {
   MAX_CUSTOM_EFFECTS,
   MAX_CUSTOM_NAME,
   sanitizeCustomEffects,
+  type CustomAdjust,
   type CustomCameraEffect,
   type CustomSticker,
 } from "./cameraCustomEffectsModel";
@@ -287,6 +288,70 @@ export function saveDrawingSticker(
   return sticker.id;
 }
 
+/**
+ * An effect from the workshop, copied in with its images. Null, with nothing kept,
+ * when there is no room left: at the limit of effects, or in the browser's storage.
+ */
+export function importCustomCameraEffect(source: {
+  sourceId: string;
+  name: string;
+  description: string;
+  adjust: CustomAdjust;
+  warp: Uint8Array | null;
+  stickers: (Omit<CustomSticker, "id" | "imageId"> & { image?: string })[];
+}): string | null {
+  const effects = readCustomCameraEffects();
+  if (effects.length >= MAX_CUSTOM_EFFECTS) return null;
+  const id = newId();
+  const written: string[] = [];
+  try {
+    const stickers = source.stickers.map(({ image, ...sticker }) => {
+      if (!image) return { ...sticker, id: newId() };
+      const imageId = newId();
+      window.localStorage.setItem(IMAGE_KEY_PREFIX + imageId, image);
+      written.push(IMAGE_KEY_PREFIX + imageId);
+      return { ...sticker, id: newId(), imageId };
+    });
+    if (source.warp) {
+      window.localStorage.setItem(WARP_KEY_PREFIX + id, warpBytesToBase64(source.warp));
+      written.push(WARP_KEY_PREFIX + id);
+    }
+    // Through the same check as anything read back from storage.
+    const [effect] = sanitizeCustomEffects([
+      {
+        id,
+        name: source.name,
+        description: source.description,
+        sourceId: source.sourceId,
+        adjust: source.adjust,
+        hasWarp: source.warp !== null,
+        stickers,
+      },
+    ]);
+    window.localStorage.setItem(EFFECTS_KEY, JSON.stringify([...effects, effect]));
+    write([...effects, effect]);
+    return id;
+  } catch {
+    for (const key of written) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // Nothing to do about it.
+      }
+    }
+    return null;
+  }
+}
+
+export function setPublishedEffectId(effectId: string, publishedId: string | null) {
+  updateCustomCameraEffect(effectId, (effect) => {
+    const next = { ...effect };
+    if (publishedId) next.publishedId = publishedId;
+    else delete next.publishedId;
+    return next;
+  });
+}
+
 export function updateCustomSticker(effectId: string, stickerId: string, change: Partial<CustomSticker>) {
   updateCustomCameraEffect(effectId, (effect) => ({
     ...effect,
@@ -322,6 +387,10 @@ export function stickerImage(imageId: string): string | null {
 
 let editingId: string | null = null;
 const editingListeners = new Set<() => void>();
+
+// Given to openCustomEffectEditor for the workshop's popup rather than an effect:
+// the panels of the camera make way for one the same as for the other.
+export const CUSTOM_EFFECT_WORKSHOP = "workshop";
 
 export function openCustomEffectEditor(id: string | null) {
   editingId = id;
