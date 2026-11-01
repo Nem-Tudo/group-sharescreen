@@ -28,7 +28,8 @@ function isExcludedPath(pathname: string | null): boolean {
   return (
     pathname.startsWith("/watch") ||
     pathname.startsWith("/groups") ||
-    pathname.startsWith("/admin")
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/cam")
   );
 }
 

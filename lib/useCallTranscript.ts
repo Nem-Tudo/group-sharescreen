@@ -235,7 +235,9 @@ export function useCallTranscript(
         onLine: (line) => {
           const entry: TranscriptEntry = { ...line };
           entries.push(entry);
-          entries.sort((a, b) => a.at - b.at || a.id - b.id);
+          if (entries.length > 1 && entry.at < entries[entries.length - 2].at) {
+            entries.sort((a, b) => a.at - b.at || a.id - b.id);
+          }
           translator?.add(entry.id, entry.text);
           emit();
         },

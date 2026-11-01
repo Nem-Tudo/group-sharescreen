@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
+import { withPlanTheme } from "./proBadge";
 
 export type BadgeId =
   | "staff"
@@ -67,12 +68,12 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
     get name() { return translate("common.pro"); },
     get description() { return translate("badges.goliveProSubscriber"); },
     iconUrl:
-      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f59e0b'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
     chipClass:
-      "border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-400",
-    bgClass: "bg-amber-500/15",
-    textClass: "text-amber-500",
-    borderClass: "border-amber-500/30",
+      "border-blue-500/30 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:border-blue-500/40 dark:bg-blue-500/15 dark:text-blue-400",
+    bgClass: "bg-blue-500/15",
+    textClass: "text-blue-500",
+    borderClass: "border-blue-500/30",
     requiredPlan: "pro",
     createdAt: 1725753600000,
   },
@@ -97,12 +98,12 @@ export const DEFAULT_BADGES: BadgeDefinition[] = [
     flagTag: "PRO_ULTRA",
     get description() { return translate("badges.goliveProUltraSubscriber"); },
     iconUrl:
-      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f59e0b'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f43f5e'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
     chipClass:
-      "border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-400",
-    bgClass: "bg-amber-500/15",
-    textClass: "text-amber-500",
-    borderClass: "border-amber-500/30",
+      "border-rose-500/30 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-400",
+    bgClass: "bg-rose-500/15",
+    textClass: "text-rose-500",
+    borderClass: "border-rose-500/30",
     requiredFlag: "PRO_ULTRA",
     createdAt: 1725753600000,
   },
@@ -182,7 +183,7 @@ export async function fetchBadgesCatalog(signal?: AbortSignal): Promise<BadgeDef
     if (!res.ok) return cachedBadges;
     const data = (await res.json()) as { badges?: BadgeDefinition[] };
     if (Array.isArray(data?.badges) && data.badges.length > 0) {
-      cachedBadges = data.badges;
+      cachedBadges = data.badges.map(withPlanTheme);
       listeners.forEach((listener) => listener(cachedBadges));
       return cachedBadges;
     }

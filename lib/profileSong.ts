@@ -88,7 +88,10 @@ export function setProfileSongAutoplay(value: boolean) {
   } catch {
     // Private mode, or storage turned off. The setting simply does not stick.
   }
+  autoplayListeners.forEach((listener) => listener());
 }
+
+const autoplayListeners = new Set<() => void>();
 
 /**
  * The setting, as a hook that is safe to read during render.
@@ -101,13 +104,18 @@ export function setProfileSongAutoplay(value: boolean) {
  * survives a mismatch.
  *
  * The subscription is to `storage`, so turning the setting off in the room
- * reaches a profile page already open in another tab.
+ * reaches a profile page already open in another tab, and to the setter, so it
+ * reaches every other menu showing it in this one.
  */
 export function useProfileSongAutoplay(): boolean {
   return useSyncExternalStore(
     (onChange) => {
+      autoplayListeners.add(onChange);
       window.addEventListener("storage", onChange);
-      return () => window.removeEventListener("storage", onChange);
+      return () => {
+        autoplayListeners.delete(onChange);
+        window.removeEventListener("storage", onChange);
+      };
     },
     () => getProfileSongAutoplay(),
     () => false

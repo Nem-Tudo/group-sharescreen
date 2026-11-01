@@ -28,6 +28,8 @@ import { useT } from "@/lib/useI18n";
 import { TIP_CLICK_EVENT } from "@/lib/clipsMode";
 import { PARTNER_EVENTS } from "@/lib/partnerExperiment";
 import { formatLocale } from "@/lib/i18n";
+import { ExperimentsDashboard } from "./ExperimentsDashboard";
+import { buildFeatureData, FeatureDataEditor, featureDataDraft } from "./FeatureDataEditor";
 
 // Feature rollouts, Discord-experiment style.
 //
@@ -40,6 +42,8 @@ import { formatLocale } from "@/lib/i18n";
 
 const inputClass =
   "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
+const HIDE_LAUNCHED_KEY = "admin:features:hideLaunched";
+const VIEW_KEY = "admin:features:view";
 const labelClass = "flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400";
 const buttonClass =
   "rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
@@ -128,6 +132,39 @@ function roundShare(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+// The rollout's colour, from dark at 0% through orange and amber to the
+// launched green at 100%, so the list reads at a glance how far each one is.
+const ROLLOUT_STOPS: [number, [number, number, number]][] = [
+  [0, [63, 63, 70]], // zinc-700
+  [25, [249, 115, 22]], // orange-500
+  [50, [245, 158, 11]], // amber-500
+  [75, [132, 204, 22]], // lime-500
+  [100, [16, 185, 129]], // emerald-500
+];
+
+function rolloutColor(rolloutBp: number): string {
+  const pct = Math.max(0, Math.min(100, rolloutBp / 100));
+  let i = 0;
+  while (i < ROLLOUT_STOPS.length - 2 && pct > ROLLOUT_STOPS[i + 1][0]) i++;
+  const [from, a] = ROLLOUT_STOPS[i];
+  const [to, b] = ROLLOUT_STOPS[i + 1];
+  const k = (pct - from) / (to - from);
+  const [r, g, bl] = a.map((v, j) => Math.round(v + (b[j] - v) * k));
+  return `rgb(${r} ${g} ${bl})`;
+}
+
+function RolloutPill({ rolloutBp }: { rolloutBp: number }) {
+  const color = rolloutColor(rolloutBp);
+  return (
+    <span
+      className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white"
+      style={{ backgroundColor: color }}
+    >
+      {percent(rolloutBp)}
+    </span>
+  );
+}
+
 function Pill({ children, tone = "zinc" }: { children: React.ReactNode; tone?: "zinc" | "green" | "amber" | "red" | "blue" }) {
   const tones = {
     zinc: "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400",
@@ -186,6 +223,20 @@ export function FeaturesPanel() {
   const [features, setFeatures] = useState<AdminFeature[]>([]);
   const [builtInEvents, setBuiltInEvents] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [hideLaunched, setHideLaunched] = useState(false);
+  useEffect(() => {
+    try {
+      setHideLaunched(localStorage.getItem(HIDE_LAUNCHED_KEY) === "1");
+      if (localStorage.getItem(VIEW_KEY) === "dashboard") setView("dashboard");
+    } catch {}
+  }, []);
+  const [view, setView] = useState<"list" | "dashboard">("list");
+  const chooseView = (next: "list" | "dashboard") => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {}
+  };
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -216,8 +267,19 @@ export function FeaturesPanel() {
   const replace = (next: AdminFeature) =>
     setFeatures((current) => current.map((feature) => (feature.key === next.key ? next : feature)));
 
-  const visible = features.filter((feature) => showArchived || !feature.archived);
+  const isLaunched = (feature: AdminFeature) => !feature.archived && feature.enabled && feature.rolloutBp >= 10_000;
+  const visible = features.filter(
+    (feature) => (showArchived || !feature.archived) && !(hideLaunched && isLaunched(feature))
+  );
   const archivedCount = features.filter((feature) => feature.archived).length;
+  const launchedCount = features.filter(isLaunched).length;
+  const toggleHideLaunched = () =>
+    setHideLaunched((value) => {
+      try {
+        localStorage.setItem(HIDE_LAUNCHED_KEY, value ? "0" : "1");
+      } catch {}
+      return !value;
+    });
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -226,7 +288,30 @@ export function FeaturesPanel() {
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{t("admin.features.title")}</h2>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t("admin.features.intro")}</p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-zinc-300 text-xs font-semibold dark:border-zinc-700">
+            {(["list", "dashboard"] as const).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                onClick={() => chooseView(entry)}
+                className={`px-3 py-1.5 transition ${
+                  view === entry
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                }`}
+              >
+                {t(entry === "list" ? "admin.dash.tabList" : "admin.dash.tabDashboard")}
+              </button>
+            ))}
+          </div>
+          {view === "list" && (launchedCount > 0 || hideLaunched) && (
+            <button type="button" onClick={toggleHideLaunched} className={buttonClass}>
+              {hideLaunched
+                ? t("admin.features.showLaunched", { count: launchedCount })
+                : t("admin.features.hideLaunched")}
+            </button>
+          )}
           <button type="button" onClick={load} className={buttonClass} aria-label={t("admin.features.reload")}>
             <MdRefresh className="h-4 w-4" />
           </button>
@@ -270,7 +355,9 @@ export function FeaturesPanel() {
 
       {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
 
-      {visible.length === 0 ? (
+      {view === "dashboard" ? (
+        <ExperimentsDashboard features={features} />
+      ) : visible.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{t("admin.features.empty")}</p>
       ) : (
         <ul className="mt-4 flex flex-col gap-2">
@@ -296,7 +383,7 @@ export function FeaturesPanel() {
                     ) : feature.rolloutBp >= 10_000 ? (
                       <Pill tone="green">{t("admin.features.fullyLaunched")}</Pill>
                     ) : (
-                      <Pill tone="amber">{percent(feature.rolloutBp)}</Pill>
+                      <RolloutPill rolloutBp={feature.rolloutBp} />
                     )}
                     {feature.variants.length > 1 && (
                       <Pill>{t("admin.features.variantsCount", { count: feature.variants.length })}</Pill>
@@ -310,8 +397,11 @@ export function FeaturesPanel() {
                 {/* The rollout as a bar, readable at a glance down the list. */}
                 <span className="mt-1 hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-zinc-200 sm:block dark:bg-zinc-800">
                   <span
-                    className={`block h-full ${feature.enabled ? "bg-emerald-500" : "bg-zinc-400"}`}
-                    style={{ width: `${feature.rolloutBp / 100}%` }}
+                    className={`block h-full ${feature.enabled ? "" : "bg-zinc-400"}`}
+                    style={{
+                      width: `${feature.rolloutBp / 100}%`,
+                      ...(feature.enabled ? { backgroundColor: rolloutColor(feature.rolloutBp) } : {}),
+                    }}
                   />
                 </span>
                 {open === feature.key ? (
@@ -336,7 +426,7 @@ export function FeaturesPanel() {
         </ul>
       )}
 
-      {archivedCount > 0 && (
+      {view === "list" && archivedCount > 0 && (
         <button
           type="button"
           onClick={() => setShowArchived((value) => !value)}
@@ -691,6 +781,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [includeGuests, setIncludeGuests] = useState(feature.includeGuests);
   const [serverOnly, setServerOnly] = useState(feature.serverOnly);
   const [siteEvents, setSiteEvents] = useState((feature.clientEvents ?? []).join(", "));
+  const [dataDraft, setDataDraft] = useState(() => featureDataDraft(feature.data));
   const [overrides, setOverrides] = useState<FeatureOverride[]>(feature.overrides);
   const [newId, setNewId] = useState("");
   const [newVariant, setNewVariant] = useState(feature.variants[0] ?? "on");
@@ -699,6 +790,8 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [missingIds, setMissingIds] = useState<string[]>([]);
 
   const variantList = splitList(variants.toLowerCase());
+  // Null while a box is invalid; the save waits until it is not.
+  const dataJson = buildFeatureData(dataDraft, variantList);
   const variantsChanged = variantList.join(",") !== feature.variants.join(",");
   // Typed shares per treatment name, so editing the list keeps what was typed
   // for the names that stayed.
@@ -912,14 +1005,17 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
         )}
       </div>
 
+      <FeatureDataEditor draft={dataDraft} onChange={setDataDraft} variants={variantList} />
+
       <div>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !dataJson}
           onClick={() => {
             if (variantsChanged && !window.confirm(t("admin.features.variantsWarning"))) return;
             if (weightsChanged && !window.confirm(t("admin.features.weightsWarning"))) return;
             if (variantList.length > 1 && sharesTotal <= 0) return;
+            if (!dataJson) return;
             const nextSiteEvents = splitList(siteEvents.toLowerCase());
             const addedSiteEvents = nextSiteEvents.filter(
               (event) => !(feature.clientEvents ?? []).includes(event) && !(feature.pinnedEvents ?? []).includes(event)
@@ -934,6 +1030,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
               includeGuests,
               serverOnly,
               clientEvents: nextSiteEvents,
+              data: dataJson,
               // A site event added here is one this feature exists to measure,
               // so it starts pinned in its stats. Only the newly added ones:
               // an event somebody already unpinned stays unpinned.

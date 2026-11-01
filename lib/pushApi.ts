@@ -28,6 +28,7 @@ export type NotifyKind =
   | "call"
   | "group-message"
   | "theme-like"
+  | "camera-effect-like"
   | "friend-request"
   | "gift";
 

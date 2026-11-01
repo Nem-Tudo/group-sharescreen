@@ -140,6 +140,39 @@ contextBridge.exposeInMainWorld("golive", {
   },
 
   /**
+   * The mic, deafen and leave buttons in the taskbar's window preview. Only on
+   * Windows, the one system that has them; null takes them away.
+   */
+  ...(process.platform === "win32"
+    ? {
+        setCallControls(controls: unknown): void {
+          if (!controls || typeof controls !== "object") {
+            ipcRenderer.send(IPC.callControlsSet, null);
+            return;
+          }
+          const value = controls as Record<string, unknown>;
+          ipcRenderer.send(IPC.callControlsSet, {
+            micOn: value.micOn === true,
+            deafened: value.deafened === true,
+            micLabel: String(value.micLabel ?? ""),
+            deafenLabel: String(value.deafenLabel ?? ""),
+            leaveLabel: String(value.leaveLabel ?? ""),
+          });
+        },
+        onCallControl(callback: unknown): () => void {
+          if (typeof callback !== "function") return () => {};
+          const listener = (_event: unknown, action: unknown) => {
+            if (typeof action === "string") (callback as (a: string) => void)(action);
+          };
+          ipcRenderer.on(IPC.callControlPressed, listener);
+          return () => {
+            ipcRenderer.off(IPC.callControlPressed, listener);
+          };
+        },
+      }
+    : {}),
+
+  /**
    * Subscribes to a button pressed in that small window. Returns an
    * unsubscribe function, like onUpdateReady.
    */
@@ -368,6 +401,17 @@ contextBridge.exposeInMainWorld("golive", {
       }
     : undefined,
 
+  // The WebRTC field trials this process started with, and the site's
+  // decision for the next start (see electron/webrtcTrials.ts).
+  webrtcTrials: {
+    state(): Promise<{ known: boolean; h264Qp: boolean }> {
+      return ipcRenderer.invoke(IPC.webrtcTrialsState);
+    },
+    setH264Qp(on: unknown): void {
+      if (typeof on === "boolean") ipcRenderer.send(IPC.webrtcTrialsSetH264Qp, on);
+    },
+  },
+
   // The GPU screen capture (see electron/nativeVideo.ts and
   // lib/nativeVideoCapture.ts). Absent unless the helper shipped with this
   // build; whether the machine can run it is what probe() answers.
@@ -432,6 +476,28 @@ contextBridge.exposeInMainWorld("golive", {
         },
       }
     : undefined,
+
+  discordRpcUpdate(activity: unknown): void {
+    if (activity && typeof activity === "object") {
+      ipcRenderer.send(IPC.discordRpcUpdate, activity);
+    }
+  },
+
+  discordRpcClear(): void {
+    ipcRenderer.send(IPC.discordRpcClear);
+  },
+
+  discordRpcConfigure(config: unknown): void {
+    if (config && typeof config === "object") {
+      ipcRenderer.send(IPC.discordRpcConfigure, config);
+    }
+  },
+
+  onDiscordRpcReady(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(IPC.discordRpcReady, listener);
+    return () => ipcRenderer.removeListener(IPC.discordRpcReady, listener);
+  },
 });
 
 // Whether main flagged this machine as capable, through the same argv

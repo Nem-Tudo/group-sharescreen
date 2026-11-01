@@ -25,7 +25,7 @@ import {
   RECOMMENDED_PLAN_ID,
 } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
-import { useShake } from "@/lib/useShake";
+import { holdPaymentShake, useShake } from "@/lib/useShake";
 
 // "Presentear": buy a plan for somebody else.
 //
@@ -265,8 +265,14 @@ export function GiftPlanDialog({
   const ready = mode === "link" || Boolean(addressed);
   const unclaimed = myGifts.filter((gift) => gift.code && gift.status === "paid");
 
-  // While a charge is being created the popup cannot be closed — not by
-  // Escape, not by the backdrop, not by the ×. The request is creating a
+  // Only the × closes this popup: a stray click or Escape would take away the
+  // recipient being chosen or the code being paid. Set here rather than where
+  // it is opened, because it is opened from several places.
+  useEffect(() => {
+    if (id) updatePopup(id, { closeOnEscape: false, closeOnClickOutside: false });
+  }, [id, updatePopup]);
+
+  // While a charge is being created the × is refused too. The request is creating a
   // charge at the payment provider, and closing now would throw away the only screen
   // that could show its code. `requireAction` is the library's own lock: with
   // it on, only closePopup(true) gets through, and nothing here calls that
@@ -284,7 +290,8 @@ export function GiftPlanDialog({
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchPremiumPlans(controller.signal).then(setPlans);
+    // Personal: the buyer's own side of the Pro price experiment.
+    void fetchPremiumPlans(controller.signal, { personal: true }).then(setPlans);
     void fetchMyGifts(controller.signal).then(setMyGifts);
     return () => controller.abort();
   }, []);
@@ -336,6 +343,7 @@ export function GiftPlanDialog({
 
   async function pay() {
     if (!plan || busy || !ready) return;
+    const startedAt = Date.now();
     setBusy(true);
     setError(null);
     const outcome = await startGiftPix({
@@ -345,6 +353,7 @@ export function GiftPlanDialog({
       email: needsEmail ? email.trim() : undefined,
       taxId: needsTaxId ? taxId.trim() : undefined,
     });
+    await holdPaymentShake(startedAt);
     if (outcome.ok) {
       setSettled(false);
       setCharge(outcome.charge);
@@ -421,10 +430,12 @@ export function GiftPlanDialog({
           }}
         />
       ) : (
-        <div className="flex max-h-[85vh] flex-col overflow-y-auto">
+        <div className="flex max-h-[85dvh] flex-col overflow-hidden">
           {/* Header: a soft band in the gift colour, so the popup reads as a
-              present before a word of it is read. */}
-          <div className="relative overflow-hidden border-b border-zinc-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-6 pt-6 pb-5 dark:border-zinc-800 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/40">
+              present before a word of it is read. It stays put and only the
+              form below scrolls; shrink-0 because a flex column would otherwise
+              squash it on a short monitor. Tighter there, too. */}
+          <div className="relative shrink-0 overflow-hidden border-b border-zinc-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-6 pt-6 pb-5 [@media(max-height:760px)]:py-3 dark:border-zinc-800 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/40">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-sm shadow-emerald-500/30">
@@ -463,12 +474,12 @@ export function GiftPlanDialog({
             </div>
             {/* Below the row rather than beside the title, so it gets the full
                 width instead of sharing it with the buttons on the right. */}
-            <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="mt-3 text-sm text-zinc-500 [@media(max-height:760px)]:hidden dark:text-zinc-400">
               {t("giftPlanDialog.youPayOnceAndThePerson")}
             </p>
           </div>
 
-          <div className="flex flex-col gap-6 px-6 py-5">
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
             {/* 1. Who it is for. */}
             <section className="flex flex-col gap-3">
               <StepTitle n={1}>{t("giftPlanDialog.whoIsItFor")}</StepTitle>
@@ -625,10 +636,10 @@ export function GiftPlanDialog({
                           <entryMark.Icon className={`h-7 w-7 shrink-0 ${entryMark.className}`} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                              {entry.title.replace(/^GoLive\s+/i, "")}
+                              {entry.title.replace(/^Go\s*Live\s+/i, "")}
                             </span>
                             <span className="mt-0.5 block text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
-                              {entry.cycles?.find((c) => c.cycle === cycle)?.pixPriceLabel ?? entry.pixPriceLabel}
+                              {entry.cycles?.find((c) => c.cycle === cycle)?.priceLabel ?? entry.priceLabel}
                             </span>
                           </span>
                           {chosen && (
@@ -707,7 +718,7 @@ export function GiftPlanDialog({
                     <PixIcon className="h-4 w-4 shrink-0" />
                     {busy
                       ? t("common.generating")
-                      : t("giftPlanDialog.giftItForValue", { value: pricing?.pixPriceLabel ?? plan.pixPriceLabel ?? "" })}
+                      : t("giftPlanDialog.giftItForValue", { value: pricing?.priceLabel ?? plan.priceLabel ?? "" })}
                   </button>
                 )}
                 {!plan.available && (

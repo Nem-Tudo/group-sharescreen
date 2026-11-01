@@ -120,3 +120,83 @@ export function loadYouTubeApi(): Promise<YTNamespace> {
   });
   return youtubeApiPromise;
 }
+
+// Quanto esperar o player escondido abaixo listar a playlist, e quanto ainda
+// esperar depois de um erro (o item inicial pode ser o que não toca, mas a
+// lista continuar lá).
+const PLAYLIST_LIST_TIMEOUT_MS = 12_000;
+const PLAYLIST_LIST_AFTER_ERROR_MS = 2_500;
+
+// Os ids de uma playlist do YouTube, sem tocar nada. Os ids só existem dentro
+// de um player que carregou a playlist (a Data API pediria chave e cota), então
+// isto monta um escondido, lê a lista e o desmonta — o mesmo truque que a barra
+// de música usa para expandir a playlist que está tocando, aqui para uma que
+// alguém quer pôr na fila. Vazio quando não deu (privada, inexistente, rede).
+export async function listYouTubePlaylist(playlistId: string): Promise<string[]> {
+  const YT = await loadYouTubeApi();
+  return new Promise<string[]>((resolve) => {
+    const host = document.createElement("div");
+    host.setAttribute("aria-hidden", "true");
+    Object.assign(host.style, {
+      position: "fixed",
+      left: "0",
+      bottom: "0",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+      opacity: "0",
+      pointerEvents: "none",
+    });
+    const mount = document.createElement("div");
+    host.appendChild(mount);
+    document.body.appendChild(host);
+
+    let player: EmbeddedPlayer | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let done = false;
+    const finish = (ids: string[]) => {
+      if (done) return;
+      done = true;
+      if (poll) clearInterval(poll);
+      clearTimeout(timeout);
+      try {
+        player?.destroy();
+      } catch {
+        // Já desmontado; nada a fazer.
+      }
+      host.remove();
+      resolve(ids);
+    };
+    const timeout = setTimeout(() => finish([]), PLAYLIST_LIST_TIMEOUT_MS);
+    const startPolling = () => {
+      if (poll) return;
+      poll = setInterval(() => {
+        const list = player?.getPlaylist?.();
+        if (Array.isArray(list) && list.length > 0) finish(list);
+      }, 300);
+    };
+
+    player = new YT.Player(mount, {
+      width: "1",
+      height: "1",
+      playerVars: {
+        listType: "playlist",
+        list: playlistId,
+        autoplay: 0,
+        controls: 0,
+        disablekb: 1,
+        playsinline: 1,
+      },
+      events: {
+        onReady: startPolling,
+        // Um item que não toca dá erro com a lista ainda legível; uma playlist
+        // privada ou inexistente também dá erro, e aí não há lista nenhuma.
+        // Um pouco mais de leitura, e desiste sem esperar o tempo todo.
+        onError: () => {
+          startPolling();
+          setTimeout(() => finish([]), PLAYLIST_LIST_AFTER_ERROR_MS);
+        },
+      },
+    });
+  });
+}

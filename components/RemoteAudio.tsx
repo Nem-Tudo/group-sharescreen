@@ -24,6 +24,10 @@ export function RemoteAudio({
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.srcObject = stream;
+    const audio = audioRef.current;
+    return () => {
+      if (audio) audio.srcObject = null;
+    };
   }, [stream]);
 
   useEffect(() => {

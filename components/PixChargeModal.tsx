@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   MdCardGiftcard,
-  MdCheck,
   MdCheckCircle,
   MdClose,
   MdContentCopy,
@@ -14,11 +13,12 @@ import { PixIcon } from "@/components/icons";
 import { PlanBand, planTone, PLAN_TONE_BUTTON } from "@/components/PlanBand";
 import { planIcon } from "@/components/planIcons";
 import { PurchaseCelebration, type CelebrationFace } from "@/components/PurchaseCelebration";
+import { PurchaseHappyArt } from "@/components/PurchaseHappyArt";
 import { UserAvatar } from "@/components/UserAvatar";
 import { planTierOf, verifiedBadge } from "@/lib/entitlements";
 import type { PixCharge } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
-import { useShake } from "@/lib/useShake";
+import { PAYMENT_SHAKE_MIN_MS, useShake } from "@/lib/useShake";
 
 // The Pix code, in a dialog of its own.
 //
@@ -131,43 +131,21 @@ type PixChargeModalProps = {
  */
 export function PixChargeModal({ charge, ...rest }: PixChargeModalProps) {
   const { t, tc } = useI18n();
-  // Escape closes it. A dialog that can only be dismissed by hitting one small
-  // target is a dialog somebody feels trapped in, and this one opens from a
-  // payment button — the worst possible moment to feel that.
-  //
-  // On the shell rather than in the body: the other shell is inside a popup
-  // whose library already answers this key, and two handlers for one press
-  // would close the step and the popup behind it at once.
-  const { onClose, busy } = rest;
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      // Not while a charge is being created — see `busy`.
-      if (event.key === "Escape" && !busy) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, busy]);
+  const { busy } = rest;
   const cardRef = useRef<HTMLDivElement>(null);
   useShake(() => cardRef.current, Boolean(charge && busy));
 
   if (!charge) return null;
+  // Only the × closes it: a stray click or Escape would take away the code
+  // somebody is in the middle of paying.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={() => {
-        if (!busy) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
         ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-busy={busy || undefined}
         aria-label={t("pixChargeModal.paymentViaPix")}
-        // Without this, a click anywhere inside the card bubbles to the
-        // backdrop and closes the dialog — including a click on the copy
-        // button, which is the one thing this screen exists for.
-        onClick={(e) => e.stopPropagation()}
         className="flex max-h-[90vh] w-full max-w-sm flex-col overflow-y-auto rounded-2xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950"
       >
         <PixChargeContent key={charge.paymentId} charge={charge} {...rest} />
@@ -180,7 +158,8 @@ export function PixChargeModal({ charge, ...rest }: PixChargeModalProps) {
  * The code screen itself: a header and one of three states.
  *
  * Brings its own padding and no box — the shell around it decides whether this
- * is a card floating over the page or a step inside a popup.
+ * is a card floating over the page or a step inside a popup. The shell is also
+ * what shakes: found from here, since this is used inside two different boxes.
  */
 export function PixChargeContent({
   charge,
@@ -195,30 +174,56 @@ export function PixChargeContent({
   onClose,
 }: PixChargeModalProps & { charge: PixCharge }) {
   const { t } = useI18n();
-  if (paid) {
-    return (
-      <PaidScreen
-        charge={charge}
-        confirmation={confirmation ?? null}
-        message={
-          paidMessage ??
-          (paidUntilLabel
-            ? t("pixChargeModal.allSetYourProAccessIs", { paidUntilLabel })
-            : t("pixChargeModal.allSetYourProAccessIs2"))
-        }
-        extra={paidExtra}
-        onClose={onClose}
-      />
-    );
-  }
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The money landing shakes the dialog for a moment before the confirmation
+  // takes over. Already paid when this opened: nothing left to wait for.
+  const [revealed, setRevealed] = useState(paid);
+  const holding = paid && !revealed;
+  // "Já paguei": a shake of the same length, whatever the check comes back with.
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    if (!holding) return;
+    const timer = setTimeout(() => setRevealed(true), PAYMENT_SHAKE_MIN_MS);
+    return () => clearTimeout(timer);
+  }, [holding]);
+
+  useEffect(() => {
+    if (!checking) return;
+    const timer = setTimeout(() => setChecking(false), PAYMENT_SHAKE_MIN_MS);
+    return () => clearTimeout(timer);
+  }, [checking]);
+
+  useShake(() => rootRef.current?.closest("[role='dialog'], [data-popup-id]"), holding || checking);
+
   return (
-    <PendingScreen
-      charge={charge}
-      busy={busy}
-      onRegenerate={onRegenerate}
-      onCheckNow={onCheckNow}
-      onClose={onClose}
-    />
+    <div ref={rootRef}>
+      {paid && revealed ? (
+        <PurchasePaidScreen
+          days={charge.days}
+          confirmation={confirmation ?? null}
+          message={
+            paidMessage ??
+            (paidUntilLabel
+              ? t("pixChargeModal.allSetYourProAccessIs", { paidUntilLabel })
+              : t("pixChargeModal.allSetYourProAccessIs2"))
+          }
+          extra={paidExtra}
+          onClose={onClose}
+        />
+      ) : (
+        <PendingScreen
+          charge={charge}
+          busy={busy || holding || checking}
+          onRegenerate={onRegenerate}
+          onCheckNow={() => {
+            setChecking(true);
+            onCheckNow();
+          }}
+          onClose={onClose}
+        />
+      )}
+    </div>
   );
 }
 
@@ -228,16 +233,18 @@ export function PixChargeContent({
  * Drawn in the same shape as a present being opened (GiftClaimDialog) — the
  * plan's band, its name and mark, how long it lasts — because it is the same
  * event from the other side: a plan has just changed hands. And it arrives
- * with the confetti and the sound, once, on the way in.
+ * with the confetti and the sound, once, on the way in. The card form ends on
+ * this same screen (see CardCheckoutModal).
  */
-function PaidScreen({
-  charge,
+export function PurchasePaidScreen({
+  days,
   confirmation,
   message,
   extra,
   onClose,
 }: {
-  charge: PixCharge;
+  /** How long it lasts. Null leaves the line out. */
+  days: number | null;
   confirmation: PurchaseConfirmation | null;
   message: string;
   extra?: ReactNode;
@@ -264,11 +271,11 @@ function PaidScreen({
         <MdClose className="h-4 w-4" />
       </button>
 
-      <PlanBand tone={tone}>
+      <PlanBand tone={tone} bare={!gift}>
         {gift ? (
           <MdCardGiftcard className="h-8 w-8 text-white drop-shadow-sm" />
         ) : (
-          <MdCheck className="h-9 w-9 text-white drop-shadow-sm" />
+          <PurchaseHappyArt className="h-[7.5rem] w-[7.5rem] overflow-visible drop-shadow-md" />
         )}
       </PlanBand>
 
@@ -284,11 +291,13 @@ function PaidScreen({
           </h2>
         )}
 
-        <p className="mt-2 text-center">
-          <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-            {tc("common.dayCount", charge.days)}
-          </span>
-        </p>
+        {days !== null && (
+          <p className="mt-2 text-center">
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              {tc("common.dayCount", days)}
+            </span>
+          </p>
+        )}
 
         {/* Who it went to, drawn the way the present dialog draws who it is
             from — the mirror of the same card. */}

@@ -35,7 +35,16 @@ const PLAN_TONE_BAND: Record<PlanTone, string> = {
   blue: "bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600",
 };
 
-export function PlanBand({ tone, children }: { tone: PlanTone; children: ReactNode }) {
+export function PlanBand({
+  tone,
+  bare = false,
+  children,
+}: {
+  tone: PlanTone;
+  /** Without the glass circle, for a drawing that fills the band on its own. */
+  bare?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className={`relative h-32 overflow-hidden ${PLAN_TONE_BAND[tone]}`}>
       {/* The ribbons. Off-centre on purpose: dead centre reads as a target,
@@ -50,9 +59,13 @@ export function PlanBand({ tone, children }: { tone: PlanTone; children: ReactNo
         className="golive-shine pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/40 to-transparent"
       />
       <span className="absolute inset-0 flex items-center justify-center">
-        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40 backdrop-blur-sm">
-          {children}
-        </span>
+        {bare ? (
+          children
+        ) : (
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40 backdrop-blur-sm">
+            {children}
+          </span>
+        )}
       </span>
     </div>
   );

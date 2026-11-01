@@ -10,7 +10,6 @@ import {
   MdOpenInFull,
   MdSettings,
 } from "react-icons/md";
-import { BetaMark } from "@/components/BetaMark";
 import {
   CODE_LANGUAGES,
   DEFAULT_TASK_RULES,
@@ -181,7 +180,7 @@ export function RoomToolsPanel({
             </>
           ) : (
             <>
-              {t("roomTools.title")} <span className="text-[10px]"><BetaMark /></span>
+              {t("roomTools.title")}
             </>
           )}
         </h2>

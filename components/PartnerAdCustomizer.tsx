@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useFeature } from "@/lib/features";
+import { SELF_SERVE_PARTNER_EVENTS, SELF_SERVE_PARTNER_FEATURE, trackPartnerOrderEvent } from "@/lib/partnerOrders";
 import { BsCoin } from "react-icons/bs";
 import { trackEvent } from "@/lib/analytics";
 import { Tooltip } from "@/components/Tooltip";
@@ -123,6 +126,8 @@ export function PartnerAdCustomizer({
   overlayClassName?: string;
 }) {
   const t = useT();
+  // The self-serve dashboard: from the preview straight to building and paying.
+  const selfServe = useFeature(SELF_SERVE_PARTNER_FEATURE, { track: false }).enabled;
   const [form, setForm] = useState<AdForm>(initial);
   const [layout, setLayout] = useState<"vertical" | "horizontal">("vertical");
   const [altEnabled, setAltEnabled] = useState(false);
@@ -505,7 +510,16 @@ export function PartnerAdCustomizer({
           </div>
         </div>
 
-        <div className="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
+        <div className="flex flex-col gap-2 border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
+          {selfServe && (
+            <Link
+              href="/partner/new"
+              onClick={() => trackPartnerOrderEvent(SELF_SERVE_PARTNER_EVENTS.ctaClick)}
+              className="block rounded-lg bg-emerald-600 px-4 py-2.5 text-center text-sm font-bold text-white transition hover:bg-emerald-500"
+            >
+              {t("partnerOrders.createMyAdNow")}
+            </Link>
+          )}
           <a
             href="https://go.nemtudo.me/golive-partner-nemtudodiscord"
             target="_blank"
@@ -525,18 +539,21 @@ export function PartnerAdCustomizer({
  * The card, drawn from the tool's form. Mirrors PartnerCard's real markup in
  * both shapes — when the two drift, that one is the original.
  */
-function CustomizerPreview({
+export function CustomizerPreview({
   creative,
   horizontal,
   rewardPoints,
   rewardDuration,
   clickPoints,
+  onRewardClick,
 }: {
   creative: PartnerCardData;
   horizontal: boolean;
   rewardPoints: string;
   rewardDuration: string | null;
   clickPoints: string;
+  /** Makes the reward button work — opens the real video popup, in preview. */
+  onRewardClick?: () => void;
 }) {
   const t = useT();
   // Banner first, the square mark standing in (as a square) when there is
@@ -599,8 +616,13 @@ function CustomizerPreview({
           <span className="truncate">{creative.buttonLabel || t("common.button")}</span>
         </div>
         {rewardPoints && (
-          <div
-            className="partner-reward-glow mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90"
+          <button
+            type="button"
+            onClick={onRewardClick}
+            disabled={!onRewardClick}
+            className={`partner-reward-glow mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-current px-3 py-1.5 text-xs font-semibold opacity-90 ${
+              onRewardClick ? "cursor-pointer transition hover:opacity-100" : "cursor-default"
+            }`}
             style={{ ["--partner-reward-glow-color" as string]: creative.buttonBackgroundColor ?? "#18181b" }}
           >
             <span className="truncate">
@@ -610,7 +632,7 @@ function CustomizerPreview({
             </span>
             <BsCoin className="h-3.5 w-3.5 shrink-0" />
             <span className="shrink-0 tabular-nums">{rewardPoints}</span>
-          </div>
+          </button>
         )}
       </div>
     </div>

@@ -14,6 +14,13 @@ import {
   isCaptchaScriptUnavailable,
   resetCaptchaScriptCache,
 } from "./turnstile";
+import {
+  FAST_JOIN_CHECK_FEATURE,
+  clearCaptchaPass,
+  readCaptchaPass,
+  syncCaptchaPassOwner,
+  writeCaptchaPass,
+} from "./captchaPass";
 import { getBrowserFingerprint } from "./fingerprint";
 import { BUILD_VERSION } from "./buildVersion";
 import { currentAnnouncementDevice } from "./announcement";
@@ -84,6 +91,9 @@ export type PeerInfo = {
   // channel. Undefined only from a server that predates the fields.
   screen?: boolean | null;
   camera?: boolean | null;
+  // Their camera is a phone's ("Celular como câmera", lib/phoneCamera).
+  // Undefined from a server that predates it, read as false.
+  phoneCamera?: boolean;
   // The name of the local file this peer is playing into the room, when their
   // screen channel is carrying one rather than a screen (see
   // lib/localMediaSource.ts and the server's ClientInfo.sharingFile). Null
@@ -221,11 +231,32 @@ export type PremiumGiftRedeemedEvent = {
  * Only ever an announcement: the count itself lives on the theme, and nothing
  * here is evidence of it. See ThemeLikeNotifier.
  */
+/** "Colocar efeito": names from the API's lists (see its cameraEffectGift.ts). */
+export type SentCameraEffect = {
+  face: string;
+  warp: string;
+  color: string;
+  background: string;
+  reactions: string;
+  custom: boolean;
+  stream?: string;
+};
+export type ReceivedCameraEffect = {
+  fromId: string;
+  fromName: string;
+  effect: SentCameraEffect;
+  giftId: string | null;
+  seq: number;
+};
+export type CameraEffectSendResult = { userId: string; ok: boolean; reason: string | null; seq: number };
+
 export type ThemeLikedEvent = {
   themeId: string;
   themeName: string;
   byId: string | null;
   byName: string;
+  // The liked thing was a camera effect (themeId and themeName are the effect's).
+  effect?: boolean;
 };
 
 /** The colour of the indicator beside a person's name (see lib/presence.ts and
@@ -257,7 +288,11 @@ export type RoomPermissionKey =
   | "gif"
   | "image"
   | "theme"
-  | "tools";
+  | "tools"
+  | "music"
+  | "recording"
+  | "transcript"
+  | "clips";
 
 export type RoomPermissions = Record<RoomPermissionKey, boolean>;
 
@@ -273,8 +308,11 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
   gif: true,
   image: true,
   theme: true,
-  // Off out of the box, like the server's: only managers open/close tools.
-  tools: false,
+  tools: true,
+  music: true,
+  recording: true,
+  transcript: true,
+  clips: true,
 };
 
 /**
@@ -528,6 +566,11 @@ export type SignalingState = {
   // the peer list because this client is not in its own peer list, and the
   // participant row for "you" needs the same "(2)" everybody else sees.
   selfDevice: number | null;
+  // Whether this connection is sending its own screen / camera — the last
+  // thing setSharing reported. Separate from the peer list for the same reason
+  // as selfDevice: this client is not in it.
+  selfScreen: boolean;
+  selfCamera: boolean;
   // Set when the server refused a join *pending a decision*: this account is
   // already in the room on another device. Not an error — the join is
   // waiting, not failed, and answering yes does not disconnect anything —
@@ -620,6 +663,9 @@ export type SignalingState = {
   lastGiftRedeemed: PremiumGiftRedeemedEvent | null;
   /** The last like somebody put on one of this account's themes. */
   lastThemeLike: ThemeLikedEvent | null;
+  // The effect somebody put on this person's camera, for this visit to the room.
+  receivedCameraEffect: ReceivedCameraEffect | null;
+  cameraEffectSendResult: CameraEffectSendResult | null;
   /**
    * Whether this connection is the one of this account that makes the noise:
    * the sounds, the notifications, the ring (see the API's electAlertTarget —
@@ -923,6 +969,8 @@ const initialState: SignalingState = {
   selfId: null,
   selfUserId: null,
   selfDevice: null,
+  selfScreen: false,
+  selfCamera: false,
   deviceConflict: null,
   name: null,
   nameError: null,
@@ -948,6 +996,8 @@ const initialState: SignalingState = {
   giftSeq: 0,
   lastGiftRedeemed: null,
   lastThemeLike: null,
+  receivedCameraEffect: null,
+  cameraEffectSendResult: null,
   alertTarget: true,
   lastGroupNotify: null,
   groupNotifySeq: 0,
@@ -1071,6 +1121,15 @@ const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // the actual source of truth (a mismatch here just costs one extra
 // "captcha-required" round trip, already handled by performJoin's retry).
 const CAPTCHA_REVERIFY_INTERVAL_MS = 30 * 60_000;
+
+// fast-join-check's stats. Loaded on first use rather than imported: features.ts
+// reaches AuthContext, which imports this file, and a static import would close
+// that loop.
+function trackFastJoinEvent(name: string, value?: number) {
+  void import("./features")
+    .then(({ trackFeatureEvent }) => trackFeatureEvent(name, { feature: FAST_JOIN_CHECK_FEATURE, value }))
+    .catch(() => {});
+}
 
 /**
  * How long a peer we already knew may stay in the list after a reconnect
@@ -1253,7 +1312,19 @@ class SignalingClient {
     screen: boolean;
     camera: boolean;
     files: Omit<SharedFile, "updatedAt">[];
-  } = { screen: false, camera: false, files: [] };
+    cameraEffects: boolean;
+    phoneCamera: boolean;
+    screens: number;
+    cameras: number;
+  } = {
+    screen: false,
+    camera: false,
+    files: [],
+    cameraEffects: false,
+    phoneCamera: false,
+    screens: 0,
+    cameras: 0,
+  };
   // Consecutive "captcha-required" rejections for the current join
   // attempt — see MAX_JOIN_RETRIES and performJoin.
   private joinRetryCount = 0;
@@ -1301,6 +1372,9 @@ class SignalingClient {
   // could be minted is not fixed by anything, and retrying just spends the
   // budget on a foregone conclusion.
   private lastJoinSentToken = false;
+  // When the join now pending was asked for — the start of fast-join-check's
+  // join_ms, which ends at the room-state. Null once reported.
+  private joinStartedAt: number | null = null;
   // Per-peer safety-net expiry timers backing typingPeerIds — see that
   // field's doc comment and TYPING_EXPIRE_MS.
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1675,6 +1749,10 @@ class SignalingClient {
           selfId: msg.id as string,
           account,
         });
+        // A pass held for another identity (a login or a logout since) would
+        // only be refused; then keep whatever this register handed out.
+        syncCaptchaPassOwner(this.captchaPassOwner());
+        this.takeCaptchaPass(msg);
         // A fresh connection may have missed any number of group nudges while
         // it was down — see onGroupEvent.
         if (!isReRegister) this.emitGroupEvent({ type: "group-resync" });
@@ -1724,6 +1802,7 @@ class SignalingClient {
         // duplicate work carrying a pure duplicate captcha.
         if (this.desiredRoom && !isReRegister) {
           this.joinRetryCount = 0;
+          this.joinStartedAt ??= Date.now();
           void this.performJoin(this.desiredRoom);
         }
         break;
@@ -1836,7 +1915,19 @@ class SignalingClient {
         // they arrived.
         const history = Array.isArray(msg.messages) ? (msg.messages as ChatMessage[]) : [];
         this.joinRetryCount = 0;
-        this.markCaptchaVerified();
+        // With a pass, the server says how long this lasts (see
+        // takeCaptchaPass); without one, the old self-kept window.
+        if (!this.takeCaptchaPass(msg)) this.markCaptchaVerified();
+        if (this.joinStartedAt !== null) {
+          const joinMs = Date.now() - this.joinStartedAt;
+          // Past two minutes it is not a join being slow but a start left
+          // over from one that failed (a join-error does not clear it), and
+          // one such number would swamp the average it is meant to move.
+          if (!this.isObsSourceJoin && !isObsClient() && joinMs < 120_000) {
+            trackFastJoinEvent("join_ms", Math.max(1, joinMs));
+          }
+          this.joinStartedAt = null;
+        }
         this.clearAllTyping();
         this.setState({
           room: msg.room as string,
@@ -1873,6 +1964,7 @@ class SignalingClient {
           roomTheme: typeof msg.theme === "string" && msg.theme ? msg.theme : null,
           // A refusal from the room we just left says nothing about this one.
           permissionDenied: null,
+          receivedCameraEffect: null,
           roomConverted: null,
         });
         trackEvent("room_joined");
@@ -1909,6 +2001,8 @@ class SignalingClient {
         // disagree, and this is how the client is told which one is right.
         const skippedToken = !this.lastJoinSentToken;
         this.markCaptchaVerified(null);
+        // Same for a pass: whatever it promised, the server has just said no.
+        clearCaptchaPass();
         const captchaReason = typeof msg.reason === "string" ? msg.reason : "";
         // In the person's language, by reason. The server's `message` is
         // English and is kept only as the fallback for a reason this build
@@ -1953,6 +2047,7 @@ class SignalingClient {
         }
         // A fresh token, and with it a fresh chance for Cloudflare to put a
         // challenge on screen if it now wants one — performJoin mints it.
+        trackFastJoinEvent("join_captcha_retry");
         void this.performJoin(this.desiredRoom);
         break;
       }
@@ -2027,6 +2122,7 @@ class SignalingClient {
                   sharing: Boolean(msg.sharing),
                   screen: typeof msg.screen === "boolean" ? msg.screen : null,
                   camera: typeof msg.camera === "boolean" ? msg.camera : null,
+                  phoneCamera: msg.phoneCamera === true,
                   files: Array.isArray(msg.files) ? (msg.files as SharedFile[]) : [],
                   // See PeerInfo.adPaused. An older server never sends it,
                   // which reads as false and leaves the tile alone.
@@ -2579,6 +2675,55 @@ class SignalingClient {
           },
         });
         break;
+      case "camera-effect-received": {
+        const fromId = String(msg.fromId ?? "");
+        const previous = this.state.receivedCameraEffect;
+        if (msg.effect === null) {
+          // Only who put it may take it off from their side.
+          if (previous?.fromId === fromId) this.setState({ receivedCameraEffect: null });
+          break;
+        }
+        const sent = msg.effect as Partial<SentCameraEffect> | undefined;
+        this.setState({
+          receivedCameraEffect: {
+            fromId,
+            fromName: typeof msg.fromName === "string" ? msg.fromName : translate("common.someone"),
+            effect: {
+              face: String(sent?.face ?? "none"),
+              warp: String(sent?.warp ?? "none"),
+              color: String(sent?.color ?? "none"),
+              background: String(sent?.background ?? "none"),
+              reactions: String(sent?.reactions ?? "none"),
+              custom: sent?.custom === true,
+              ...(typeof sent?.stream === "string" ? { stream: sent.stream } : {}),
+            },
+            giftId: typeof msg.giftId === "string" ? msg.giftId : null,
+            seq: (previous?.seq ?? 0) + 1,
+          },
+        });
+        break;
+      }
+      case "camera-effect-result":
+        this.setState({
+          cameraEffectSendResult: {
+            userId: String(msg.userId ?? ""),
+            ok: msg.ok === true,
+            reason: typeof msg.reason === "string" ? msg.reason : null,
+            seq: (this.state.cameraEffectSendResult?.seq ?? 0) + 1,
+          },
+        });
+        break;
+      case "camera-effect-liked":
+        this.setState({
+          lastThemeLike: {
+            themeId: String(msg.effectId ?? ""),
+            themeName: typeof msg.effectName === "string" ? msg.effectName : "",
+            byId: typeof msg.byId === "string" ? msg.byId : null,
+            byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
+            effect: true,
+          },
+        });
+        break;
       case "premium-gift":
         this.setState({
           lastGift: {
@@ -2877,6 +3022,14 @@ class SignalingClient {
    */
   watchPresence(ids: string[]) {
     this.watchedPresenceIds = ids;
+    const keep = new Set(ids);
+    const nextPresence: typeof this.state.presence = {};
+    let pruned = false;
+    for (const [id, entry] of Object.entries(this.state.presence)) {
+      if (keep.has(id)) nextPresence[id] = entry;
+      else pruned = true;
+    }
+    if (pruned) this.setState({ presence: nextPresence, presenceSeq: this.state.presenceSeq + 1 });
     this.rawSend({ type: "presence-watch", ids });
   }
 
@@ -3152,6 +3305,7 @@ class SignalingClient {
     this.obsSourceToken = obsToken ?? null;
     this.obsTarget = obsTarget ?? null;
     this.joinRetryCount = 0;
+    this.joinStartedAt = Date.now();
     // Whoever is calling this is trying again on purpose, and the most likely
     // thing they changed since the last attempt is the extension that blocked
     // the script — so the cached "it is blocked" verdict must not survive
@@ -3236,6 +3390,27 @@ class SignalingClient {
     writeStoredCaptchaVerifiedAt(at);
   }
 
+  // Whose pass this client would be holding — see captchaPass.ts's owner.
+  private captchaPassOwner(): string {
+    return this.state.account?.username ?? "guest";
+  }
+
+  /**
+   * Keeps the pass a "registered" or "room-state" carried (fast-join-check),
+   * and reports whether this client is now living by passes. While it is, the
+   * old self-kept window stays empty: that clock restarted on every join while
+   * the server's did not, which is what sent joins out without a token the
+   * server had already stopped excusing.
+   */
+  private takeCaptchaPass(msg: Record<string, unknown>): boolean {
+    if (typeof msg.captchaPass === "string" && typeof msg.captchaPassTtl === "number") {
+      writeCaptchaPass(msg.captchaPass, msg.captchaPassTtl, this.captchaPassOwner());
+    }
+    if (readCaptchaPass() === null) return false;
+    this.markCaptchaVerified(null);
+    return true;
+  }
+
   // Fetches a fresh captcha token (single-use — see lib/turnstile.ts) and
   // sends the actual "join". Split out from joinRoom() so both the public
   // entry point and the "captcha-required" retry path (see handleMessage) go
@@ -3254,10 +3429,18 @@ class SignalingClient {
     // Cloudflare in front of a join, and on an unlucky one, a challenge.
     // OBS sources also bypass captcha completely so no challenge appears on stream.
     const isObs = Boolean(this.isObsSourceJoin || isObsClient());
+    // fast-join-check: a pass the server signed is its own word on this, so
+    // it wins over the self-kept window whenever there is one.
+    const captchaPass = isObs ? null : readCaptchaPass();
     const stillFresh =
-      this.captchaVerifiedAt !== null &&
-      Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS;
+      captchaPass !== null ||
+      (this.captchaVerifiedAt !== null &&
+        Date.now() - this.captchaVerifiedAt < CAPTCHA_REVERIFY_INTERVAL_MS);
     const turnstileToken = isObs || stillFresh ? null : await getCaptchaToken("join_room");
+    if (!isObs) {
+      if (captchaPass !== null) trackFastJoinEvent("join_captcha_pass");
+      else if (!stillFresh) trackFastJoinEvent("join_captcha_mint");
+    }
     // Bail if the desired room or our identity changed while the token
     // fetch was in flight (room switch, logout, disconnect) — sending a
     // stale join here would either land in the wrong room or get rejected
@@ -3277,6 +3460,7 @@ class SignalingClient {
       type: "join",
       room,
       turnstileToken,
+      ...(captchaPass !== null ? { captchaPass } : {}),
       confirmDevice: confirmed,
       streamerMode: this.streamerMode,
       ...(this.movePasses.has(room) ? { movePass: this.movePasses.get(room) } : {}),
@@ -3400,6 +3584,7 @@ class SignalingClient {
       roomCategory: null,
       roomTheme: undefined,
       permissionDenied: null,
+      receivedCameraEffect: null,
       roomConverted: null,
     });
   }
@@ -3453,6 +3638,16 @@ class SignalingClient {
     this.rawSend({ type: "room-theme-set", theme: themeId });
   }
 
+  // The same notice, raised here: something that runs only in this browser
+  // (a recording, a transcript) was stopped because the room turned its
+  // switch off — there is no server refusal to carry it.
+  notifyPermissionDenied(permission: RoomPermissionKey, message: string) {
+    this.setState({
+      permissionDenied: { permission, message },
+      permissionDeniedSeq: this.state.permissionDeniedSeq + 1,
+    });
+  }
+
   // Dismisses the "this room doesn't allow that" notice — a one-shot warning,
   // same as chatBlockedMessage.
   clearPermissionDenied() {
@@ -3495,6 +3690,16 @@ class SignalingClient {
   // Turns somebody's mic off until a manager lets them turn it back on — the
   // room's managers, and in a group whoever has "muteMembers". Enforced
   // server-side; answered with "room-settings" like the rest.
+  // Puts an effect on somebody's camera, or takes off the one this person put.
+  // The plan and whether they accept it are the server's to say ("camera-effect-result").
+  sendCameraEffect(userId: string, effect: SentCameraEffect | null, giftId: string | null = null) {
+    this.rawSend({ type: "camera-effect-send", userId, effect, ...(giftId ? { giftId } : {}) });
+  }
+
+  clearReceivedCameraEffect() {
+    this.setState({ receivedCameraEffect: null });
+  }
+
   setMemberSilenced(userId: string, silenced: boolean) {
     this.rawSend({ type: "room-silence", userId, silenced });
   }
@@ -3634,11 +3839,28 @@ class SignalingClient {
     screen?: boolean;
     camera?: boolean;
     files?: Omit<SharedFile, "updatedAt">[];
+    // The camera is going out through "Efeitos de câmera" (see
+    // lib/cameraEffects). Only the admin panel reads it, to filter on it.
+    cameraEffects?: boolean;
+    // The camera is a phone's ("Celular como câmera", lib/phoneCamera).
+    // Same: only the admin panel reads it.
+    phoneCamera?: boolean;
+    // How many screens / cameras are going out at once (extra screens, the
+    // second camera). Same: only the admin panel reads them.
+    screens?: number;
+    cameras?: number;
   }) {
     if (sources.screen !== undefined) this.sharingSources.screen = sources.screen;
     if (sources.camera !== undefined) this.sharingSources.camera = sources.camera;
     if (sources.files !== undefined) this.sharingSources.files = sources.files;
-    const { screen, camera, files } = this.sharingSources;
+    if (sources.cameraEffects !== undefined) this.sharingSources.cameraEffects = sources.cameraEffects;
+    if (sources.phoneCamera !== undefined) this.sharingSources.phoneCamera = sources.phoneCamera;
+    if (sources.screens !== undefined) this.sharingSources.screens = sources.screens;
+    if (sources.cameras !== undefined) this.sharingSources.cameras = sources.cameras;
+    const { screen, camera, files, cameraEffects, phoneCamera, screens, cameras } = this.sharingSources;
+    if (screen !== this.state.selfScreen || camera !== this.state.selfCamera) {
+      this.setState({ selfScreen: screen, selfCamera: camera });
+    }
     this.rawSend({
       type: "sharing",
       // The rolled-up "is this person transmitting anything" every older
@@ -3647,6 +3869,10 @@ class SignalingClient {
       screen,
       camera,
       files,
+      cameraEffects: camera && cameraEffects,
+      phoneCamera: camera && phoneCamera,
+      screens: screen ? screens : 0,
+      cameras: camera ? cameras : 0,
     });
   }
 
@@ -3842,8 +4068,13 @@ export const signalingClient = new SignalingClient();
 // Dead code in a production build: Next inlines `process.env.NODE_ENV`, so
 // the whole block folds away rather than shipping a way to fake server
 // messages to every visitor.
+//
+// Its own global, never `window.golive`: that name is the shell bridge, and
+// isDesktopApp() is nothing more than "it exists". Planting the door there
+// made every browser under `next dev` read as the desktop app, threw on the
+// Electron preload's read-only copy, and could replace the Android one.
 if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
-  (window as unknown as { golive: unknown }).golive = {
+  (window as unknown as { __goliveDev: unknown }).__goliveDev = {
     signaling: signalingClient,
     /**
      * Opens the ad gate's popup as if the server had just paused us.

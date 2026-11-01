@@ -80,6 +80,32 @@ export interface SendVideoStats {
    * browser does not report it.
    */
   targetKbps?: number | null;
+  /**
+   * Average QP of the frames encoded over the interval — the encoder's own
+   * measure of how coarsely it quantised. High QP is what WebRTC's quality
+   * scaler answers by cutting resolution and frame rate, and it files that
+   * under "bandwidth"; this is what tells it apart from a link that is short.
+   * Codec-specific scale (H264 0–51, VP8/VP9 0–127/255), so only comparable
+   * within a codec. Null where not reported or on a first sample.
+   */
+  qp?: number | null;
+  /**
+   * Times the encoder changed resolution for quality reasons over the
+   * interval — or, on a first sample, since the connection began. The quality
+   * scaler does most of its cutting in the first seconds of a share, before
+   * any second sample exists, and counting only deltas reported 0 for every
+   * session in production.
+   */
+  resolutionChanges?: number;
+  /**
+   * Frames the capture produced per second (the media-source's own rate).
+   * Beside `fps` (what was encoded) it tells a slideshow the capture made from
+   * one the encoder made: a still screen and a busy capture thread give few
+   * frames here; an encoder dropping them gives many here and few in `fps`.
+   */
+  sourceFps?: number | null;
+  /** Milliseconds the encoder spent per frame over the interval; null on a first sample. */
+  encodeMs?: number | null;
 }
 
 export interface RecvVideoStats {
@@ -100,6 +126,15 @@ export interface RecvVideoStats {
   decoder: string | null;
   hardware: boolean | null;
   codec: string | null;
+  /** Frames decoded since the connection began — whether a picture ever arrived. */
+  framesDecodedTotal?: number;
+  /**
+   * How much of the wall clock the decoder needs to keep up with what
+   * arrives: its time per decoded frame times the frames arriving per second
+   * (1 = flat out). Null on a first sample, or where the browser does not say.
+   * What tells a decoder that cannot keep up from frames the network spoilt.
+   */
+  decodeLoad?: number | null;
 }
 
 export interface PcSnapshot {
@@ -116,6 +151,9 @@ export interface StatsCounters {
   at: number;
   bytesSent: number;
   framesEncoded: number;
+  totalEncodeTime: number;
+  qpSum: number;
+  resolutionChanges: number;
   nackCount: number;
   pliCount: number;
   limitCpu: number;
@@ -126,6 +164,8 @@ export interface StatsCounters {
   packetsLost: number;
   framesReceived: number;
   framesDropped: number;
+  framesDecoded: number;
+  totalDecodeTime: number;
   freezeCount: number;
   totalFreezesDuration: number;
   jitterBufferDelay: number;
@@ -269,6 +309,9 @@ export function readPcStats(
     at: now,
     bytesSent: num(outbound?.bytesSent),
     framesEncoded: num(outbound?.framesEncoded),
+    totalEncodeTime: num(outbound?.totalEncodeTime),
+    qpSum: num(outbound?.qpSum),
+    resolutionChanges: num(outbound?.qualityLimitationResolutionChanges),
     nackCount: num(outbound?.nackCount),
     pliCount: num(outbound?.pliCount),
     limitCpu,
@@ -279,6 +322,8 @@ export function readPcStats(
     packetsLost: num(inbound?.packetsLost),
     framesReceived: num(inbound?.framesReceived),
     framesDropped: num(inbound?.framesDropped),
+    framesDecoded: num(inbound?.framesDecoded),
+    totalDecodeTime: num(inbound?.totalDecodeTime),
     freezeCount: num(inbound?.freezeCount),
     totalFreezesDuration: num(inbound?.totalFreezesDuration),
     jitterBufferDelay: num(inbound?.jitterBufferDelay),
@@ -306,6 +351,11 @@ export function readPcStats(
     const bwShare =
       limitDelta > 0 ? share(d("limitBandwidth"), limitDelta) : share(limitBandwidth, limitTotal);
     const fps = num(outbound.framesPerSecond) || perSecond(d("framesEncoded"), seconds);
+    // The capture's own rate, off the media-source the outbound points at.
+    // Chromium and Safari report it; Firefox has no media-source for video.
+    const source = byId.get(str(outbound.mediaSourceId) ?? "");
+    const sourceFps = source && typeof source.framesPerSecond === "number" ? Math.round(num(source.framesPerSecond)) : null;
+    const encoded = d("framesEncoded");
     send = {
       width: num(outbound.frameWidth),
       height: num(outbound.frameHeight),
@@ -321,6 +371,10 @@ export function readPcStats(
       nackPerSecond: round2(perSecond(d("nackCount"), seconds)),
       pliPerSecond: round2(perSecond(d("pliCount"), seconds)),
       targetKbps: num(outbound.targetBitrate) > 0 ? Math.round(num(outbound.targetBitrate) / 1000) : null,
+      qp: d("framesEncoded") > 0 && d("qpSum") > 0 ? Math.round(d("qpSum") / d("framesEncoded")) : null,
+      resolutionChanges: usable ? d("resolutionChanges") : counters.resolutionChanges,
+      sourceFps,
+      encodeMs: encoded > 0 && d("totalEncodeTime") > 0 ? round2((d("totalEncodeTime") / encoded) * 1000) : null,
     };
     // A sender-side pc usually has no selected-pair RTT in Firefox; the
     // receiver's own report of it is the next best thing.
@@ -336,6 +390,8 @@ export function readPcStats(
     const received = d("packetsReceived");
     const lost = d("packetsLost");
     const emitted = d("jitterBufferEmittedCount");
+    const decoded = d("framesDecoded");
+    const decodeTime = d("totalDecodeTime");
     recv = {
       width: num(inbound.frameWidth),
       height: num(inbound.frameHeight),
@@ -350,6 +406,11 @@ export function readPcStats(
       decoder,
       hardware: isHardwareImplementation(decoder, inbound.powerEfficientDecoder),
       codec: codecName(byId.get(str(inbound.codecId) ?? "")),
+      framesDecodedTotal: num(inbound.framesDecoded),
+      decodeLoad:
+        decoded > 0 && decodeTime > 0 && seconds > 0
+          ? round2((decodeTime / decoded) * (d("framesReceived") / seconds))
+          : null,
     };
   }
 
@@ -386,6 +447,13 @@ export type CauseId =
   | "network-loss"
   | "high-rtt"
   | "receiver-drops"
+  // Session-level only, never in a live sample (see connectionTelemetrySummary):
+  // a received picture that is a slideshow on a clean link, so the frames were
+  // never sent — the broadcaster's encoder is where it went wrong.
+  | "low-source-fps"
+  // Session-level only too: a received video connection that stayed up past
+  // a glance and never decoded a single frame — the tile that spins forever.
+  | "no-video"
   | "freezes";
 
 export type Severity = "high" | "medium";

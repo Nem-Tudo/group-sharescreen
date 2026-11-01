@@ -45,6 +45,7 @@
 // mode this migration existed to remove), and "Invisible" hides the widget
 // even when it needs interaction.
 import { isObsClient } from "./browserEnv";
+import { hasFreshCaptchaPass } from "./captchaPass";
 import { translate } from "@/lib/i18n";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
@@ -535,6 +536,9 @@ function ensureMint(action: CaptchaAction): InflightMint {
  */
 export function prewarmCaptcha(action: CaptchaAction): void {
   if (!SITE_KEY || typeof window === "undefined" || isObsClient()) return;
+  // fast-join-check: the join will present the server's pass instead of a
+  // token, so a widget minted now would be browser work for nothing.
+  if (action === "join_room" && hasFreshCaptchaPass()) return;
   const cached = cache.get(action);
   if (cached && Date.now() - cached.mintedAt < TOKEN_REUSE_MS) return;
   if (inflight.has(action)) return;

@@ -102,6 +102,7 @@ import { useFeature } from "@/lib/features";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import { NewBadge } from "@/components/NewBadge";
 import { GROUP_MOVE_FEATURE, canMoveTo, mayMoveMember, moveGroupMember } from "@/lib/groupMove";
+import { isVoiceRoomFullFor, trackVoiceLimitBlocked, userLimitOf } from "@/lib/groupVoiceLimit";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
@@ -563,7 +564,11 @@ export function GroupRoomsPanel({
 
   function roomMenu(e: MouseEvent, channel: GroupChannel) {
     const connected = session?.groupId === group.id && session.channelId === channel.id;
-    const locked = channel.kind === "voice" && !connected && !canInChannel(detail, channel, "connect");
+    const locked =
+      channel.kind === "voice" &&
+      !connected &&
+      (!canInChannel(detail, channel, "connect") ||
+        isVoiceRoomFullFor(detail, channel, (voice[channel.id] ?? []).length));
     const open = () => {
       onNavigate?.();
       navigation.push(groupPath(group.id, channel.id));
@@ -943,11 +948,16 @@ export function GroupRoomsPanel({
     // server refuses the join regardless; this only doesn't offer it.
     // Somebody already in the call keeps their way back to it.
     const locked = !connected && !canInChannel(detail, channel, "connect");
+    // Its "Limite de participantes" reached (see lib/groupVoiceLimit): listed
+    // like a locked room, minus the lock — it opens up as soon as somebody
+    // leaves. The server refuses the join regardless.
+    const limit = userLimitOf(channel);
+    const full = !connected && !locked && isVoiceRoomFullFor(detail, channel, people.length);
     // The same row a text room is (see renderTextRoom): its padding, its
     // colours, and the room on screen marked by a fill rather than a frame.
     // A voice room used to be a bordered card with its people inside, which
     // set it apart from the text rooms around it for no reason the list needed.
-    const rowTone = locked
+    const rowTone = locked || full
       ? "cursor-not-allowed text-zinc-500 dark:text-zinc-400"
       : active
         ? "bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
@@ -975,6 +985,17 @@ export function GroupRoomsPanel({
           <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
             {t("groups.groupSidebar.youAreHere")}
           </span>
+        ) : limit > 0 ? (
+          <span
+            title={full ? t("groups.channelUserLimit.full") : t("groups.channelUserLimit.people", { count: limit })}
+            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+              people.length >= limit
+                ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                : "bg-zinc-200/70 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+            }`}
+          >
+            {people.length}/{limit}
+          </span>
         ) : people.length === 0 ? (
           <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">vazia</span>
         ) : null}
@@ -993,9 +1014,10 @@ export function GroupRoomsPanel({
         {/* Only the room's own row joins it. The people under it are their
             own targets — a click on somebody is a question about them, not a
             request to walk into their call. */}
-        {locked ? (
+        {locked || full ? (
           <div
-            title={t("groups.groupSidebar.youDoNotHavePermissionTo")}
+            title={full ? t("groups.channelUserLimit.full") : t("groups.groupSidebar.youDoNotHavePermissionTo")}
+            onClick={full ? () => trackVoiceLimitBlocked(group.id) : undefined}
             onContextMenu={(e) => roomMenu(e, channel)}
             data-room-head
             className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${rowTone}`}
@@ -1028,7 +1050,7 @@ export function GroupRoomsPanel({
                 person={person}
                 color={roleColorOf(detail, { id: person.userId })}
                 groupId={group.id}
-                channelId={locked ? null : channel.id}
+                channelId={locked || full ? null : channel.id}
                 onNavigate={onNavigate}
                 dragProps={personDragProps(person, channel.id)}
                 dimmed={drag?.type === "person" && drag.userId === person.userId}

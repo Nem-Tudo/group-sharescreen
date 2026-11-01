@@ -6,9 +6,13 @@ import { useResolvedTheme } from "@/lib/useTheme";
 import "ntpopups/dist/styles.css";
 import { PartnerRewardModal } from "@/components/PartnerRewardModal";
 import { PartnerPitchModal } from "@/components/PartnerPitchModal";
+import { PartnerAdsSettingsModal } from "@/components/PartnerAdsChoice";
+import { StreamEndSummaryModal } from "@/components/StreamEndSummaryModal";
 import { AddVideoSourceModal } from "@/components/AddVideoSourceModal";
 import { ManageRoomModal } from "@/components/ManageRoomModal";
 import { AddMusicSourceModal } from "@/components/AddMusicSourceModal";
+import { CameraCustomEffectEditor } from "@/components/CameraCustomEffectEditor";
+import { CameraEffectWorkshopPopup } from "@/components/CameraEffectBrowser";
 import { MemberActionsModal } from "@/components/MemberActionsModal";
 import { CosmeticsStoreDialog } from "@/components/CosmeticsStoreDialog";
 import { GiftPlanDialog } from "@/components/GiftPlanDialog";
@@ -41,9 +45,16 @@ const customPopups: Record<string, ComponentType> = {
   partner_reward: PartnerRewardModal as ComponentType,
   // "Anuncie aqui também!" — see components/PartnerPitchModal.tsx.
   partner_pitch: PartnerPitchModal as ComponentType,
+  // Which partner ads a Pro subscriber sees, from the ad card itself.
+  partner_ads_settings: PartnerAdsSettingsModal as ComponentType,
+  // After a long broadcast ends — see lib/useStreamEndSummary.
+  stream_summary: StreamEndSummaryModal as ComponentType,
   add_video_source: AddVideoSourceModal as ComponentType,
   manage_room: ManageRoomModal as ComponentType,
   add_music_source: AddMusicSourceModal as ComponentType,
+  // "Criar efeito" — see components/CameraCustomEffectEditor.tsx.
+  camera_custom_effect: CameraCustomEffectEditor as ComponentType,
+  camera_effect_workshop: CameraEffectWorkshopPopup as ComponentType,
   member_actions: MemberActionsModal as ComponentType,
   cosmetics_store: CosmeticsStoreDialog as ComponentType,
   gift_plan: GiftPlanDialog as ComponentType,

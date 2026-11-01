@@ -54,6 +54,8 @@ import {
   setStoredCameraDeviceId,
   setStoredMicDeviceId,
   setStoredSpeakerDeviceId,
+  getStoredExtraMicDeviceIds,
+  setStoredExtraMicDeviceIds,
 } from "./mediaPreferences";
 import {
   BEST_TIER,
@@ -85,6 +87,21 @@ import {
   type ExtraScreenSlot,
 } from "./multiScreen";
 import {
+  EXTRA_CAMERA_SLOTS,
+  MULTI_CAMERA_EVENTS,
+  getExtraCameraSource,
+  setExtraCameraSource,
+  type ExtraCameraSlot,
+  type ExtraCameraSource,
+} from "./multiCamera";
+import {
+  acquireExtraPhoneCamera,
+  extraPhoneCameraTrack,
+  onExtraPhoneEnded,
+  onExtraPhonePaired,
+  releaseExtraPhoneCamera,
+} from "./extraPhoneCameras";
+import {
   PeerQualityRegistry,
   contentHintForDegradation,
   refreshRelayCaps,
@@ -103,7 +120,7 @@ import {
   videoCodecOrder,
   type VideoCodecOrder,
 } from "./videoCodecPreferences";
-import { setPreferredAudioSink } from "./audioContext";
+import { getSharedAudioContext, setPreferredAudioSink } from "./audioContext";
 import { startExcludedSystemAudio, prewarmExcludedSystemAudio } from "./desktopSystemAudio";
 import {
   captureAndroidScreen,
@@ -112,11 +129,90 @@ import {
 } from "./androidScreenCapture";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
-import { getDesktopBridge } from "./desktop";
+import { getDesktopBridge, isDesktopApp } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { setStreamPerfEnabled, STREAM_PERF_EVENTS, STREAM_PERF_FEATURE } from "./streamPerf";
-import { SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
+import {
+  hasWeakStruggle,
+  isWeakMachine,
+  onWeakStruggle,
+  setSqH264QpApplied,
+  setSqMotionHoldEnabled,
+  setSqNativeKeyEnabled,
+  setSqRecvDropsEnabled,
+  setSqTracker,
+  setSqWeakSenderEnabled,
+  SQ_H264_QP_FEATURE,
+  SQ_MOTION_HOLD_FEATURE,
+  SQ_NATIVE_KEY_FEATURE,
+  SQ_RECV_DROPS_FEATURE,
+  SQ_WEAK_SENDER_FEATURE,
+} from "./streamQuality";
+import {
+  MEMORY_GUARD_FEATURE,
+  releasePeerConnection,
+  sampleHeapMemory,
+  setMemoryGuardEnabled,
+} from "./memoryGuard";
+import { isH264Hardware, SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
+import { CONGESTION_RECOVER_FEATURE, setCongestionRecoverEnabled } from "./congestionRecover";
+import {
+  applyReceiveCodecPreferences,
+  isReceiveCodecEligible,
+  RECEIVE_CODEC_FEATURE,
+  setReceiveCodecEnabled,
+} from "./receiveCodec";
+import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
+import {
+  acquirePhoneCamera,
+  getPhoneCameraState,
+  PhoneCameraError,
+  onPhoneCameraEvent,
+  PHONE_CAMERA_EVENTS,
+  phoneCameraLive,
+  phoneCameraStartBlocked,
+  phoneMicLive,
+  releasePhoneIfIdle,
+  releaseUnlessSource as releaseUnchosenPhoneCamera,
+  retainPhoneCameraHost,
+  setPhoneCameraInUse,
+  setPhoneCameraSource,
+  setPhoneMicInUse,
+  setPhoneMicSource,
+  usePhoneCamera,
+} from "./phoneCamera";
+import { createPhoneCameraPlaceholder, isPhoneCameraPlaceholder } from "./phoneCameraPlaceholder";
+import {
+  CAMERA_EFFECTS_3D_FEATURE,
+  CAMERA_WARP_FEATURE,
+  CAMERA_STREAM_BG_FEATURE,
+  CUSTOM_BG_FREE_FEATURE,
+  canUseCustomBackground,
+  useCameraEffectsSupported,
+  createCameraEffectsTrack,
+  cameraEffectsPrepared,
+  prepareCameraEffects,
+  discardCameraEffectsTrack,
+  effectiveCameraEffects,
+  hasAnyCameraEffect,
+  isCameraEffectsTrack,
+  setCameraEffectsTarget,
+  useCameraEffectSettings,
+  useCustomCameraBackground,
+  type CameraEffectSettings,
+} from "./cameraEffects";
+import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects } from "./cameraCustomEffects";
+import { useReceivedCameraEffect } from "./cameraEffectGift";
+import { useStreamBackgroundSelected } from "./cameraStreamBackground";
+import {
+  answerMirroringStereo,
+  offerToSend,
+  setMicStereoEnabled,
+  setStereoAudioEnabled,
+  STEREO_AUDIO_FEATURE,
+  STEREO_AUDIO_SHARE_EVENT,
+} from "./opusStereo";
 import { isHardwareImplementation } from "./connectionDiagnostics";
 import {
   HIDDEN_WINDOWS_EVENTS,
@@ -143,7 +239,9 @@ import {
 // lib/multiScreen.ts) — siblings of "screen" for the same reason.
 // "camera2" is the phone's other lens, sent alongside "camera" (front and
 // rear at once) — see the dual camera below.
-type Channel = "screen" | "camera" | "camera2" | "mic" | LocalMediaSlot | ExtraScreenSlot;
+// "camera3".."camera10" are the extra cameras of "Várias câmeras" (see
+// lib/multiCamera.ts) — siblings of "camera" like the extra screens.
+type Channel = "screen" | "camera" | "camera2" | "mic" | LocalMediaSlot | ExtraScreenSlot | ExtraCameraSlot;
 // Where the screen channel's picture comes from. "display" is a real screen
 // capture; "camera" is the phone fallback (no getDisplayMedia there, so
 // "compartilhar tela" opens the camera). A local file is *not* one of these:
@@ -540,6 +638,10 @@ const RECV_RECOVERY_TIMEOUT_MS = 9000;
 // is merely taking its time is never given up on.
 const RESUME_WATCHDOG_MS = 15_000;
 
+// The "sq" experiments' events from deep in the media path (see
+// lib/streamQuality's setSqTracker).
+setSqTracker(trackFeatureEvent);
+
 // How long a viewer stays pinned to a direct connection after the cascade
 // visibly failed them — see relayOptOut.
 //
@@ -630,6 +732,97 @@ function useExtraScreenChannel(
   );
 }
 
+// One extra camera of "Várias câmeras" (see lib/multiCamera.ts), fed by what
+// was picked for the slot right before it started: another webcam on this
+// computer, or another phone (lib/extraPhoneCameras). No effects, no
+// fallback to the default camera — a webcam that is gone is an error rather
+// than a second copy of the first camera.
+//
+// A phone whose page is not open yet starts as the "phone not connected"
+// screen, like the main camera's, and its video is swapped in over it when it
+// arrives; a phone that never comes ends the slot with the reason.
+function useExtraCameraChannel(
+  slot: ExtraCameraSlot,
+  room: string,
+  forceRelayIce: boolean,
+  autoJoin: boolean,
+  quality: QualityPreset,
+  resolutionRef: { current: ShareResolution },
+  fpsRef: { current: number }
+) {
+  const t = useT();
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const channelRef = useRef<ReturnType<typeof useBroadcastChannel> | null>(null);
+  const channel = useBroadcastChannel(
+    slot,
+    room,
+    async () => {
+      const source = getExtraCameraSource(slot);
+      if (!source) throw new ShareStartError(t("useRoomMedia.couldNotStartTheCameraCheck"));
+      const video = captureConstraints(resolutionRef.current, fpsRef.current, false);
+      if (source.kind === "webcam") {
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            video: { ...video, deviceId: { exact: source.deviceId } },
+          });
+        } catch (err) {
+          trackFeatureEvent(MULTI_CAMERA_EVENTS.error);
+          throw err;
+        }
+      }
+      setPhoneError(null);
+      const live = extraPhoneCameraTrack(slot);
+      // A clone: the channel's teardown stops what it holds, and that must
+      // not end the connection to the phone.
+      if (live) return new MediaStream([live.clone()]);
+      acquireExtraPhoneCamera(slot, source.deviceId, source.name).then(
+        () => {
+          const current = channelRef.current;
+          if (!current?.active) return;
+          void current.swapCapture().then((swapped) => {
+            const now = channelRef.current;
+            if (swapped || !now?.active) return;
+            now.stop();
+            void now.start();
+          });
+        },
+        (err: unknown) => {
+          const code = err instanceof PhoneCameraError ? err.code : "failed";
+          if (code === "cancelled") return;
+          setPhoneError(`${source.name}: ${t(`useRoomMedia.phoneCamera_${code === "nomic" ? "failed" : code}`)}`);
+          channelRef.current?.stop();
+        }
+      );
+      return new MediaStream([
+        createPhoneCameraPlaceholder({
+          title: t("useRoomMedia.phoneCameraOfflineTitle"),
+          description: t("useRoomMedia.phoneCameraOfflineDescription"),
+          stepsTitle: t("useRoomMedia.phoneCameraOfflineStepsTitle"),
+          steps: [
+            t("useRoomMedia.phoneCameraOfflineStep1"),
+            t("useRoomMedia.phoneCameraOfflineStep2"),
+            t("useRoomMedia.phoneCameraOfflineStep3"),
+            t("useRoomMedia.phoneCameraOfflineStep4"),
+          ],
+        }),
+      ]);
+    },
+    () => hasCameraCapture(),
+    t("useRoomMedia.yourBrowserDoesNotSupportA"),
+    t("useRoomMedia.couldNotStartTheCameraCheck"),
+    forceRelayIce,
+    autoJoin,
+    quality,
+    // Its phone stops filming. What the slot is fed by is kept: a restart
+    // reads it again, and the next "+" overwrites it.
+    () => releaseExtraPhoneCamera(slot)
+  );
+  useEffect(() => {
+    channelRef.current = channel;
+  });
+  return { ...channel, error: channel.error ?? phoneError };
+}
+
 // The capture's own hint to the encoder about what it is looking at. Unlike
 // the codec ordering it is a plain property of the track, so it can be
 // corrected on a live share — which is the whole reason it lives here instead
@@ -679,7 +872,14 @@ function contentHintFor(
 //   screen_share_start           a share started (value: 1)
 //   screen_share_error           a share failed to start (not a cancel)
 //   screen_share_lost            ended without the person pressing stop
-//   screen_share_restart         started within a minute of the last one ending
+//   screen_share_lost.<surface>  ...split by what was captured: monitor,
+//                                window, browser (a tab) or other (the
+//                                helper, anything without a displaySurface).
+//                                A whole screen cannot close, so "monitor"
+//                                is the browser's own "Stop sharing" bar (or
+//                                the OS); "window"/"browser" mix that bar
+//                                with the window or tab going away
+//   screen_share_restart        started within a minute of the last one ending
 //   screen_share_seconds         on stop; value = how long it ran
 //   screen_share_fps             on stop; value = average frames sent per second
 //   screen_share_low_fps         on stop, below 60% of the frame rate asked for
@@ -743,6 +943,8 @@ interface ShareStats {
   qualityChanges: number;
   peerFailures: number;
   lost: boolean;
+  /** What was captured, for screen_share_lost.<surface>. */
+  surface: ShareSurface;
   /** Frames sent, summed over samples, and the seconds they covered. */
   frames: number;
   seconds: number;
@@ -757,7 +959,15 @@ interface ShareStats {
   last: { framesSent: number; at: number } | null;
 }
 
-function startShareStats(quality: QualityPreset | null): ShareStats {
+type ShareSurface = "monitor" | "window" | "browser" | "other";
+
+function shareSurface(stream: MediaStream): ShareSurface {
+  const surface = (stream.getVideoTracks()[0]?.getSettings() as { displaySurface?: string } | undefined)
+    ?.displaySurface;
+  return surface === "monitor" || surface === "window" || surface === "browser" ? surface : "other";
+}
+
+function startShareStats(quality: QualityPreset | null, surface: ShareSurface): ShareStats {
   const now = Date.now();
   trackFeatureEvent(SCREEN_SHARE_STATS.start, { value: 1 });
   if (lastScreenShareEndedAt && now - lastScreenShareEndedAt < RESTART_WINDOW_MS) {
@@ -770,6 +980,7 @@ function startShareStats(quality: QualityPreset | null): ShareStats {
     qualityChanges: 0,
     peerFailures: 0,
     lost: false,
+    surface,
     frames: 0,
     seconds: 0,
     samples: 0,
@@ -849,7 +1060,10 @@ function reportShareEnd(stats: ShareStats) {
   lastScreenShareEndedAt = Date.now();
   const seconds = Math.round((lastScreenShareEndedAt - stats.startedAt) / 1000);
   trackFeatureEvent(SCREEN_SHARE_STATS.seconds, { value: seconds });
-  if (stats.lost) trackFeatureEvent(SCREEN_SHARE_STATS.lost);
+  if (stats.lost) {
+    trackFeatureEvent(SCREEN_SHARE_STATS.lost);
+    trackFeatureEvent(`${SCREEN_SHARE_STATS.lost}.${stats.surface}`);
+  }
   if (stats.peerFailures > 0) trackFeatureEvent(SCREEN_SHARE_STATS.peerFailures, { value: stats.peerFailures });
   if (stats.qualityChanges > 0) {
     trackFeatureEvent(SCREEN_SHARE_STATS.qualityChange, { value: stats.qualityChanges });
@@ -991,7 +1205,7 @@ function useBroadcastChannel(
   // telemetry now comes from the single shared mediaStats pump instead of one
   // timer and one getStats() pass per peer, which in a 30-person room was 29
   // uncoordinated polls competing with the encoding those same 29 peers need.
-  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`));
+  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`, channel.startsWith("screen")));
   // Tier each viewer has asked us for, from the size they render us at (see
   // qualityNegotiation). Kept outside the controllers because a request can
   // arrive before that peer's sendPC exists, and must survive a reconnect.
@@ -1006,6 +1220,15 @@ function useBroadcastChannel(
   // stall can be detected) and the stream itself (so it can be forwarded).
   const relaySources = useRef<Map<string, { pc: RTCPeerConnection; stream: MediaStream }>>(new Map());
   const relays = useRef(new RelayManager());
+  // Experiment sq-recv-drops never shrinks a stream we forward (see
+  // qualityNegotiator's `forwarding`). Relays only ever carry "screen".
+  useEffect(() => {
+    if (channel !== "screen") return;
+    qualityNegotiator.setForwardingCheck(
+      (ch, peerId) => ch === "screen" && relays.current.get(peerId)?.hasChildren() === true
+    );
+    return () => qualityNegotiator.setForwardingCheck(() => false);
+  }, [channel]);
   // Peers that a relay is serving on our behalf. We must NOT also open a
   // direct sendPC to them: doing so would double-encode and double-send the
   // very stream the cascade exists to avoid sending twice.
@@ -1066,6 +1289,7 @@ function useBroadcastChannel(
   // Per-peer "I asked for a reconnect and am holding this pc open for the
   // answer" timers — see recoverRecvPC.
   const recvRecoveryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const recvTurnCleanups = useRef<Map<string, () => void>>(new Map());
   // Per-peer handle onto the ICE restart of their live sendPC (see
   // openSendPC's restartSendIce, which owns the connection this closes over).
   // Exposed here so the "reconnect-request" handler can reach it too: that is
@@ -1327,7 +1551,7 @@ function useBroadcastChannel(
   const closeSendPC = useCallback((peerId: string) => {
     const pc = sendPCs.current.get(peerId);
     if (pc) {
-      pc.close();
+      releasePeerConnection(pc);
       sendPCs.current.delete(peerId);
       if (channel !== "mic") connectionRegistry.unregister(pc);
     }
@@ -1351,11 +1575,15 @@ function useBroadcastChannel(
     // has to be told which of the two just happened to us. Defaulted to the
     // ending case, which is what every other caller means.
     (peerId: string, reparenting = false) => {
+      const turnCleanup = recvTurnCleanups.current.get(peerId);
+      recvTurnCleanups.current.delete(peerId);
       const pc = recvPCs.current.get(peerId);
       if (pc) {
-        pc.close();
+        releasePeerConnection(pc, [turnCleanup]);
         recvPCs.current.delete(peerId);
         if (channel !== "mic") connectionRegistry.unregister(pc);
+      } else {
+        turnCleanup?.();
       }
       pendingRecvCandidates.current.delete(peerId);
       const recovery = recvRecoveryTimers.current.get(peerId);
@@ -1667,7 +1895,7 @@ function useBroadcastChannel(
               channel,
               role: "broadcaster",
               kind: "offer",
-              sdp: pc.localDescription,
+              sdp: offerToSend(pc.localDescription, channel),
               // Without this the viewer cannot tell an ICE restart from a
               // brand-new session, and its offer handler would answer by
               // tearing its own pc down and building another. That is not
@@ -1759,7 +1987,7 @@ function useBroadcastChannel(
             channel,
             role: "broadcaster",
             kind: "offer",
-            sdp: pc.localDescription,
+            sdp: offerToSend(pc.localDescription, channel),
           });
         })
         .catch(() => {
@@ -2119,7 +2347,7 @@ function useBroadcastChannel(
     sendRetryAttempts.current.clear();
     for (const [peerId, pc] of sendPCs.current) {
       signalingClient.sendSignal(peerId, { channel, role: "broadcaster", kind: "stop" });
-      pc.close();
+      releasePeerConnection(pc);
       if (channel !== "mic") connectionRegistry.unregister(pc);
     }
     sendPCs.current.clear();
@@ -2189,7 +2417,10 @@ function useBroadcastChannel(
       else signalingClient.setSharing({ [channel]: true });
       trackEvent(`${eventPrefix}_start`);
       if (channel === "screen" && requestedSource !== "camera") {
-        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null);
+        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null, shareSurface(stream));
+      }
+      if (channel !== "mic" && stream.getAudioTracks().length > 0) {
+        trackFeatureEvent(STEREO_AUDIO_SHARE_EVENT, { feature: STEREO_AUDIO_FEATURE });
       }
       stream.getTracks().forEach((track) =>
         track.addEventListener("ended", () => {
@@ -2280,9 +2511,17 @@ function useBroadcastChannel(
    * nothing at all: the old one is still running and still being sent, so a
    * flip to a camera the phone will not open leaves the room watching what it
    * was already watching rather than watching nothing.
+   *
+   * `wrap` swaps in something built *from* the live capture instead of a
+   * fresh one — the camera effects (lib/cameraEffects), which take the
+   * running camera over rather than opening it a second time (a phone will
+   * not). The old track is then left running: the new one owns it.
    */
   const swapCapture = useCallback(
-    async (requestedSource?: ShareSource): Promise<boolean> => {
+    async (
+      requestedSource?: ShareSource,
+      wrap?: (current: MediaStreamTrack) => MediaStream | Promise<MediaStream>
+    ): Promise<boolean> => {
       if (!activeRef.current || swapping.current) return false;
       const previous = localStreamRef.current;
       const previousVideo = previous?.getVideoTracks()[0];
@@ -2293,7 +2532,7 @@ function useBroadcastChannel(
       swapping.current = true;
       let next: MediaStream;
       try {
-        next = await capture(requestedSource);
+        next = wrap ? await wrap(previousVideo) : await capture(requestedSource);
       } catch {
         // Deliberately swallowed rather than surfaced through setError: the
         // share the person is running is untouched and still fine, and
@@ -2308,7 +2547,7 @@ function useBroadcastChannel(
       // The share may have been stopped while getUserMedia was open, in which
       // case this capture is already orphaned and must not be left running.
       if (!activeRef.current || !nextVideo || localStreamRef.current !== previous) {
-        next.getTracks().forEach((t) => t.stop());
+        if (!wrap) next.getTracks().forEach((t) => t.stop());
         swapping.current = false;
         return false;
       }
@@ -2336,7 +2575,8 @@ function useBroadcastChannel(
         // parameters already negotiated. Rare, and recoverable only by
         // renegotiating — which is exactly the restart the caller falls back
         // to, so this capture is discarded and the old one left in place.
-        next.getTracks().forEach((t) => t.stop());
+        // A wrapper owns the old track, so it is not stopped with it here.
+        if (!wrap) next.getTracks().forEach((t) => t.stop());
         swapping.current = false;
         return false;
       }
@@ -2356,7 +2596,7 @@ function useBroadcastChannel(
       // Moved over before the old track is stopped: stop() fires no event,
       // but `ended` on a track already being watched would reach the listener
       // start() installed and take the whole share down with it.
-      previousVideo.stop();
+      if (!wrap) previousVideo.stop();
       // The new track needs the same backstop the original got — a camera
       // that disappears mid-share (unplugged, or taken by another app) should
       // still end the transmission rather than leave a frozen tile.
@@ -2405,8 +2645,8 @@ function useBroadcastChannel(
         // Our end relaying through TURN is invisible to whoever sends to
         // us, and they are the one who decides what is encoded — so say so.
         // To the peer sending (a relay, for relayed traffic), not the origin.
-        // No cleanup needed: see watchTurnRelay.
-        watchTurnRelay(pc, (via, provider) => {
+        recvTurnCleanups.current.get(peerId)?.();
+        const unwatchTurn = watchTurnRelay(pc, (via, provider) => {
           signalingClient.sendSignal(peerId, {
             channel,
             role: "viewer",
@@ -2415,6 +2655,7 @@ function useBroadcastChannel(
             turnProvider: provider,
           });
         });
+        recvTurnCleanups.current.set(peerId, unwatchTurn);
       }
       setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
       // Never connected in time without TURN: the "Pro relays" notice (see
@@ -2609,11 +2850,16 @@ function useBroadcastChannel(
                   await thisPc.addIceCandidate(candidate).catch(() => {});
                 }
               }
+              // Experiment "recv-codec" (see lib/receiveCodec): the answer's
+              // codec order is what the sender encodes with.
+              if (channel !== "mic") applyReceiveCodecPreferences(thisPc);
               return thisPc.createAnswer();
             })
             .then((answer) => {
               if (!answer || recvPCs.current.get(from) !== thisPc) return;
-              return thisPc.setLocalDescription(answer);
+              // A sharer asking for stereo gets it from here: the answer is
+              // what its encoder is set up from (see lib/opusStereo).
+              return thisPc.setLocalDescription(answerMirroringStereo(data.sdp, answer));
             })
             .then(() => {
               if (recvPCs.current.get(from) !== thisPc) return;
@@ -3063,6 +3309,7 @@ function useBroadcastChannel(
 
   useEffect(() => {
     const pcs = recvPCs.current;
+    const turnCleanups = recvTurnCleanups.current;
     const pausedPeers = viewerPausedPeers.current;
     const recoveryTimers = recvRecoveryTimers.current;
     const watchdogs = resumeWatchdogs.current;
@@ -3088,11 +3335,19 @@ function useBroadcastChannel(
       // that no longer exists and send a "resume" into it.
       for (const timer of watchdogs.values()) clearTimeout(timer);
       watchdogs.clear();
-      for (const pc of pcs.values()) {
-        pc.close();
+      for (const [peerId, pc] of pcs.entries()) {
+        releasePeerConnection(pc, [turnCleanups.get(peerId)]);
         if (channel !== "mic") connectionRegistry.unregister(pc);
       }
+      turnCleanups.clear();
+      if (channel !== "mic") {
+        for (const peerId of pcs.keys()) qualityNegotiator.forget(channel as QualityChannel, peerId);
+      }
       pcs.clear();
+      recvOrigins.current.clear();
+      relaySources.current.clear();
+      pendingRecvCandidates.current.clear();
+      pendingSendCandidates.current.clear();
       setRemoteStreams({});
       setStoppedPeers(new Set());
       setResumingPeers(new Set());
@@ -3397,6 +3652,13 @@ export function useRoomMedia(room: string) {
   // Experiment "own-turn" (see lib/ownTurn): shapes connections as they open
   // (iceConfigFor) and the relay caps already applied, so decided here; the
   // exposure is counted further down, next to screen-codec's.
+  // Experiment "stereo-audio" (see lib/opusStereo): read by every offer
+  // that goes out, so decided here; exposure counted while sharing, below.
+  const stereoAudioFeature = useFeature(STEREO_AUDIO_FEATURE, { track: false });
+  useEffect(() => {
+    setStereoAudioEnabled(stereoAudioFeature.enabled);
+  }, [stereoAudioFeature.enabled]);
+
   const ownTurnFeature = useFeature(OWN_TURN_FEATURE, { track: false });
   useEffect(() => {
     setOwnTurnVariant(ownTurnFeature.variant);
@@ -3861,6 +4123,25 @@ export function useRoomMedia(room: string) {
   // the WebView cannot hold one lens while the plugin opens the other. Null
   // the rest of the time — one camera is always the WebView's.
   const nativeDualRef = useRef<AndroidDualCamera | null>(null);
+  // What the camera should be drawn with (see wantedCameraEffects below),
+  // read by the capture when the camera (re)opens.
+  const cameraEffectsRef = useRef<CameraEffectSettings | null>(null);
+  // "Celular como câmera" (see lib/phoneCamera): whether the experiment's
+  // switch is on, and whether the running camera is the phone's.
+  const phoneCameraModeRef = useRef(false);
+  const cameraFromPhoneRef = useRef(false);
+  // The same, as state: announced to the server so the admin panel can
+  // filter on it. A swap between webcam and phone keeps camera.active as it
+  // was, so the ref alone would never re-announce.
+  const [cameraFromPhone, setCameraFromPhone] = useState(false);
+  // The "phone not connected" screen (lib/phoneCameraPlaceholder): whether a
+  // capture showing it should also ask the phone (not when the phone itself
+  // just stopped — it would get a request it did not want), what asks it
+  // (set below, once the channel exists), and whether the screen was shown
+  // since the phone was last live (counted when the phone comes back).
+  const askPhoneCameraRef = useRef(true);
+  const awaitPhoneCameraRef = useRef<() => void>(() => {});
+  const phonePlaceholderShownRef = useRef(false);
 
   const camera = useBroadcastChannel(
     "camera",
@@ -3871,16 +4152,73 @@ export function useRoomMedia(room: string) {
         const main = cameraFacingRef.current === "environment" ? native.back : native.front;
         return new MediaStream(main.getVideoTracks());
       }
+      // A phone chosen as the camera: its video instead of a webcam's. A
+      // clone, because the channel's teardown stops every track it holds,
+      // and this one must not end the connection to the phone with it.
+      if (phoneCameraModeRef.current && getPhoneCameraState().source) {
+        cameraFromPhoneRef.current = true;
+        setCameraFromPhone(true);
+        setPhoneCameraInUse(true);
+        // Not coming in (page closed, phone offline, never paired here): the
+        // camera comes on anyway, as a black screen saying so and how to fix
+        // it. The phone is asked for meanwhile, and its video is swapped in
+        // over the screen once it connects (see awaitPhoneCamera).
+        if (!phoneCameraLive()) {
+          if (askPhoneCameraRef.current) awaitPhoneCameraRef.current();
+          trackFeatureEvent(PHONE_CAMERA_EVENTS.offlineScreen);
+          phonePlaceholderShownRef.current = true;
+          return new MediaStream([
+            createPhoneCameraPlaceholder({
+              title: t("useRoomMedia.phoneCameraOfflineTitle"),
+              description: t("useRoomMedia.phoneCameraOfflineDescription"),
+              stepsTitle: t("useRoomMedia.phoneCameraOfflineStepsTitle"),
+              steps: [
+                t("useRoomMedia.phoneCameraOfflineStep1"),
+                t("useRoomMedia.phoneCameraOfflineStep2"),
+                t("useRoomMedia.phoneCameraOfflineStep3"),
+                t("useRoomMedia.phoneCameraOfflineStep4"),
+              ],
+            }),
+          ]);
+        }
+        const remote = await acquirePhoneCamera();
+        if (phonePlaceholderShownRef.current) {
+          phonePlaceholderShownRef.current = false;
+          trackFeatureEvent(PHONE_CAMERA_EVENTS.reconnected);
+        }
+        const clone = remote.clone();
+        // Effects not loaded yet: the plain camera now, swapped over once they
+        // are (the effect below) instead of a picture frozen while they load.
+        if (!cameraEffectsRef.current || !cameraEffectsPrepared()) return new MediaStream([clone]);
+        try {
+          return new MediaStream([await createCameraEffectsTrack(clone)]);
+        } catch {
+          return new MediaStream([clone]);
+        }
+      }
+      cameraFromPhoneRef.current = false;
+      setCameraFromPhone(false);
+      setPhoneCameraInUse(false);
       // Capture at the full picked resolution regardless of room size. The
       // per-viewer tiers downscale each *sender* independently (see
       // peerQualityController), so capturing small would only put a hard
       // ceiling on the one or two people actually watching fullscreen while
       // saving nothing for the many watching in a grid.
-      return captureCamera(
+      const stream = await captureCamera(
         captureConstraints(shareResolutionRef.current, shareFpsRef.current, false),
         cameraDeviceIdRef.current,
         cameraFacingRef.current
       );
+      // "Efeitos de câmera": only when something is picked, so a camera with
+      // no effect is the plain capture, exactly as before.
+      // Not loaded yet: see the phone's case above.
+      const raw = stream.getVideoTracks()[0];
+      if (!cameraEffectsRef.current || !raw || !cameraEffectsPrepared()) return stream;
+      try {
+        return new MediaStream([await createCameraEffectsTrack(raw)]);
+      } catch {
+        return stream;
+      }
     },
     () => hasCameraCapture(),
     t("useRoomMedia.yourBrowserDoesNotSupportA"),
@@ -4079,6 +4417,286 @@ export function useRoomMedia(room: string) {
     await camera2.start();
   }, [camera, camera2, nativeDualSupported, t]);
 
+  // "Efeitos de câmera" (see lib/cameraEffects): the switch (experiment
+  // "camera-effects") and what is picked, as one thing — null unless the
+  // camera should actually be drawn on. Picking another effect on a camera
+  // already going through them only tells the worker; the first pick on a
+  // plain camera swaps the effects track in over the running capture (no
+  // second getUserMedia, which a phone would refuse). Un-picking leaves the
+  // pipeline passing frames straight through until the camera next starts.
+  // The dual camera's native path is left alone: it has its own pipeline.
+  const cameraEffectsMode = useTileExperiment("cameraEffects").active;
+  // The 3D faces only for whoever is in "camera-effects-3d" (see
+  // effectiveCameraEffects); exposure is counted where they are offered.
+  const allowCameraEffects3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: false }).enabled;
+  // The warps likewise, for "camera-warp".
+  const allowCameraWarp = useFeature(CAMERA_WARP_FEATURE, { track: false }).enabled;
+  const storedCameraEffects = useCameraEffectSettings();
+  // The custom background only on the plan for it, and only with an image.
+  const customCameraBackground = useCustomCameraBackground();
+  const customBackgroundFree = useFeature(CUSTOM_BG_FREE_FEATURE, { track: false }).enabled;
+  const allowCustomCameraBackground =
+    canUseCustomBackground(account?.flags, customBackgroundFree) && customCameraBackground !== null;
+  // A transmission as the background: "camera-stream-bg", Pro Max (or
+  // "custom-bg-free", which frees it too), and the one picked still in the room.
+  const cameraStreamBackgroundExperiment = useFeature(CAMERA_STREAM_BG_FEATURE, { track: false }).enabled;
+  const cameraStreamBackground = useStreamBackgroundSelected();
+  const allowCameraStreamBackground =
+    cameraStreamBackgroundExperiment &&
+    canUseCustomBackground(account?.flags, customBackgroundFree) &&
+    cameraStreamBackground !== null;
+  // An effect the person made: "camera-custom-effects", and it still existing.
+  const cameraCustomEffectsExperiment = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
+  const cameraCustomEffects = useCustomCameraEffects();
+  const allowCameraCustomEffect =
+    cameraCustomEffectsExperiment && cameraCustomEffects.some((effect) => effect.id === storedCameraEffects.custom);
+  // Safari's answer comes in after the first render (see cameraEffectsSupported).
+  const cameraEffectsCanRun = useCameraEffectsSupported();
+  const cameraEffectSettings = useMemo(
+    () =>
+      effectiveCameraEffects(
+        storedCameraEffects,
+        allowCameraEffects3d,
+        allowCustomCameraBackground,
+        allowCameraWarp,
+        allowCameraStreamBackground,
+        allowCameraCustomEffect
+      ),
+    [
+      storedCameraEffects,
+      allowCameraEffects3d,
+      allowCustomCameraBackground,
+      allowCameraWarp,
+      allowCameraStreamBackground,
+      allowCameraCustomEffect,
+    ]
+  );
+  // An effect somebody put on this camera ("camera-effect-others", see
+  // components/CameraEffectForOthers) goes instead of the person's own until they
+  // take it off, whatever their own switch says: they were told, and it is one click.
+  const receivedCameraEffectSettings = useReceivedCameraEffect(account?.blockCameraEffects === true);
+  const wantedCameraEffects = useMemo(() => {
+    if (!cameraEffectsCanRun) return null;
+    if (receivedCameraEffectSettings) return receivedCameraEffectSettings;
+    return cameraEffectsMode && hasAnyCameraEffect(cameraEffectSettings) ? cameraEffectSettings : null;
+  }, [cameraEffectsMode, cameraEffectsCanRun, cameraEffectSettings, receivedCameraEffectSettings]);
+  const cameraLocalStream = camera.localStream;
+  // Bumped when the effects track is swapped into the running camera: the
+  // swap keeps the same MediaStream, so nothing else re-renders to notice
+  // (see cameraEffectsLive).
+  const [cameraEffectsSwaps, setCameraEffectsSwaps] = useState(0);
+  useEffect(() => {
+    cameraEffectsRef.current = wantedCameraEffects;
+    setCameraEffectsTarget(wantedCameraEffects);
+    if (!wantedCameraEffects || !cameraLocalStream) return;
+    // Looked at again and again rather than once per change of these deps: a
+    // swap can be turned down or put off for passing reasons (another under way,
+    // a connection closing among the senders, the camera mid-start), and with a
+    // single look nothing asked again until the picked effect changed, leaving a
+    // camera started with an effect plain. Once the effects are in, each look is
+    // one comparison; it also catches a later swap that brought the plain camera
+    // back while the effects were not ready.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = 1000;
+    let lastReason = "";
+    const note = (reason: string) => {
+      if (reason === lastReason) return;
+      lastReason = reason;
+      console.info(`[camera-effects] ${reason}`);
+    };
+    // Why the camera cannot take the effects now, or null if it can.
+    const blocked = () => {
+      const cam = cameraRef.current;
+      if (!cam.active) return "waiting: camera not active";
+      if (nativeDualRef.current) return "waiting: native dual camera";
+      const track = cameraLocalStream.getVideoTracks()[0];
+      if (!track) return "waiting: no video track";
+      if (isCameraEffectsTrack(track)) return "effects in the camera";
+      if (isPhoneCameraPlaceholder(track)) return "waiting: phone placeholder";
+      return null;
+    };
+    const look = async () => {
+      const reason = blocked();
+      if (reason) {
+        note(reason);
+        delay = 1000;
+      } else {
+        // The plain camera keeps going out while the models load (see
+        // prepareCameraEffects); the swap is only made once they are in.
+        note("preparing");
+        await prepareCameraEffects();
+        if (stopped) return;
+        if (!blocked()) {
+          let created: MediaStreamTrack | null = null;
+          const swapped = await cameraRef.current.swapCapture(undefined, async (current) => {
+            created = await createCameraEffectsTrack(current);
+            return new MediaStream([created]);
+          });
+          if (swapped) {
+            setCameraEffectsSwaps((n) => n + 1);
+            // The same stream with another track in it, which a <video> already
+            // holding it does not always pick up: the person would go on seeing
+            // the plain camera in their own tile. Given the stream again.
+            document.querySelectorAll("video").forEach((video) => {
+              if (video.srcObject !== cameraLocalStream) return;
+              video.srcObject = cameraLocalStream;
+              void video.play().catch(() => {});
+            });
+            delay = 1000;
+          } else {
+            if (created) discardCameraEffectsTrack(created);
+            note("swap turned down, will try again");
+            delay = Math.min(delay * 2, 10_000);
+          }
+        }
+      }
+      if (!stopped) timer = setTimeout(() => void look(), delay);
+    };
+    void look();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [wantedCameraEffects, cameraLocalStream]);
+
+  // "Celular como câmera": the relay socket while the switch is on, and the
+  // room's camera following the phone — on when the phone starts by itself
+  // (its page was opened), off when it stops, swapped over when the person
+  // picks another source with the camera on. A phone the camera has not used
+  // for a few seconds is let go, so it stops filming (a stop/start of the
+  // channel — a restart — keeps it).
+  const phoneCameraMode = useTileExperiment("phoneCamera").active;
+  useEffect(() => {
+    phoneCameraModeRef.current = phoneCameraMode;
+    if (!phoneCameraMode) return;
+    return retainPhoneCameraHost();
+  }, [phoneCameraMode]);
+  useEffect(
+    () =>
+      onPhoneCameraEvent((event) => {
+        const cam = cameraRef.current;
+        if (event === "arrived") {
+          if (!phoneCameraModeRef.current || nativeDualRef.current) return;
+          // A phone that came back as the microphone only is the mic's
+          // business (see the mic's own listener), not the camera's.
+          const phone = getPhoneCameraState();
+          if (!phone.session || phone.source !== (phone.session.deviceId ?? "once")) return;
+          if (!cam.active) {
+            // Not allowed to (the room turned cameras off for this person),
+            // or it would not start: the phone has nobody to film for.
+            if (phoneCameraStartBlocked()) {
+              releasePhoneIfIdle();
+              return;
+            }
+            void cam.start().then(() => {
+              if (!cameraRef.current.active) releasePhoneIfIdle();
+            });
+            return;
+          }
+          void cam.swapCapture().then((swapped) => {
+            const now = cameraRef.current;
+            if (swapped || !now.active) return;
+            now.stop();
+            void now.start();
+          });
+        } else if (cam.active && cameraFromPhoneRef.current) {
+          // The phone went away (page closed, connection lost, stopped on
+          // it): the camera stays on, showing the "not connected" screen,
+          // until the phone starts again by itself. Not asked again from
+          // here — a phone that stopped on purpose would get a request.
+          const resume = () => {
+            askPhoneCameraRef.current = true;
+          };
+          askPhoneCameraRef.current = false;
+          void cam.swapCapture().then((swapped) => {
+            const now = cameraRef.current;
+            if (swapped || !now.active) return resume();
+            now.stop();
+            void now.start().finally(resume);
+          });
+        }
+      }),
+    []
+  );
+  // Asks for the phone behind the "not connected" screen and, when it comes
+  // in, swaps its video over the screen (only if the screen is still what
+  // the camera shows — a newer capture may have replaced it already).
+  const phoneCameraWaitRef = useRef(0);
+  useEffect(() => {
+    awaitPhoneCameraRef.current = () => {
+      const wait = ++phoneCameraWaitRef.current;
+      acquirePhoneCamera().then(
+        () => {
+          const cam = cameraRef.current;
+          if (wait !== phoneCameraWaitRef.current || !cam.active) return;
+          if (!isPhoneCameraPlaceholder(cam.localStream?.getVideoTracks()[0])) return;
+          void cam.swapCapture().then((swapped) => {
+            const now = cameraRef.current;
+            if (swapped || !now.active) return;
+            now.stop();
+            void now.start();
+          });
+        },
+        // Not there in time, refused, or called off: the screen stays, and
+        // the phone opening its page later still brings it in ("arrived").
+        () => {}
+      );
+    };
+  });
+  // The relay was not up when the screen went on (nothing could be asked
+  // then): ask now that it is.
+  const phoneCameraConnected = usePhoneCamera().connected;
+  useEffect(() => {
+    if (!phoneCameraConnected || !askPhoneCameraRef.current) return;
+    const cam = cameraRef.current;
+    if (!cam.active || getPhoneCameraState().session) return;
+    if (isPhoneCameraPlaceholder(cam.localStream?.getVideoTracks()[0])) awaitPhoneCameraRef.current();
+  }, [phoneCameraConnected]);
+  // A swap that did not happen (the phone said no, or never answered) puts
+  // the choice back where it was, quietly: the camera keeps what it had,
+  // and the phone is not asked a second time by a restart.
+  const phoneCameraSource = usePhoneCamera().source;
+  const lastPhoneCameraSource = useRef(phoneCameraSource);
+  useEffect(() => {
+    const previous = lastPhoneCameraSource.current;
+    if (previous === phoneCameraSource) return;
+    lastPhoneCameraSource.current = phoneCameraSource;
+    const cam = cameraRef.current;
+    if (!cam.active || nativeDualRef.current) {
+      releaseUnchosenPhoneCamera();
+      return;
+    }
+    // One phone for another: only one connection to a phone at a time, so
+    // the first goes before the second is asked — a restart, not a swap.
+    if (previous && phoneCameraSource && cameraFromPhoneRef.current) {
+      cam.stop();
+      releaseUnchosenPhoneCamera();
+      void cam.start();
+      return;
+    }
+    void cam.swapCapture().then((swapped) => {
+      if (!swapped && cameraRef.current.active && lastPhoneCameraSource.current === phoneCameraSource) {
+        lastPhoneCameraSource.current = previous;
+        setPhoneCameraSource(previous);
+      }
+      releaseUnchosenPhoneCamera();
+    });
+  }, [phoneCameraSource]);
+  useEffect(() => {
+    if (camera.active) return;
+    const timer = setTimeout(() => {
+      if (cameraRef.current.active) return;
+      cameraFromPhoneRef.current = false;
+      setCameraFromPhone(false);
+      setPhoneCameraInUse(false);
+      phonePlaceholderShownRef.current = false;
+      // The mic may still be using the same phone: then it only closes its camera.
+      releasePhoneIfIdle();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [camera.active]);
+
   // The second lens only makes sense next to the first.
   const cameraIsActive = camera.active;
   const camera2Stop = camera2.stop;
@@ -4145,6 +4763,84 @@ export function useRoomMedia(room: string) {
     await extraScreens[slot].start();
     return true;
   }, [extraScreens]);
+
+  // "Várias câmeras" (see lib/multiCamera.ts): the second to ninth camera.
+  // Spelled out like the screens above, and every client has all eight for
+  // the same reason: watching them needs the channel too.
+  const xc = [
+    useExtraCameraChannel("camera3", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera4", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera5", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera6", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera7", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera8", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera9", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+    useExtraCameraChannel("camera10", room, forceRelayIce, autoJoin, cameraQualityPreset, shareResolutionRef, shareFpsRef),
+  ] as const;
+  const extraCameras = useMemo(
+    () =>
+      Object.fromEntries(EXTRA_CAMERA_SLOTS.map((slot, i) => [slot, xc[i]])) as Record<
+        ExtraCameraSlot,
+        ReturnType<typeof useExtraCameraChannel>
+      >,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [xc[0], xc[1], xc[2], xc[3], xc[4], xc[5], xc[6], xc[7]]
+  );
+  const extraCamerasActive = EXTRA_CAMERA_SLOTS.filter((slot) => extraCameras[slot].active).length;
+  const extraCamerasRef = useRef(extraCameras);
+  useEffect(() => {
+    extraCamerasRef.current = extraCameras;
+  }, [extraCameras]);
+
+  // Starts the next free extra camera on `source`. The limit is the caller's
+  // to check (see multiCameraLimit); this only refuses when all eight are
+  // taken. A phone is asked for right here, synchronously, before the slot
+  // starts: one just paired would otherwise offer first and be taken by the
+  // main session as *the* camera (see onExtraPhonePaired).
+  const addExtraCamera = useCallback(async (source: ExtraCameraSource): Promise<boolean> => {
+    const channels = extraCamerasRef.current;
+    const slot = EXTRA_CAMERA_SLOTS.find((candidate) => !channels[candidate].active);
+    if (!slot) return false;
+    setExtraCameraSource(slot, source);
+    if (source.kind === "phone") {
+      acquireExtraPhoneCamera(slot, source.deviceId, source.name).catch(() => {
+        // The slot's own capture asks again and reports why.
+      });
+    }
+    await channels[slot].start();
+    return true;
+  }, []);
+
+  // A phone linked from the "+" is added as soon as it is confirmed.
+  useEffect(
+    () =>
+      onExtraPhonePaired((deviceId, name) => {
+        const going =
+          (cameraRef.current.active ? 1 : 0) +
+          EXTRA_CAMERA_SLOTS.filter((slot) => extraCamerasRef.current[slot].active).length;
+        trackFeatureEvent(MULTI_CAMERA_EVENTS.add, { value: going + 1 });
+        trackFeatureEvent(MULTI_CAMERA_EVENTS.addPhone);
+        void addExtraCamera({ kind: "phone", deviceId, name });
+      }),
+    [addExtraCamera]
+  );
+  // A phone that went away takes its camera with it.
+  useEffect(
+    () =>
+      onExtraPhoneEnded((slot) => {
+        const channel = extraCamerasRef.current[slot as ExtraCameraSlot];
+        if (channel?.active) channel.stop();
+      }),
+    []
+  );
+  // The phone relay stays up while the switch is on, where phones are offered
+  // at all ("Celular como câmera" is the feature that owns pairing them).
+  const multiCameraMode = useTileExperiment("multiCamera").active;
+  const phoneCameraOffered = useTileExperiment("phoneCamera").available;
+  useEffect(() => {
+    if (!multiCameraMode || !phoneCameraOffered) return;
+    return retainPhoneCameraHost();
+  }, [multiCameraMode, phoneCameraOffered]);
 
   // Re-opens whichever live captures are running off the camera, so a change
   // to which lens that means actually reaches the room.
@@ -4282,15 +4978,42 @@ export function useRoomMedia(room: string) {
   // render.
   const announcedFilesKey = JSON.stringify(announcedFiles);
 
+  // The camera going out is drawn on by an effect actually picked (an
+  // un-picked pipeline only passes frames through). Only the admin panel
+  // reads it, to filter on people using camera effects. Recomputed on
+  // cameraEffectsSwaps too, since a swap changes the track and not the stream.
+  const cameraEffectsLive = useMemo(
+    () =>
+      camera.active &&
+      wantedCameraEffects !== null &&
+      isCameraEffectsTrack(cameraLocalStream?.getVideoTracks()[0]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [camera.active, wantedCameraEffects, cameraLocalStream, cameraEffectsSwaps]
+  );
+
   useEffect(() => {
     signalingClient.setSharing({
       // The extra screens are not announced one by one (the server knows
       // nothing about them); they count as the person sharing a screen.
       screen: screen.active || extraScreensActive > 0,
-      camera: camera.active || camera2.active,
+      camera: camera.active || camera2.active || extraCamerasActive > 0,
       files: JSON.parse(announcedFilesKey) as typeof announcedFiles,
+      cameraEffects: cameraEffectsLive,
+      phoneCamera: camera.active && cameraFromPhone,
+      // Counted for the admin panel's "mais de uma tela/câmera" filters.
+      screens: (screen.active ? 1 : 0) + extraScreensActive,
+      cameras: (camera.active ? 1 : 0) + (camera2.active ? 1 : 0) + extraCamerasActive,
     });
-  }, [screen.active, extraScreensActive, camera.active, camera2.active, announcedFilesKey]);
+  }, [
+    screen.active,
+    extraScreensActive,
+    camera.active,
+    camera2.active,
+    extraCamerasActive,
+    announcedFilesKey,
+    cameraEffectsLive,
+    cameraFromPhone,
+  ]);
 
   // Capacity measurement and the cascade decision. Both are driven by the
   // screen channel only: it is the expensive one, and the mic's ~32 kbps is
@@ -4346,7 +5069,12 @@ export function useRoomMedia(room: string) {
     };
   }, []);
   const sharingAnything =
-    screen.active || camera.active || camera2.active || anyFileActive || extraScreensActive > 0;
+    screen.active ||
+    camera.active ||
+    camera2.active ||
+    anyFileActive ||
+    extraScreensActive > 0 ||
+    extraCamerasActive > 0;
 
   const { capacity, self, reportLoad } = useMeshCapacity();
   const selfRef = useRef(self);
@@ -4415,6 +5143,10 @@ export function useRoomMedia(room: string) {
         ...(cameraActive ? getCameraTiers().values() : []),
         ...(fileActive ? getFileTiers() : []),
         ...getExtraScreenTiers(),
+        ...EXTRA_CAMERA_SLOTS.flatMap((slot) => {
+          const channel = extraCamerasRef.current[slot];
+          return channel.active ? [...channel.getRequestedTiers().values()] : [];
+        }),
         ...(camera2Ref.current.active ? camera2Ref.current.getRequestedTiers().values() : []),
       ];
       reportLoad(tiers);
@@ -4436,11 +5168,31 @@ export function useRoomMedia(room: string) {
   // the default profile needs it; this second read only counts the exposure,
   // once a screen share is running.
   useFeature(SCREEN_CODEC_FEATURE, { track: screen.active });
+  useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
   // Likewise "own-turn": exposed once there is screen video going either way,
   // the only time its relay transport and cap can matter.
   useFeature(OWN_TURN_FEATURE, {
     track: screen.active || Object.keys(screen.remoteStreams).length > 0,
   });
+  // Experiment "congestion-recover" (see lib/congestionRecover): read by every
+  // sender's congestion step, so a plain module flag; exposed while sharing
+  // the screen, the only time it can move anything.
+  const congestionRecover = useFeature(CONGESTION_RECOVER_FEATURE, { track: screen.active });
+  useEffect(() => {
+    setCongestionRecoverEnabled(congestionRecover.enabled);
+  }, [congestionRecover.enabled]);
+  // Experiment "recv-codec" (see lib/receiveCodec): only viewers on Safari or a
+  // phone are covered, and they are exposed once they receive video. Applied
+  // to answers as they are made, so a stream already running keeps its codec
+  // until its next negotiation.
+  const receivingVideo =
+    Object.keys(screen.remoteStreams).length > 0 || Object.keys(camera.remoteStreams).length > 0;
+  const receiveCodec = useFeature(RECEIVE_CODEC_FEATURE, {
+    track: receivingVideo && isReceiveCodecEligible(),
+  });
+  useEffect(() => {
+    setReceiveCodecEnabled(receiveCodec.enabled);
+  }, [receiveCodec.enabled]);
 
   // Experiment "stream-perf" (see lib/streamPerf). An exposure only once a
   // screen share is running, which is the only time it changes anything.
@@ -4448,6 +5200,68 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setStreamPerfEnabled(streamPerf.enabled);
   }, [streamPerf.enabled]);
+
+  // The "sq" experiments (see lib/streamQuality). Each one is exposed only
+  // where it can change something, and both sides send the same per-session
+  // events (see connectionTelemetry), so the admin compares like with like.
+  // sq-weak-sender: our own screen, outside "motion", on a machine with few
+  // cores — once one of its connections has fallen behind on the encoder,
+  // which is the only share the cap ever touches (see lib/streamQuality's
+  // SenderStruggle; watched in both groups).
+  const sqWeakStruggle = useSyncExternalStore(onWeakStruggle, hasWeakStruggle, () => false);
+  const sqWeakSender = useFeature(SQ_WEAK_SENDER_FEATURE, {
+    track: screen.active && shareProfile !== "motion" && isWeakMachine() && sqWeakStruggle,
+  });
+  useEffect(() => {
+    setSqWeakSenderEnabled(sqWeakSender.enabled);
+  }, [sqWeakSender.enabled]);
+  // sq-motion-hold: "motion" on the website, where H264 is not known to be hardware.
+  const sqMotionHold = useFeature(SQ_MOTION_HOLD_FEATURE, {
+    track: screen.active && shareProfile === "motion" && !isDesktopApp() && isH264Hardware() !== true,
+  });
+  useEffect(() => {
+    setSqMotionHoldEnabled(sqMotionHold.enabled);
+  }, [sqMotionHold.enabled]);
+  // sq-h264-qp: a field trial the desktop app applies at its next start (see
+  // electron/webrtcTrials.ts). Exposed only once the app runs with the side
+  // it was assigned — "assigned but not restarted yet" is neither group.
+  const trialsBridge = useMemo(() => getDesktopBridge()?.webrtcTrials ?? null, []);
+  const [trialState, setTrialState] = useState<{ known: boolean; h264Qp: boolean } | null>(null);
+  useEffect(() => {
+    if (!trialsBridge) return;
+    let live = true;
+    void trialsBridge.state().then(
+      (state) => {
+        if (!live) return;
+        setTrialState(state);
+        setSqH264QpApplied(state.h264Qp);
+      },
+      () => {}
+    );
+    return () => {
+      live = false;
+    };
+  }, [trialsBridge]);
+  const sqH264Qp = useFeature(SQ_H264_QP_FEATURE, { track: false });
+  useFeature(SQ_H264_QP_FEATURE, {
+    track: screen.active && trialState?.known === true && trialState.h264Qp === sqH264Qp.enabled,
+  });
+  useEffect(() => {
+    if (!trialsBridge || !sqH264Qp.ready) return;
+    trialsBridge.setH264Qp(sqH264Qp.enabled);
+  }, [trialsBridge, sqH264Qp.ready, sqH264Qp.enabled]);
+  // sq-recv-drops: anyone receiving video.
+  const sqRecvDrops = useFeature(SQ_RECV_DROPS_FEATURE, { track: receivingVideo });
+  useEffect(() => {
+    setSqRecvDropsEnabled(sqRecvDrops.enabled);
+  }, [sqRecvDrops.enabled]);
+  // sq-native-key: a screen share that goes through the GPU capture.
+  const sqNativeKey = useFeature(SQ_NATIVE_KEY_FEATURE, {
+    track: screen.active && nativeVideoBridge && nativeVideoWanted,
+  });
+  useEffect(() => {
+    setSqNativeKeyEnabled(sqNativeKey.enabled);
+  }, [sqNativeKey.enabled]);
   // One event per stretch of downgrading, not one per planning pass.
   const directDowngradeCounted = useRef(false);
 
@@ -4549,6 +5363,13 @@ export function useRoomMedia(room: string) {
   // the UI says so instead of pretending.
   const [micGainAvailable, setMicGainAvailable] = useState(true);
 
+  // "Microfone estéreo" (experiment "stereo-mic", switch in the mic's panel):
+  // the capture, the graph and the offers all in two channels. Same "ref
+  // mirrors state, for the capture closure" pattern as above; the switch
+  // itself restarts the mic, further down.
+  const stereoMic = useTileExperiment("stereoMic").active;
+  const stereoMicRef = useRef(stereoMic);
+
   // Same "ref mirrors state, for the capture closure" pattern as
   // noiseSuppressionOnRef above — useBroadcastChannel only calls this start
   // callback once per mic start, so a captured `const` would go stale if the
@@ -4557,12 +5378,39 @@ export function useRoomMedia(room: string) {
   const [micDeviceId, setMicDeviceIdState] = useState<string | null>(() => getStoredMicDeviceId());
   const [speakerDeviceId, setSpeakerDeviceIdState] = useState<string | null>(() => getStoredSpeakerDeviceId());
 
+  // "Várias entradas de áudio" (experiment "multi-mic", switch in the mic's
+  // panel): the inputs mixed in with the one above. The stored list survives
+  // the switch going off; it just stops being opened.
+  const multiMic = useTileExperiment("multiMic").active;
+  const [extraMicDeviceIds, setExtraMicDeviceIdsState] = useState<string[]>(() => getStoredExtraMicDeviceIds());
+  // What the next capture opens — empty unless the switch is on. Kept in
+  // step by setExtraMicDevices and the multiMic effect below.
+  const extraMicDeviceIdsRef = useRef<string[]>([]);
+
   // Idempotent: rnnoise's own teardown is guarded, so calling this from both
   // the stop path and unmount costs nothing.
   const releaseMicGraph = useCallback(() => {
-    micGraphRef.current?.stop();
+    // Cleared before the stop, so the graph's own ended-callback can tell
+    // this (we stopped it) from its input dying under it.
+    const graph = micGraphRef.current;
     micGraphRef.current = null;
+    graph?.stop();
   }, []);
+
+  // "Celular como microfone" (see lib/phoneCamera): whether the running mic
+  // is the phone's, whether it is the silence that stands in while the phone
+  // is not there (announced to the room page as a notice), whether a capture
+  // standing in should also ask the phone (not right after the phone itself
+  // stopped), and what asks it (set below, once the channel exists).
+  const micFromPhoneRef = useRef(false);
+  // Whether the running mic is the phone's audio (not the stand-in silence).
+  const phoneMicLiveInMicRef = useRef(false);
+  const [phoneMicOffline, setPhoneMicOffline] = useState(false);
+  const askPhoneMicRef = useRef(true);
+  const awaitPhoneMicRef = useRef<() => void>(() => {});
+  // Restarts the mic off the phone's audio (gone) or onto it (back) — once,
+  // however many of the paths that notice it get there in the same moment.
+  const restartPhoneMicRef = useRef<(ask: boolean) => void>(() => {});
 
   const mic = useBroadcastChannel(
     "mic",
@@ -4573,10 +5421,45 @@ export function useRoomMedia(room: string) {
       // opening a second capture of the same input device while the first is
       // still held is how Windows in particular hands back a silent track.
       releaseMicGraph();
-      const { stream, graph } = await captureNoiseSuppressedMic(
+      const extras = extraMicDeviceIdsRef.current;
+      // A phone chosen as the microphone: its audio, through the same graph
+      // as any mic (suppression, leveler, the volume dial). Not there yet
+      // (page closed, offline): the mic comes on anyway, silent, with a notice
+      // saying why — and the phone's audio replaces the silence once it
+      // connects (see awaitPhoneMic), as the camera's screen does.
+      let rawOverride: MediaStream | undefined;
+      const fromPhone = phoneCameraModeRef.current && Boolean(getPhoneCameraState().micSource);
+      micFromPhoneRef.current = fromPhone;
+      setPhoneMicInUse(fromPhone);
+      if (fromPhone) {
+        if (phoneMicLive()) {
+          const remote = await acquirePhoneCamera("mic");
+          rawOverride = new MediaStream([remote.clone()]);
+          setPhoneMicOffline(false);
+        } else {
+          const silence = getSharedAudioContext()?.createMediaStreamDestination().stream;
+          if (!silence) throw new ShareStartError(t("useRoomMedia.phoneMicOfflineTitle"));
+          if (askPhoneMicRef.current) awaitPhoneMicRef.current();
+          trackFeatureEvent(PHONE_CAMERA_EVENTS.micOffline);
+          setPhoneMicOffline(true);
+          rawOverride = silence;
+        }
+      } else {
+        setPhoneMicOffline(false);
+      }
+      let built: MicNoiseGraph | null = null;
+      const { stream, graph, inputs } = await captureNoiseSuppressedMic(
         noiseSuppressionOnRef.current,
         () => {
+          const ownInputDied = built !== null && micGraphRef.current === built;
           micGraphRef.current = null;
+          // The phone's audio ending is the phone going away, not the mic:
+          // it stays on, silent, waiting for the phone (see above). Only when
+          // the input died — a stop of ours is just a stop.
+          if (fromPhone) {
+            if (ownInputDied) restartPhoneMicRef.current(false);
+            return;
+          }
           // Reached only when the graph tore itself down rather than being
           // stopped by us — i.e. the raw capture ended underneath it. Turning
           // the channel off is what stops us broadcasting silence and what
@@ -4584,8 +5467,13 @@ export function useRoomMedia(room: string) {
           micStopRef.current();
         },
         micDeviceIdRef.current,
-        micGainRef.current
+        micGainRef.current,
+        stereoMicRef.current,
+        extras,
+        rawOverride
       );
+      if (extras.length) trackTileExperiment(TILE_EXPERIMENT_EVENTS.multiMic.start, inputs);
+      built = graph;
       micGraphRef.current = graph;
       setNoiseSuppressionAvailable(graphSuppressionAvailable(graph));
       setMicGainAvailable(graph !== null);
@@ -4612,6 +5500,94 @@ export function useRoomMedia(room: string) {
     micStopRef.current = micStop;
   }, [micStop]);
 
+  // "Celular como microfone": the mic follows the phone like the camera
+  // does — onto its audio when it comes in, back to silence (still on) when
+  // it goes, and moved when the source changes. Only ever restarts a mic
+  // that is on: whether the mic is on stays the person's own choice.
+  const micRef = useRef(mic);
+  useEffect(() => {
+    micRef.current = mic;
+  });
+  const micRestartPendingRef = useRef(false);
+  useEffect(() => {
+    restartPhoneMicRef.current = (ask) => {
+      if (micRestartPendingRef.current) return;
+      micRestartPendingRef.current = true;
+      setTimeout(() => {
+        micRestartPendingRef.current = false;
+        const m = micRef.current;
+        if (!m.active) return;
+        askPhoneMicRef.current = ask;
+        m.stop();
+        void Promise.resolve(m.start()).finally(() => {
+          askPhoneMicRef.current = true;
+        });
+      }, 0);
+    };
+    awaitPhoneMicRef.current = () => {
+      acquirePhoneCamera("mic").then(
+        () => {
+          // Still standing in with silence: the phone's audio takes over.
+          if (micRef.current.active && micFromPhoneRef.current && !phoneMicLiveInMicRef.current) {
+            restartPhoneMicRef.current(true);
+          }
+        },
+        // Not there in time, refused, or called off: the silence stays, and
+        // the phone opening its page later still brings it in ("arrived").
+        () => {}
+      );
+    };
+  });
+  useEffect(() => {
+    phoneMicLiveInMicRef.current = mic.active && micFromPhoneRef.current && !phoneMicOffline;
+  });
+  useEffect(
+    () =>
+      onPhoneCameraEvent((event) => {
+        const m = micRef.current;
+        if (!m.active || !micFromPhoneRef.current) return;
+        if (event === "ended") {
+          restartPhoneMicRef.current(false);
+          return;
+        }
+        const phone = getPhoneCameraState();
+        if (phone.session && phone.micSource === (phone.session.deviceId ?? "once") && !phoneMicLiveInMicRef.current) {
+          restartPhoneMicRef.current(true);
+        }
+      }),
+    []
+  );
+  // Another source picked for the mic (a phone, or back to this computer's):
+  // a mic that is on restarts on it; the phone it no longer uses is let go.
+  const phoneMicSource = usePhoneCamera().micSource;
+  const lastPhoneMicSource = useRef(phoneMicSource);
+  useEffect(() => {
+    if (lastPhoneMicSource.current === phoneMicSource) return;
+    lastPhoneMicSource.current = phoneMicSource;
+    if (micRef.current.active) restartPhoneMicRef.current(true);
+    else releaseUnchosenPhoneCamera();
+  }, [phoneMicSource]);
+  // The relay was not up when the silence went on: ask now that it is.
+  const phoneRelayConnected = usePhoneCamera().connected;
+  useEffect(() => {
+    if (!phoneRelayConnected || !micRef.current.active || !micFromPhoneRef.current) return;
+    if (phoneMicLiveInMicRef.current || getPhoneCameraState().session) return;
+    awaitPhoneMicRef.current();
+  }, [phoneRelayConnected]);
+  // A mic that went off lets go of the phone a moment later, unless the
+  // camera is still using it (a restart keeps it).
+  useEffect(() => {
+    if (mic.active) return;
+    const timer = setTimeout(() => {
+      if (micRef.current.active) return;
+      micFromPhoneRef.current = false;
+      setPhoneMicOffline(false);
+      setPhoneMicInUse(false);
+      releasePhoneIfIdle();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [mic.active]);
+
   // Leaving the page mid-call is the same release, for the same reasons — and
   // covers a graph built by a capture whose start never completed.
   useEffect(() => {
@@ -4619,6 +5595,28 @@ export function useRoomMedia(room: string) {
       releaseMicGraph();
     };
   }, [releaseMicGraph]);
+
+  // Experiment "memory-guard" (see lib/memoryGuard): RAM leak prevention and
+  // aggressive WebRTC/media cleanup in both the browser and desktop app.
+  // Tracked as an exposure once the user is in an active call/stream (sharing,
+  // receiving video/mic, or in a room with peers).
+  const inActiveCall =
+    sharingAnything ||
+    mic.active ||
+    Object.keys(screen.remoteStreams).length > 0 ||
+    Object.keys(camera.remoteStreams).length > 0 ||
+    Object.keys(mic.remoteStreams).length > 0;
+  const memoryGuard = useFeature(MEMORY_GUARD_FEATURE, { track: inActiveCall });
+  useEffect(() => {
+    setMemoryGuardEnabled(memoryGuard.enabled);
+  }, [memoryGuard.enabled]);
+  useEffect(() => {
+    if (!inActiveCall) return;
+    const timer = setInterval(() => {
+      sampleHeapMemory();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [inActiveCall]);
 
   const toggleMic = useCallback(() => {
     const next = !mic.active;
@@ -4659,6 +5657,13 @@ export function useRoomMedia(room: string) {
   // a brief drop beats silently continuing to broadcast the old device.
   const setMicDevice = useCallback(
     (deviceId: string | null) => {
+      // Picking one of this computer's mics is also leaving the phone. Marked
+      // as already seen, so the source's own effect does not restart the mic
+      // a second time on top of the restart below.
+      if (getPhoneCameraState().micSource) {
+        lastPhoneMicSource.current = null;
+        setPhoneMicSource(null);
+      }
       micDeviceIdRef.current = deviceId;
       setMicDeviceIdState(deviceId);
       setStoredMicDeviceId(deviceId);
@@ -4669,6 +5674,49 @@ export function useRoomMedia(room: string) {
     },
     [mic]
   );
+
+  // Adds or removes an extra input. Restarts a live mic for the same reason
+  // setMicDevice does: the mix is wired when the capture is built.
+  const setExtraMicDevices = useCallback(
+    (ids: string[]) => {
+      setExtraMicDeviceIdsState(ids);
+      setStoredExtraMicDeviceIds(ids);
+      extraMicDeviceIdsRef.current = multiMic ? ids : [];
+      if (mic.active) {
+        mic.stop();
+        mic.start();
+      }
+    },
+    [mic, multiMic]
+  );
+
+  // Flipping "Várias entradas de áudio" with extras picked changes what the
+  // capture holds, so a live mic restarts on it like a device switch.
+  const multiMicPrevRef = useRef(multiMic);
+  useEffect(() => {
+    extraMicDeviceIdsRef.current = multiMic ? extraMicDeviceIds : [];
+    if (multiMicPrevRef.current === multiMic) return;
+    multiMicPrevRef.current = multiMic;
+    if (mic.active && extraMicDeviceIds.length) {
+      mic.stop();
+      mic.start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiMic]);
+
+  // Flipping "Microfone estéreo" mid-call restarts the mic, like switching
+  // device: the capture constraints change, and so does what the offers ask
+  // for (see lib/opusStereo) — only a fresh set of connections carries that.
+  useEffect(() => {
+    setMicStereoEnabled(stereoMic);
+    if (stereoMicRef.current === stereoMic) return;
+    stereoMicRef.current = stereoMic;
+    if (mic.active) {
+      mic.stop();
+      mic.start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stereoMic]);
 
   const setSpeakerDevice = useCallback((deviceId: string | null) => {
     setSpeakerDeviceIdState(deviceId);
@@ -4734,6 +5782,11 @@ export function useRoomMedia(room: string) {
 
   return {
     isSharing: screen.active || camera.active,
+    // The camera that is on is a phone's (see lib/phoneCamera).
+    cameraFromPhone: camera.active && cameraFromPhone,
+    // The mic is on and should be the phone's, which is not there: it is
+    // sending silence (see the mic's capture) — the room says why.
+    phoneMicOffline: mic.active && phoneMicOffline,
     startShare: screen.start,
     stopShare: screen.stop,
     localStream: screen.localStream,
@@ -4755,6 +5808,10 @@ export function useRoomMedia(room: string) {
     extraScreens,
     extraScreensActive,
     addExtraScreen,
+    // "Várias câmeras" — see lib/multiCamera.ts.
+    extraCameras,
+    extraCamerasActive,
+    addExtraCamera,
     // The other lens, at the same time (see camera2 above).
     dualCamera: camera2,
     dualCameraSupported,
@@ -4819,6 +5876,8 @@ export function useRoomMedia(room: string) {
     micConnectionStates: mic.recvConnectionStates,
     micDeviceId,
     setMicDevice,
+    extraMicDeviceIds,
+    setExtraMicDevices,
     micGain,
     setMicGain,
     // Like noiseSuppressionAvailable, only meaningful once the mic has
@@ -4832,5 +5891,6 @@ export function useRoomMedia(room: string) {
     // just the pending preference for the next start.
     noiseSuppressionAvailable,
     toggleNoiseSuppression,
+    stereoMic,
   };
 }

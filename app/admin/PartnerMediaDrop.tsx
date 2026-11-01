@@ -13,6 +13,8 @@ const ACCEPT = {
 } as const;
 
 const MAX_MB = { image: 20, video: 500 } as const;
+// The API's ADVERTISER_VIDEO_MAX_MB (uploadRoutes.ts).
+const ADVERTISER_MAX_MB = { image: 20, video: 200 } as const;
 
 /**
  * Drag a file here, or click "Procurar", and it goes to the CDN (see
@@ -23,12 +25,16 @@ export function PartnerMediaDrop({
   kind,
   onUploaded,
   compact = false,
+  advertiser = false,
 }: {
   kind: "image" | "video";
   onUploaded: (url: string) => void;
   /** One line, for the smaller spots (the description's pictures). */
   compact?: boolean;
+  /** The self-serve dashboard: uploads as the signed-in advertiser, not as an admin. */
+  advertiser?: boolean;
 }) {
+  const maxMb = (advertiser ? ADVERTISER_MAX_MB : MAX_MB)[kind];
   const t = useT();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -47,15 +53,20 @@ export function PartnerMediaDrop({
       setError(kind === "image" ? t("admin.partnerMediaDrop.notAnImage") : t("admin.partnerMediaDrop.notAVideo"));
       return;
     }
-    if (file.size > MAX_MB[kind] * 1024 * 1024) {
-      setError(t("admin.partnerMediaDrop.tooLarge", { mb: MAX_MB[kind] }));
+    if (file.size > maxMb * 1024 * 1024) {
+      setError(t("admin.partnerMediaDrop.tooLarge", { mb: maxMb }));
       return;
     }
     const controller = new AbortController();
     abortRef.current = controller;
     setProgress(0);
     try {
-      const url = await uploadPartnerMedia(file, setProgress, controller.signal);
+      const url = await uploadPartnerMedia(
+        file,
+        setProgress,
+        controller.signal,
+        advertiser ? "/partner-orders/upload" : undefined
+      );
       onUploaded(url);
     } catch (err) {
       if ((err as Error)?.name !== "AbortError") {
@@ -137,6 +148,52 @@ export function PartnerMediaDrop({
         />
       </div>
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * An image field that only takes a file — no link to paste. What the
+ * self-serve dashboard uses for the banner and the icon: everything an
+ * advertiser shows goes through our own CDN, never a URL from elsewhere that
+ * could change after review. Shows the picture once there is one, with a way
+ * to remove it. The admin form keeps its link input.
+ */
+export function PartnerImageUpload({
+  value,
+  onChange,
+  square = false,
+  compact = false,
+}: {
+  value: string | null;
+  onChange: (url: string | null) => void;
+  /** The icon: drawn as a square thumbnail rather than a banner strip. */
+  square?: boolean;
+  compact?: boolean;
+}) {
+  const t = useT();
+  return (
+    <div>
+      {value && (
+        <div className="mt-1 flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={value}
+            alt=""
+            className={`rounded-lg border border-zinc-200 object-cover dark:border-zinc-800 ${
+              square ? "h-14 w-14" : "h-14 w-28"
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs font-semibold text-red-600 underline underline-offset-2 dark:text-red-400"
+          >
+            {t("common.remove")}
+          </button>
+        </div>
+      )}
+      <PartnerMediaDrop advertiser kind="image" compact={compact || Boolean(value)} onUploaded={onChange} />
     </div>
   );
 }

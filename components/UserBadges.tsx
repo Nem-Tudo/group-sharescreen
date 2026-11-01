@@ -1,8 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Tooltip } from "./Tooltip";
 import { getUserBadges, useBadgesCatalog, type BadgeDefinition } from "@/lib/badges";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import {
+  isPlanBadge,
+  PRO_BADGE_FEATURE,
+  proBadgeLevel,
+  proBadgeLevelLabel,
+  withProBadgeLevel,
+} from "@/lib/proBadge";
 import type { ProfileThemeStyle } from "@/lib/profileTheme";
 import type { Account } from "@/lib/accountApi";
 import { useT } from "@/lib/useI18n";
@@ -25,13 +34,24 @@ interface UserBadgesProps {
 export function UserBadges({ account, isOwner, className, theme }: UserBadgesProps) {
   const catalog = useBadgesCatalog();
   const badges = getUserBadges(account, isOwner, catalog);
+  const hasPlanBadge = badges.some((badge) => isPlanBadge(badge.id));
+  // Exposure only where a plan badge is actually drawn. Decided for whoever is
+  // looking: the plan badge is only here while the plan is live, so the streak
+  // it reads is a current one.
+  const tenure = useFeature(PRO_BADGE_FEATURE, { track: hasPlanBadge });
+  const [now] = useState(() => Date.now());
   if (badges.length === 0) return null;
+  const level = proBadgeLevel(account.premium?.streakStartedAt, now);
 
   return (
     <div className={`inline-flex flex-wrap items-center gap-1.5 ${className ?? ""}`}>
-      {badges.map((badge) => (
-        <BadgeItem key={badge.id} badge={badge} />
-      ))}
+      {badges.map((badge) =>
+        tenure.enabled && isPlanBadge(badge.id) ? (
+          <BadgeItem key={badge.id} badge={withProBadgeLevel(badge, level)} tenureLevel={level} />
+        ) : (
+          <BadgeItem key={badge.id} badge={badge} />
+        )
+      )}
       <BadgesHelp theme={theme} />
     </div>
   );
@@ -81,8 +101,10 @@ function BadgesHelp({ theme }: { theme?: ProfileThemeStyle }) {
   );
 }
 
-function BadgeItem({ badge }: { badge: BadgeDefinition }) {
+function BadgeItem({ badge, tenureLevel }: { badge: BadgeDefinition; tenureLevel?: number }) {
   const t = useT();
+  // Nothing to add on the first level: it also covers somebody who subscribed today.
+  const streak = tenureLevel ? t("badges.proBadge.streak", { value: proBadgeLevelLabel(tenureLevel) }) : null;
   const tooltipContent = (
     <div className="flex flex-col gap-1 p-1 max-w-[220px] text-left">
       <div className="flex items-center gap-2">
@@ -103,6 +125,7 @@ function BadgeItem({ badge }: { badge: BadgeDefinition }) {
       <p className="text-[11px] leading-snug text-zinc-300">
         {badge.description}
       </p>
+      {streak && <p className="text-[11px] font-semibold leading-snug text-zinc-100">{streak}</p>}
     </div>
   );
 
@@ -110,7 +133,12 @@ function BadgeItem({ badge }: { badge: BadgeDefinition }) {
     <Tooltip content={tooltipContent} placement="top" delay={[150, 0]}>
       <button
         type="button"
-        aria-label={`${badge.name}: ${badge.description}`}
+        aria-label={`${badge.name}: ${badge.description}${streak ? `. ${streak}` : ""}`}
+        onClick={
+          tenureLevel === undefined
+            ? undefined
+            : () => trackFeatureEvent("pro_badge_tier_click", { value: tenureLevel + 1, feature: PRO_BADGE_FEATURE })
+        }
         className={`inline-flex h-5 w-5 items-center justify-center p-0.5 rounded-md border transition-all duration-150 hover:scale-110 active:scale-95 cursor-pointer overflow-hidden ${badge.chipClass ?? "border-zinc-700/40 bg-zinc-800/20"}`}
       >
         <img

@@ -19,7 +19,9 @@ import {
   setChannelPermissions,
   setChannelSync,
   setChannelTopic,
+  setChannelUserLimit,
   MAX_CHANNEL_TOPIC,
+  MAX_CHANNEL_USER_LIMIT,
   type GroupChannel,
   type GroupDetail,
 } from "@/lib/groupsApi";
@@ -39,6 +41,9 @@ import { ChannelWebhooksTab } from "@/components/groups/ChannelWebhooksTab";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { refreshGroup, useGroupDetail } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
+import { useFeature } from "@/lib/features";
+import { GROUP_VOICE_LIMIT_FEATURE, trackVoiceLimitSet, userLimitOf } from "@/lib/groupVoiceLimit";
+import { NewBadge } from "@/components/NewBadge";
 
 // One room's own settings — the gear beside a room in the group's list opens
 // this (see GroupSidebar), as does the "Salas" tab of the group's settings.
@@ -139,6 +144,11 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
   const groupId = detail.group.id;
   const [name, setName] = useState(channel.name);
   const [topic, setTopic] = useState(channel.topic ?? "");
+  const [userLimit, setUserLimit] = useState(userLimitOf(channel));
+  // "Limite de participantes" — see lib/groupVoiceLimit. A room that already
+  // has one keeps the field, so it can always be taken off again.
+  const limitFeature = useFeature(GROUP_VOICE_LIMIT_FEATURE, { group: groupId, track: channel.kind === "voice" });
+  const showLimit = channel.kind === "voice" && (limitFeature.enabled || userLimitOf(channel) > 0);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -170,6 +180,20 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
     setMessage(result.ok ? { ok: true, text: t("common.saved2") } : { ok: false, text: result.error });
     if (result.ok) {
       setTopic(result.channel.topic ?? "");
+      void refreshGroup(groupId);
+    }
+  }
+
+  async function saveUserLimit(e: FormEvent) {
+    e.preventDefault();
+    if (userLimit === userLimitOf(channel)) return;
+    setBusy(true);
+    const result = await setChannelUserLimit(groupId, channel.id, userLimit);
+    setBusy(false);
+    setMessage(result.ok ? { ok: true, text: t("common.saved2") } : { ok: false, text: result.error });
+    if (result.ok) {
+      setUserLimit(userLimitOf(result.channel));
+      trackVoiceLimitSet(groupId, userLimitOf(result.channel));
       void refreshGroup(groupId);
     }
   }
@@ -231,6 +255,37 @@ function GeneralTab({ detail, channel, onDeleted }: { detail: GroupDetail; chann
             </button>
           </div>
           <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.channelTopic.hint")}</span>
+        </form>
+      )}
+
+      {showLimit && (
+        <form onSubmit={saveUserLimit} className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {t("groups.channelUserLimit.label")}
+            <NewBadge id={GROUP_VOICE_LIMIT_FEATURE} />
+          </span>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={MAX_CHANNEL_USER_LIMIT}
+              value={userLimit}
+              onChange={(e) => setUserLimit(Number(e.target.value))}
+              aria-label={t("groups.channelUserLimit.label")}
+              className="min-w-0 flex-1 accent-blue-600"
+            />
+            <span className="w-24 shrink-0 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+              {userLimit === 0 ? t("groups.channelUserLimit.none") : t("groups.channelUserLimit.people", { count: userLimit })}
+            </span>
+            <button
+              type="submit"
+              disabled={busy || userLimit === userLimitOf(channel)}
+              className={`${primaryButton} shrink-0`}
+            >
+              {t("common.save")}
+            </button>
+          </div>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.channelUserLimit.hint")}</span>
         </form>
       )}
 

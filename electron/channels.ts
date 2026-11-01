@@ -114,6 +114,13 @@ export const IPC = {
   nativeVideoEnded: "golive:native-video:ended",
 
   /**
+   * renderer -> main: the WebRTC field trials this process started with (see
+   * electron/webrtcTrials.ts), and the site's decision for the next start.
+   */
+  webrtcTrialsState: "golive:webrtc-trials:state",
+  webrtcTrialsSetH264Qp: "golive:webrtc-trials:set-h264-qp",
+
+  /**
    * renderer -> main: this installation's id (see the site's
    * lib/installId.ts), so main can drop it somewhere the *uninstaller* can
    * read it — the renderer keeps it in localStorage, which NSIS has no way
@@ -153,6 +160,10 @@ export const IPC = {
    * already ended is worse than one that never opened.
    */
   callRinging: "golive:call:ringing",
+  /** renderer -> main: the call's taskbar buttons (Windows). Null without a call. */
+  callControlsSet: "golive:call:controls-set",
+  /** main -> renderer: one of those buttons was pressed. */
+  callControlPressed: "golive:call:control-pressed",
   /** overlay -> main: what to show. Asked for once, as the window opens. */
   callOverlayData: "golive:call:overlay-data",
   /**
@@ -271,6 +282,16 @@ export const IPC = {
   screenPenCanvasCommand: "golive:screen-pen:canvas-command",
   /** canvas -> main: how many marks it holds and whether undo/redo apply. */
   screenPenCanvasInfo: "golive:screen-pen:canvas-info",
+
+  // ─── Discord Rich Presence ──────────────────────────────────────────────────
+  /** renderer -> main: update Discord Rich Presence state. */
+  discordRpcUpdate: "golive:discord-rpc:update",
+  /** renderer -> main: clear Discord Rich Presence. */
+  discordRpcClear: "golive:discord-rpc:clear",
+  /** renderer -> main: configure Discord RPC. */
+  discordRpcConfigure: "golive:discord-rpc:configure",
+  /** main -> renderer: Discord accepted the connection. */
+  discordRpcReady: "golive:discord-rpc:ready",
 } as const;
 
 export type ScreenPenTool = "pen" | "highlighter" | "arrow" | "rect" | "ellipse" | "text" | "eraser";

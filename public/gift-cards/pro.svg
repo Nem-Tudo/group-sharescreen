@@ -47,7 +47,7 @@
 
     <!-- Pill -->
     <rect x="266.25" y="592" width="210" height="46" rx="23" fill="#f4f4f5"/>
-    <text x="371.25" y="623" font-size="22" font-weight="500" fill="#3f3f46">GoLive</text>
+    <text x="371.25" y="623" font-size="22" font-weight="500" fill="#3f3f46">Go Live</text>
 
     <!-- Code field, drawn like the "De" card in the modal -->
     <rect x="60" y="680" width="622.5" height="130" rx="28" fill="#fafafa" stroke="#e4e4e7" stroke-width="2.5"/>

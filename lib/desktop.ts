@@ -114,6 +114,17 @@ export interface DesktopBridge {
   reportInstallId?(installId: string): void;
 
   /**
+   * Updates Discord Rich Presence state from the renderer.
+   */
+  readonly discordRpcUpdate?: (activity: unknown) => void;
+  /** Clears Discord Rich Presence. */
+  readonly discordRpcClear?: () => void;
+  /** Reconfigures Discord RPC (client ID or enabled status). */
+  readonly discordRpcConfigure?: (config: { clientId?: string; enabled?: boolean }) => void;
+  /** Discord accepted the shell's connection. Missing on shells older than this. */
+  readonly onDiscordRpcReady?: (callback: () => void) => () => void;
+
+  /**
    * The two settings that decide whether this machine is reachable with the
    * window closed: whether closing it leaves the app in the tray, and whether
    * the app starts with the system.
@@ -139,6 +150,19 @@ export interface DesktopBridge {
    * what somebody who closed it wants. Deliberately never steals focus.
    */
   setCallRinging?(call: DesktopRingingCall | null): void;
+
+  /** The call's buttons in the taskbar preview. Windows shells only. See lib/taskbarCallControls. */
+  setCallControls?(
+    controls: {
+      micOn: boolean;
+      deafened: boolean;
+      micLabel: string;
+      deafenLabel: string;
+      leaveLabel: string;
+    } | null
+  ): void;
+  /** One of those buttons: "mic", "deafen" or "leave". Returns an unsubscribe function. */
+  onCallControl?(callback: (action: string) => void): () => void;
 
   /**
    * A button pressed in that small window. Returns an unsubscribe function.
@@ -276,6 +300,18 @@ export interface DesktopBridge {
      * (a device invalidated, or the helper crashed). Returns an unsubscribe.
      */
     onData(onChunk: (chunk: Uint8Array) => void, onEnded: () => void): () => void;
+  };
+  /**
+   * The WebRTC field trials this app process started with, and the site's
+   * decision for the next start — experiment sq-h264-qp (see
+   * lib/streamQuality.ts and electron/webrtcTrials.ts). Absent on a shell
+   * from before it existed.
+   */
+  webrtcTrials?: {
+    /** `known`: a decision was on disk at start; `h264Qp`: the trial is running. */
+    state(): Promise<{ known: boolean; h264Qp: boolean }>;
+    /** Stores the decision; it applies from the app's next start. */
+    setH264Qp(on: boolean): void;
   };
   /**
    * Screen capture encoded on the GPU by a native helper — an experiment (see

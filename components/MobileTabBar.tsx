@@ -24,6 +24,8 @@ import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectNameSlice } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
+import { useFeature } from "@/lib/features";
+import { HOME_REDESIGN_FEATURE } from "@/lib/homeRedesign";
 
 // The app's bottom tabs, below lg — see lib/mobileShell for which screens show
 // them and why the desktop app never does.
@@ -66,6 +68,9 @@ export function MobileTabBar() {
 
 function TabBar({ pathname, counting }: { pathname: string; counting: boolean }) {
   const t = useT();
+  // The home redesign's frosted bar: see-through enough that the page reads
+  // under it. Exposure is counted on the home page, not here.
+  const glass = useFeature(HOME_REDESIGN_FEATURE, { track: false }).enabled;
   const router = useRouter();
   const { account } = useAuth();
   const state = useSignalingSelector(selectNameSlice, shallow);
@@ -95,7 +100,9 @@ function TabBar({ pathname, counting }: { pathname: string; counting: boolean })
   return (
     <nav
       aria-label={t("mobile.tabs")}
-      className="fixed inset-x-0 bottom-0 z-40 select-none border-t border-black/10 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden dark:border-white/10 dark:bg-zinc-950/95"
+      className={`fixed inset-x-0 bottom-0 z-40 select-none border-t pb-[env(safe-area-inset-bottom)] lg:hidden ${glass
+        ? "border-white/40 bg-white/60 backdrop-blur-2xl backdrop-saturate-150 dark:border-white/10 dark:bg-zinc-900/55"
+        : "border-black/10 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/95"}`}
     >
       <ul className={`mx-auto flex ${TAB_HEIGHT} max-w-lg items-stretch`}>
         <Tab href="/" label={t("common.home")} active={active.home} icon={MdOutlineHome} activeIcon={MdHome} />

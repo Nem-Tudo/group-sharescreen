@@ -5,6 +5,7 @@ import { MdClose } from "react-icons/md";
 import { VerifiedBadgeIcon } from "./icons";
 import { useT } from "@/lib/useI18n";
 import { useOpenPro } from "@/lib/proModal";
+import { noteProSourceCta } from "@/lib/proSourceAttribution";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { dismissTurnUpsell, useTurnUpsell } from "@/lib/turnUpsell";
 
@@ -17,13 +18,55 @@ export const TURN_UPSELL_EVENTS = {
   click: "turn_upsell_click",
   dismiss: "turn_upsell_dismiss",
 } as const;
+// The other way of saying it: inside the stuck tile instead of the banner below.
+const TILE_VARIANT = "tile";
+
+// Once per page, however many tiles are stuck at the same time.
+let tileShownCounted = false;
+
+/** Under a remote tile's loading spinner, on the "tile" side of the experiment. */
+export function TurnUpsellTileMessage({ compact = false }: { compact?: boolean }) {
+  const t = useT();
+  const openPro = useOpenPro();
+  const needed = useTurnUpsell();
+  // Not an exposure: TurnUpsellNotice counts that, once per page.
+  const feature = useFeature(TURN_UPSELL_FEATURE, { track: false });
+  const visible = needed && feature.variant === TILE_VARIANT;
+
+  useEffect(() => {
+    if (!visible || tileShownCounted) return;
+    tileShownCounted = true;
+    trackFeatureEvent(TURN_UPSELL_EVENTS.shown, { feature: TURN_UPSELL_FEATURE });
+  }, [visible]);
+
+  if (!visible) return null;
+  return (
+    <div className="flex max-w-xs flex-col items-center gap-1 px-3 text-center text-white">
+      <p className="text-xs font-medium sm:text-sm">{t("turnUpsell.title")}</p>
+      {/* A small tile only has room for the question and the button. */}
+      {!compact && <p className="text-xs text-white/70">{t("turnUpsell.body")}</p>}
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          trackFeatureEvent(TURN_UPSELL_EVENTS.click, { feature: TURN_UPSELL_FEATURE });
+          noteProSourceCta("turnUpsell");
+          openPro();
+        }}
+        className="mt-1 flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
+      >
+        {t("turnUpsell.cta")}
+      </button>
+    </div>
+  );
+}
 
 export default function TurnUpsellNotice() {
   const t = useT();
   const openPro = useOpenPro();
   const needed = useTurnUpsell();
   const feature = useFeature(TURN_UPSELL_FEATURE, { track: needed });
-  const visible = needed && feature.enabled;
+  const visible = needed && feature.enabled && feature.variant !== TILE_VARIANT;
 
   useEffect(() => {
     if (visible) trackFeatureEvent(TURN_UPSELL_EVENTS.shown, { feature: TURN_UPSELL_FEATURE });
@@ -43,6 +86,7 @@ export default function TurnUpsellNotice() {
           type="button"
           onClick={() => {
             trackFeatureEvent(TURN_UPSELL_EVENTS.click, { feature: TURN_UPSELL_FEATURE });
+            noteProSourceCta("turnUpsell");
             openPro();
           }}
           className="mt-2 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"

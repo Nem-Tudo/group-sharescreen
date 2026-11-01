@@ -41,6 +41,8 @@ export type Account = {
    * carry no_ads; absent on an older API, read the same.
    */
   partnerAdsMode?: "always" | "rewards" | "never";
+  /** Refuses effects put on this person's camera by others (components/CameraEffectForOthers). */
+  blockCameraEffects?: boolean;
   // Public profile page content (see app/user/[id]/page.tsx and lib/
   // userProfile.ts) — DB-edited only, unlike points above.
   bio?: string | null;
@@ -132,6 +134,12 @@ export type PremiumState = {
   providerRef: string;
   lastPaymentId: string | null;
   cancelledAt: number | null;
+  /**
+   * When the current unbroken run of paid time began, which is what the Pro
+   * badge evolves on (see lib/proBadge). Stays on the row after a lapse, so it
+   * only means something while the plan is live. Absent on an older API.
+   */
+  streakStartedAt?: number | null;
   /**
    * The last charge Mercado Pago refused, with their own reason code.
    *
@@ -521,6 +529,7 @@ export type UpdateProfileInput = {
   verifiedTone?: "blue" | "gold" | "ruby" | null;
   /** Which partner ads to show (Pro); absent leaves it alone. See lib/partnerAdsMode.ts. */
   partnerAdsMode?: "always" | "rewards" | "never";
+  blockCameraEffects?: boolean;
 };
 
 export async function updateProfile(input: UpdateProfileInput): Promise<Account> {

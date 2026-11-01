@@ -42,6 +42,8 @@ export type Feature =
   | "room_theme_publish"
   | "room_theme_set"
   | "room_theme_gradient"
+  | "camera_effect_publish"
+  | "camera_effect_others"
   | "force_relay"
   | "uncapped_relay"
   | "dedicated_turn"
@@ -75,6 +77,8 @@ export const FEATURE_TIERS: Record<Feature, FeatureTier> = {
   room_theme_publish: "premium_max",
   room_theme_set: "premium_max",
   room_theme_gradient: "premium_max",
+  camera_effect_publish: "premium_max",
+  camera_effect_others: "premium_max",
   force_relay: "pro_ultra",
   uncapped_relay: "pro_ultra",
   dedicated_turn: "premium",

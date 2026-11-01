@@ -1,8 +1,8 @@
 {
   "name": "sharescreen",
-  "version": "1.0.19",
+  "version": "1.0.28",
   "private": true,
-  "description": "GoLive — compartilhe sua tela com quem estiver na mesma sala.",
+  "description": "Go Live — compartilhe sua tela com quem estiver na mesma sala.",
   "author": "NemTudo",
   "main": "electron/dist/main.js",
   "scripts": {

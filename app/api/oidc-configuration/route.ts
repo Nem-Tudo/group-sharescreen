@@ -40,7 +40,7 @@ export async function GET() {
     // so with a 503 is better than serving a cached promise about endpoints
     // that are not answering.
     return NextResponse.json(
-      { error: "temporarily_unavailable", error_description: "The GoLive API is unreachable." },
+      { error: "temporarily_unavailable", error_description: "The Go Live API is unreachable." },
       { status: 503 }
     );
   }
@@ -48,7 +48,7 @@ export async function GET() {
     return NextResponse.json(
       {
         error: "temporarily_unavailable",
-        error_description: "Sign in with GoLive is not configured on this server.",
+        error_description: "Sign in with Go Live is not configured on this server.",
       },
       { status: 503 }
     );

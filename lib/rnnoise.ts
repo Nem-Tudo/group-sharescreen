@@ -71,6 +71,12 @@ export type MicNoiseGraph = {
   // this graph's to close.
   audioCtx: AudioContext;
   source: MediaStreamAudioSourceNode;
+  // "Várias entradas de áudio" (experiment "multi-mic"): the other inputs
+  // mixed into the same chain, one source per capture. Empty for everybody
+  // else. They join at the very top, so suppression, the leveler and the
+  // volume dial apply to the mix exactly as they do to a single microphone.
+  extraRawStreams: MediaStream[];
+  extraSources: MediaStreamAudioSourceNode[];
   // Null when the graph was built but RNNoise itself could not be: an
   // unsupported browser, a context running at the wrong sample rate, a
   // worklet or wasm fetch that failed. The gain dial still works in that
@@ -106,6 +112,10 @@ export type MicCaptureResult = {
   // out the input-volume dial: with nothing in the path there is nowhere for
   // it to apply.
   graph: MicNoiseGraph | null;
+  // How many inputs actually ended up in the mix — the main one plus every
+  // extra that opened. Lower than asked when an extra was unplugged, refused,
+  // or turned out to be the main device under another id.
+  inputs: number;
 };
 
 // Whether noise suppression is actually in effect right now, as opposed to
@@ -150,11 +160,17 @@ const MIC_LEVELER_RELEASE_SECONDS = 0.25;
 // clipping a mic that was already loud to begin with.
 const MIC_LEVELER_MAKEUP_GAIN = 10 ** (9 / 20);
 
-function micConstraints(deviceId?: string | null): MediaTrackConstraints {
+function micConstraints(deviceId?: string | null, stereo = false): MediaTrackConstraints {
   // autoGainControl: false so Chrome's own AGC never touches the OS mic
   // level — see the MIN_MIC_GAIN/MAX_MIC_GAIN comment above for why that's
   // the wrong tool even when the intent (fixing a too-quiet mic) is right.
-  const base = { channelCount: 1, autoGainControl: false };
+  //
+  // Stereo ("Microfone estéreo") also turns the browser's echo cancellation
+  // and noise suppression off: Chrome runs them on one channel and hands back
+  // mono whenever they are on, whatever channelCount asked for.
+  const base: MediaTrackConstraints = stereo
+    ? { channelCount: 2, autoGainControl: false, echoCancellation: false, noiseSuppression: false }
+    : { channelCount: 1, autoGainControl: false };
   return deviceId ? { ...base, deviceId: { exact: deviceId } } : base;
 }
 
@@ -173,12 +189,12 @@ function isMissingDeviceError(err: unknown): boolean {
 // for the same reason: a working microphone beats an error about permissions
 // that were never denied. The stored choice is deliberately left alone, so
 // the next start tries that device again once it is back.
-async function captureRawMic(deviceId?: string | null): Promise<MediaStream> {
+async function captureRawMic(deviceId?: string | null, stereo = false): Promise<MediaStream> {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId) });
+    return await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, stereo) });
   } catch (err) {
     if (!deviceId || !isMissingDeviceError(err)) throw err;
-    return navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
+    return navigator.mediaDevices.getUserMedia({ audio: micConstraints(null, stereo) });
   }
 }
 
@@ -246,15 +262,51 @@ async function createRnnoiseNode(audioCtx: AudioContext): Promise<RnnoiseWorklet
 // never touched here. The destination's track is the one being broadcast, so
 // leaving that last link alone is what lets suppression be toggled mid-call
 // without interrupting it or making peers renegotiate.
+//
+// Every source connects to the same node: an AudioNode sums whatever is
+// connected to its input, so the extra inputs are mixed for free — and
+// RNNoise, pinned to one channel, sees that mix rather than one capture.
 function connectUpstream(graph: MicNoiseGraph, suppressionEnabled: boolean) {
-  graph.source.disconnect();
+  const sources = [graph.source, ...graph.extraSources];
+  for (const source of sources) source.disconnect();
   graph.rnnoiseNode?.disconnect();
-  if (suppressionEnabled && graph.rnnoiseNode) {
-    graph.source.connect(graph.rnnoiseNode);
-    graph.rnnoiseNode.connect(graph.compressor);
-  } else {
-    graph.source.connect(graph.compressor);
+  const target = suppressionEnabled && graph.rnnoiseNode ? graph.rnnoiseNode : graph.compressor;
+  for (const source of sources) source.connect(target);
+  if (target === graph.rnnoiseNode) graph.rnnoiseNode.connect(graph.compressor);
+}
+
+// Opens the extra inputs, each on its own and none of them fatal: an extra
+// that is gone or refused is simply left out, since the main microphone is
+// the one the person is counting on. No default-input fallback here either —
+// falling back would quietly capture the main device a second time, which on
+// Windows is how both captures end up silent.
+//
+// An extra that resolves to the device the main capture already holds (the
+// same microphone under its "default" alias, say) is dropped for that reason.
+async function captureExtraMics(deviceIds: string[], primary: MediaStream, stereo: boolean): Promise<MediaStream[]> {
+  const held = new Set(
+    primary
+      .getAudioTracks()
+      .map((t) => t.getSettings().deviceId)
+      .filter(Boolean)
+  );
+  const opened: MediaStream[] = [];
+  for (const deviceId of deviceIds) {
+    if (held.has(deviceId)) continue;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, stereo) });
+      const actual = stream.getAudioTracks()[0]?.getSettings().deviceId ?? deviceId;
+      if (held.has(actual)) {
+        stream.getTracks().forEach((t) => t.stop());
+        continue;
+      }
+      held.add(actual);
+      opened.push(stream);
+    } catch {
+      // ignored - this input is left out of the mix
+    }
   }
+  return opened;
 }
 
 // Captures the mic and routes it through the RNNoise AudioWorklet and the
@@ -271,9 +323,24 @@ export async function captureNoiseSuppressedMic(
   // Where the input-volume dial is right now. Applied as the graph is built
   // rather than in a follow-up call, so a mic started at 30% is never
   // broadcast at 100% for the first few frames.
-  initialGain: number = DEFAULT_MIC_GAIN
+  initialGain: number = DEFAULT_MIC_GAIN,
+  // "Microfone estéreo": two channels end to end, and no RNNoise — it only
+  // processes one, so the toggle is greyed out for as long as this is on.
+  stereo = false,
+  // "Várias entradas de áudio": more inputs mixed in with the main one. Only
+  // ever reach the room through the graph — without one there is nothing to
+  // mix them in, and they are released straight away.
+  extraDeviceIds: string[] = [],
+  // An input that is not a device here — "Celular como microfone": the
+  // phone's audio (or silence while waiting for it), put through the same
+  // graph. Owned by the graph from here on, like a capture: stopped with it.
+  rawOverride?: MediaStream
 ): Promise<MicCaptureResult> {
-  const rawStream = await captureRawMic(deviceId);
+  const rawStream = rawOverride ?? (await captureRawMic(deviceId, stereo));
+  const extraRawStreams = extraDeviceIds.length ? await captureExtraMics(extraDeviceIds, rawStream, stereo) : [];
+  const releaseExtras = () => {
+    for (const stream of extraRawStreams) stream.getTracks().forEach((t) => t.stop());
+  };
 
   // The processed mic is produced by an audio graph, and a graph in a
   // suspended AudioContext does not run: its destination node emits digital
@@ -290,11 +357,13 @@ export async function captureNoiseSuppressedMic(
   const running = await ensureSharedAudioContextRunning();
   const audioCtx = getSharedAudioContext();
   if (!running || !audioCtx) {
-    return { stream: rawStream, graph: null };
+    releaseExtras();
+    return { stream: rawStream, graph: null, inputs: 1 };
   }
 
   try {
     const source = audioCtx.createMediaStreamSource(rawStream);
+    const extraSources = extraRawStreams.map((stream) => audioCtx.createMediaStreamSource(stream));
     const compressor = audioCtx.createDynamicsCompressor();
     compressor.threshold.value = MIC_LEVELER_THRESHOLD_DB;
     compressor.knee.value = MIC_LEVELER_KNEE_DB;
@@ -308,22 +377,20 @@ export async function captureNoiseSuppressedMic(
     const destination = audioCtx.createMediaStreamDestination();
     // All pinned mono for the reason createRnnoiseNode pins its node, and
     // pinned here as well because connectUpstream's bypass path reaches the
-    // destination without passing through that node at all.
-    compressor.channelCount = 1;
-    compressor.channelCountMode = "explicit";
-    makeupGainNode.channelCount = 1;
-    makeupGainNode.channelCountMode = "explicit";
-    gainNode.channelCount = 1;
-    gainNode.channelCountMode = "explicit";
-    destination.channelCount = 1;
-    destination.channelCountMode = "explicit";
+    // destination without passing through that node at all. Pinned to two
+    // in stereo, where there is no RNNoise node to protect.
+    const channels = stereo ? 2 : 1;
+    for (const node of [compressor, makeupGainNode, gainNode, destination]) {
+      node.channelCount = channels;
+      node.channelCountMode = "explicit";
+    }
     compressor.connect(makeupGainNode);
     makeupGainNode.connect(gainNode);
     gainNode.connect(destination);
 
     // Only the suppressor is optional — a graph without it is still a graph,
     // and still carries the volume dial.
-    const rnnoiseNode = await createRnnoiseNode(audioCtx);
+    const rnnoiseNode = stereo ? null : await createRnnoiseNode(audioCtx);
 
     // One teardown, reachable two ways. `stop()` below is the reliable path
     // (the caller switching the mic off); the "ended" listener stays as the
@@ -335,8 +402,10 @@ export async function captureNoiseSuppressedMic(
       if (disposed) return;
       disposed = true;
       rawStream.getTracks().forEach((t) => t.stop());
+      releaseExtras();
       destination.stream.getTracks().forEach((t) => t.stop());
       source.disconnect();
+      for (const extra of extraSources) extra.disconnect();
       compressor.disconnect();
       makeupGainNode.disconnect();
       gainNode.disconnect();
@@ -353,6 +422,8 @@ export async function captureNoiseSuppressedMic(
       rawStream,
       audioCtx,
       source,
+      extraRawStreams,
+      extraSources,
       rnnoiseNode,
       compressor,
       makeupGainNode,
@@ -376,10 +447,26 @@ export async function captureNoiseSuppressedMic(
     for (const track of rawStream.getAudioTracks()) {
       track.addEventListener("ended", teardown, { once: true });
     }
+    // An extra ending on its own is not the microphone ending: it just drops
+    // out of the mix, and the main input carries on.
+    extraRawStreams.forEach((stream, i) => {
+      for (const track of stream.getAudioTracks()) {
+        track.addEventListener(
+          "ended",
+          () => {
+            extraSources[i].disconnect();
+            const at = graph.extraSources.indexOf(extraSources[i]);
+            if (at !== -1) graph.extraSources.splice(at, 1);
+          },
+          { once: true }
+        );
+      }
+    });
 
-    return { stream: destination.stream, graph };
+    return { stream: destination.stream, graph, inputs: 1 + extraSources.length };
   } catch {
-    return { stream: rawStream, graph: null };
+    releaseExtras();
+    return { stream: rawStream, graph: null, inputs: 1 };
   }
 }
 

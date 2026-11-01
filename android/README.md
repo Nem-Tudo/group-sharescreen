@@ -1,4 +1,4 @@
-# GoLive Android (Capacitor)
+# Go Live Android (Capacitor)
 
 Same idea as `electron/`: a **shell around the deployed site**, not a second
 copy of it. `capacitor.config.ts` (repo root) points the WebView straight at
@@ -164,7 +164,7 @@ the fastest path from a clean clone to a device.
   file, `app/build.gradle` falls back to an unsigned/debug-signed build —
   enough to confirm the app still builds, not enough to upload.
 - **Launcher icon and splash screen.** `cap add android` scaffolds
-  Capacitor's own placeholder icon, not GoLive's. `resources/icon.png` (a
+  Capacitor's own placeholder icon, not Go Live's. `resources/icon.png` (a
   copy of `public/icon.png`) is already in place as the input; run
   `npm run android:assets` to generate every density from it (needs `sharp`'s
   native binary — `npm install-scripts approve sharp` if it was blocked on

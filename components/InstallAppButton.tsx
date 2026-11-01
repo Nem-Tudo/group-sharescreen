@@ -139,7 +139,7 @@ export function InstallAppButton() {
   // to explain it. The PWA branch stays: "adicionar à tela de início" is a
   // different thing from the download, and /app only mentions it in passing.
   if (downloadPlatform && pathname === "/app") return null;
-  if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs")) return null;
+  if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs") || pathname?.startsWith("/cam")) return null;
 
   return (
     <div className="fixed inset-x-4 bottom-[calc(var(--app-tabbar-h)+1rem)] z-40 mx-auto flex max-w-sm items-center gap-3 rounded-xl border border-black/10 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-zinc-900 sm:inset-x-auto sm:right-4">

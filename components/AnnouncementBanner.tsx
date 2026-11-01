@@ -203,7 +203,7 @@ export function AnnouncementBanner() {
   }, [announcement, deliveryKey, willShow]);
 
   const pathname = usePathname();
-  if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs")) return null;
+  if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs") || pathname?.startsWith("/cam")) return null;
   if (!willShow || !announcement) return null;
 
   return (

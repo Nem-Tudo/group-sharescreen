@@ -236,6 +236,8 @@ export type ConnectionQualityOverview = {
   byProfile: QualityBucket[];
   byApp: QualityBucket[];
   byBrowser: QualityBucket[];
+  byBlame?: QualityBucket[];
+  byExperiment?: QualityBucket[];
   causes: { cause: string; count: number }[];
   topSenders: QualityPerson[];
   topReceivers: QualityPerson[];
@@ -583,6 +585,10 @@ export type AdminPartner = Partner & {
   // one — see Partner.hasExtendedDescription). Absent on ads saved before it.
   extendedDescription?: string | null;
   weight: number;
+  // The launch of an approved self-serve ad: served at launchWeight until
+  // launchUntil (epoch ms). Absent on every other ad.
+  launchWeight?: number | null;
+  launchUntil?: number | null;
   createdAt: number;
   // Key to this ad's public report page (/ad/[token]) — the link the
   // admin hands an advertiser so they can watch their own numbers without an
@@ -637,6 +643,13 @@ export type PartnerAdminList = {
   partners: AdminPartner[];
   emptyPercent: number;
   stats: Record<string, PartnerStats>;
+} & PartnerLaunchSettings;
+
+/** How an approved self-serve ad is launched (see the API's PartnerConfig). */
+export type PartnerLaunchSettings = {
+  launchWeight: number;
+  launchMinutes: number;
+  defaultWeight: number;
 };
 
 export type PartnerInput = {
@@ -677,15 +690,20 @@ export type PartnerInput = {
 export function uploadPartnerMedia(
   file: File,
   onProgress?: (fraction: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  // "/partner-orders/upload" for the self-serve dashboard, where an advertiser
+  // uploads their own ad's media — with or without an account (nothing goes
+  // live before review).
+  endpoint = "/admin/partners/upload"
 ): Promise<string> {
   const token = getAccountToken();
-  if (!token) return Promise.reject(new Error("unauthorized"));
+  const advertiser = endpoint !== "/admin/partners/upload";
+  if (!token && !advertiser) return Promise.reject(new Error("unauthorized"));
   const query = new URLSearchParams({ type: file.type, name: file.name });
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${getSignalingHttpBase()}/admin/partners/upload?${query.toString()}`);
-    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.open("POST", `${getSignalingHttpBase()}${endpoint}?${query.toString()}`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(event.loaded / event.total);
@@ -736,6 +754,14 @@ export async function deletePartner(id: string): Promise<void> {
   await adminFetch<void>(`/admin/partners/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+export async function setPartnerLaunchSettings(settings: PartnerLaunchSettings): Promise<PartnerLaunchSettings> {
+  return adminFetch<PartnerLaunchSettings>("/admin/partner-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+}
+
 export async function setPartnerEmptyPercent(emptyPercent: number): Promise<number> {
   const data = await adminFetch<{ emptyPercent: number }>("/admin/partner-settings", {
     method: "PUT",
@@ -743,6 +769,103 @@ export async function setPartnerEmptyPercent(emptyPercent: number): Promise<numb
     body: JSON.stringify({ emptyPercent }),
   });
   return data.emptyPercent;
+}
+
+// Affiliate products in the partner slot (see the API's
+// affiliateProductRoutes.ts). Every write answers the whole list.
+export type AffiliateProduct = {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string | null;
+  url: string;
+  store: string;
+  price: number | null;
+  originalPrice: number | null;
+  currency: string;
+  badge: string;
+  note: string;
+  shipping: string;
+  buttonLabel: string;
+  weight: number;
+  enabled: boolean;
+  createdAt: number;
+  // Key to its public report page (/ad/[token]), same page as an ad's.
+  reportToken?: string | null;
+  // Watch-to-earn: points is non-null exactly when the video is.
+  rewardVideoUrl?: string | null;
+  rewardPoints?: number | null;
+  // Re-read the price from the link's page on a timer. When that last ran, and
+  // why it did not work if it did not: a failure keeps the old price.
+  autoUpdatePrice?: boolean;
+  priceCheckedAt?: number | null;
+  priceCheckError?: string | null;
+};
+
+export type AffiliateProductInput = Omit<
+  AffiliateProduct,
+  "id" | "createdAt" | "reportToken" | "priceCheckedAt" | "priceCheckError"
+>;
+export type ImportedAffiliateProduct = Pick<
+  AffiliateProduct,
+  "title" | "description" | "imageUrl" | "store" | "price" | "originalPrice" | "currency" | "badge" | "note" | "shipping"
+>;
+export type AffiliateProductList = {
+  products: AffiliateProduct[];
+  adsPercent: number;
+  // The same numbers as an ad's: the API counts both under the same stats.
+  stats: Record<string, PartnerStats>;
+};
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+export async function fetchAffiliateProducts(): Promise<AffiliateProductList> {
+  return adminFetch<AffiliateProductList>("/admin/affiliate-products");
+}
+
+export async function createAffiliateProduct(input: AffiliateProductInput): Promise<AffiliateProductList> {
+  return adminFetch("/admin/affiliate-products", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+export async function editAffiliateProduct(id: string, input: AffiliateProductInput): Promise<AffiliateProductList> {
+  return adminFetch(`/admin/affiliate-products/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function patchAffiliateProduct(
+  id: string,
+  patch: { enabled?: boolean; autoUpdatePrice?: boolean }
+): Promise<AffiliateProductList> {
+  return adminFetch(`/admin/affiliate-products/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteAffiliateProduct(id: string): Promise<AffiliateProductList> {
+  return adminFetch(`/admin/affiliate-products/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function setAffiliateAdsPercent(adsPercent: number): Promise<number> {
+  const data = await adminFetch<{ adsPercent: number }>("/admin/affiliate-settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ adsPercent }),
+  });
+  return data.adsPercent;
+}
+
+export async function importAffiliateProduct(url: string): Promise<ImportedAffiliateProduct> {
+  const data = await adminFetch<{ product: ImportedAffiliateProduct }>("/admin/affiliate-products/import", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ url }),
+  });
+  return data.product;
 }
 
 // ── Client eval ────────────────────────────────────────────────────────────
@@ -1130,6 +1253,53 @@ export async function deleteAdminTheme(
   );
 }
 
+export type AdminCameraEffectHit = {
+  id: string;
+  name: string;
+  authorId: string;
+  authorUsername: string | null;
+  uses: number;
+  updatedAt: number;
+  authorBanned: boolean;
+};
+
+/** The effects workshop's effects, by name, by id, or by who made them. */
+export async function searchAdminCameraEffects(query: string): Promise<AdminCameraEffectHit[]> {
+  const data = await adminFetch<{ effects: AdminCameraEffectHit[] }>(
+    `/admin/camera-effects?q=${encodeURIComponent(query)}`
+  );
+  return data.effects;
+}
+
+export type AdminCameraEffectReport = {
+  reason: string;
+  note: string;
+  createdAt: number;
+  reporterUsername: string | null;
+};
+
+/** What is waiting for a moderator: most reported first. */
+export async function fetchAdminCameraEffectReports(): Promise<
+  { effect: AdminCameraEffectHit; reports: AdminCameraEffectReport[] }[]
+> {
+  const data = await adminFetch<{ queue: { effect: AdminCameraEffectHit; reports: AdminCameraEffectReport[] }[] }>(
+    "/admin/camera-effects/reports"
+  );
+  return data.queue;
+}
+
+export async function dismissAdminCameraEffectReports(id: string): Promise<void> {
+  await adminFetch<{ ok: true }>(`/admin/camera-effects/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+}
+
+export async function deleteAdminCameraEffect(id: string, banAuthor = false): Promise<void> {
+  await adminFetch<{ ok: true }>(`/admin/camera-effects/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ banAuthor }),
+  });
+}
+
 /** Sets or lifts the theme ban on one account. */
 export async function setThemeBan(userId: string, banned: boolean): Promise<boolean> {
   const data = await adminFetch<{ banned: boolean }>(
@@ -1473,6 +1643,8 @@ export interface AdminFeature {
   serverOnly: boolean;
   /** Events the site may report while this feature is live. Absent on an older API. */
   clientEvents?: string[];
+  /** Values the experiment reads on the API, as JSON. Absent on an older API. */
+  data?: Record<string, unknown>;
   /** Events shown first in the stats, shared by every admin. Absent on an older API. */
   pinnedEvents?: string[];
   enabled: boolean;
@@ -1499,6 +1671,7 @@ export interface FeatureWrite {
   includeGuests?: boolean;
   serverOnly?: boolean;
   clientEvents?: string[];
+  data?: Record<string, unknown>;
   pinnedEvents?: string[];
   enabled?: boolean;
   archived?: boolean;

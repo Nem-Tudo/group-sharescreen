@@ -88,7 +88,7 @@ public class CallService extends Service {
         actionListener = listener;
     }
 
-    private String title = "GoLive";
+    private String title = "Go Live";
     private String text = "";
     private boolean micOn = false;
     private String muteLabel = "Mutar";

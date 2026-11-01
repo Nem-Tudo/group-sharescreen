@@ -175,6 +175,9 @@ export function AnnotatedPipVideo({ stream, annotationKey }: { stream: MediaStre
   useEffect(() => {
     const video = videoRef.current;
     if (video && video.srcObject !== stream) video.srcObject = stream;
+    return () => {
+      if (video) video.srcObject = null;
+    };
   }, [stream]);
 
   return (

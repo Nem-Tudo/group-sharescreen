@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { MdClose } from "react-icons/md";
 import { BsCoin } from "react-icons/bs";
 import { trackEvent } from "@/lib/analytics";
@@ -9,6 +10,12 @@ import { formatLocale } from "@/lib/i18n";
 import { useT } from "@/lib/useI18n";
 import { FALLBACK_PARTNER } from "@/lib/partner";
 import { CUSTOMIZER_STARTING_POINT, PartnerAdCustomizer } from "@/components/PartnerAdCustomizer";
+import { useFeature } from "@/lib/features";
+import {
+  SELF_SERVE_PARTNER_EVENTS,
+  SELF_SERVE_PARTNER_FEATURE,
+  trackPartnerOrderEvent,
+} from "@/lib/partnerOrders";
 
 // "Anuncie aqui também!" — the slot selling itself. An ntpopups popup type,
 // registered as "partner_pitch" in NtPopups.tsx, opened from the button over a
@@ -50,6 +57,9 @@ export function PartnerPitchModal({
   const t = useT();
   const peopleOnline = usePeopleOnline();
   const [customizerOpen, setCustomizerOpen] = useState(false);
+  // The self-serve ad dashboard: the popup's first button builds and pays for
+  // the ad right here, and Discord becomes the way to talk to a person.
+  const selfServe = useFeature(SELF_SERVE_PARTNER_FEATURE, { track: true }).enabled;
 
   const features = [
     t("partnerPitch.featureCreative"),
@@ -131,6 +141,18 @@ export function PartnerPitchModal({
             </div>
           </div>
 
+          {selfServe && (
+            <Link
+              href="/partner/new"
+              onClick={() => {
+                trackPartnerOrderEvent(SELF_SERVE_PARTNER_EVENTS.ctaClick);
+                closePopup(true);
+              }}
+              className="flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white transition hover:bg-emerald-500"
+            >
+              {t("partnerOrders.createMyAdNow")}
+            </Link>
+          )}
           <a
             href={FALLBACK_PARTNER.buttonUrl}
             target="_blank"
@@ -140,20 +162,26 @@ export function PartnerPitchModal({
           >
             {t("partnerPitch.cta")}
           </a>
-          <button
-            type="button"
-            onClick={() => {
-              trackEvent("partner_customizer_opened", { source: `pitch_${source}` });
-              setCustomizerOpen(true);
-            }}
-            className="rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            {t("partnerPitch.buildMine")}
-          </button>
-          <p className="flex items-center justify-center gap-1 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
-            <BsCoin className="h-3 w-3 shrink-0" />
-            {t("partnerPitch.footnote")}
-          </p>
+          {/* With the builder on, it is the preview too — the old
+              look-only tool would be a second, weaker way to do the same. */}
+          {!selfServe && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  trackEvent("partner_customizer_opened", { source: `pitch_${source}` });
+                  setCustomizerOpen(true);
+                }}
+                className="rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                {t("partnerPitch.buildMine")}
+              </button>
+              <p className="flex items-center justify-center gap-1 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
+                <BsCoin className="h-3 w-3 shrink-0" />
+                {t("partnerPitch.footnote")}
+              </p>
+            </>
+          )}
         </div>
       </div>
 

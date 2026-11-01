@@ -175,6 +175,11 @@ export function HomeSeoContent({ className = "" }: { className?: string }) {
         <h2 className={headingClass}>{t("homeSeo.exploreTitle")}</h2>
         <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
           <li>
+            <Link href="/transmitir-tela-online" className={linkClass}>
+              {t("homeSeo.linkScreenGuide")}
+            </Link>
+          </li>
+          <li>
             <Link href="/rooms" className={linkClass}>
               {t("homeSeo.linkRooms")}
             </Link>

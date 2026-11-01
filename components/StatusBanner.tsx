@@ -26,7 +26,7 @@ export function StatusBanner() {
   // browser source is somebody's livestream, and a red bar across the top of
   // it would be burned into their recording — in front of an audience that
   // cannot act on it anyway.
-  if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs")) return null;
+  if (pathname?.startsWith("/stream") || pathname?.startsWith("/obs") || pathname?.startsWith("/cam")) return null;
   if (!status.apiError) return null;
 
   return (

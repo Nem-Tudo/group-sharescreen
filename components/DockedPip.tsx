@@ -351,6 +351,9 @@ export function DockedPip({
   useEffect(() => {
     const video = videoRef.current;
     if (video && video.srcObject !== stream) video.srcObject = stream;
+    return () => {
+      if (video) video.srcObject = null;
+    };
   }, [stream]);
 
   // The room's tile for this transmission is in the parked room and so reports

@@ -12,9 +12,11 @@
 // Cost: up to MAX_AGE_MS / STAGGER_MS encoders per buffered stream, so the
 // bitrate is capped to keep that affordable.
 
+import { isMemoryGuardEnabled, noteClipBufferTrimmed } from "./memoryGuard";
+
 export const CLIP_MS = 30_000;
-const STAGGER_MS = 10_000;
-const MAX_AGE_MS = CLIP_MS + STAGGER_MS;
+const DEFAULT_STAGGER_MS = 10_000;
+const GUARD_STAGGER_MS = 15_000;
 const VIDEO_BITS_PER_SECOND = 2_500_000;
 
 type Segment = {
@@ -58,21 +60,27 @@ export class ClipBuffer {
   private timer: ReturnType<typeof setInterval> | null = null;
   private mimeType: string | undefined;
   private disposed = false;
+  private readonly staggerMs: number;
+  private readonly maxAgeMs: number;
 
   constructor(private readonly stream: MediaStream) {
+    const guard = isMemoryGuardEnabled();
+    this.staggerMs = guard ? GUARD_STAGGER_MS : DEFAULT_STAGGER_MS;
+    this.maxAgeMs = CLIP_MS + this.staggerMs;
+    if (guard) noteClipBufferTrimmed();
     this.mimeType = pickMimeType(stream.getAudioTracks().length > 0);
     this.startSegment();
     this.timer = setInterval(() => {
       this.startSegment();
       this.prune();
-    }, STAGGER_MS);
+    }, this.staggerMs);
   }
 
   // How much is buffered right now, so the button can say "clipping 12s" while
   // the buffer is still filling up after joining.
   bufferedMs(): number {
     const oldest = this.segments[0];
-    return oldest ? Math.min(Date.now() - oldest.startedAt, MAX_AGE_MS) : 0;
+    return oldest ? Math.min(Date.now() - oldest.startedAt, this.maxAgeMs) : 0;
   }
 
   // Stops the oldest recorder and hands back its file. That recorder's
@@ -84,7 +92,7 @@ export class ClipBuffer {
     const { recorder, chunks, startedAt } = segment;
     const durationMs = Date.now() - startedAt;
     const finish = () =>
-      chunks.length ? { blob: new Blob(chunks, { type: this.blobType(recorder) }), durationMs } : null;
+      chunks.length ? { blob: new Blob(chunks.splice(0), { type: this.blobType(recorder) }), durationMs } : null;
     if (recorder.state === "inactive") return finish();
     return new Promise((resolve) => {
       recorder.addEventListener("stop", () => resolve(finish()), { once: true });
@@ -96,7 +104,7 @@ export class ClipBuffer {
     this.disposed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    for (const s of this.segments) this.stopRecorder(s.recorder);
+    for (const s of this.segments) this.stopSegment(s);
     this.segments = [];
   }
 
@@ -123,6 +131,7 @@ export class ClipBuffer {
     // A track being added/removed mid-recording errors the recorder; drop it
     // and let the next stagger start a clean one.
     recorder.onerror = () => {
+      segment.chunks.length = 0;
       this.segments = this.segments.filter((s) => s !== segment);
     };
     try {
@@ -137,9 +146,16 @@ export class ClipBuffer {
 
   private prune() {
     const now = Date.now();
-    while (this.segments.length > 1 && now - this.segments[0].startedAt > MAX_AGE_MS) {
-      this.stopRecorder(this.segments.shift()!.recorder);
+    while (this.segments.length > 1 && now - this.segments[0].startedAt > this.maxAgeMs) {
+      this.stopSegment(this.segments.shift()!);
     }
+  }
+
+  private stopSegment(segment: Segment) {
+    segment.recorder.ondataavailable = null;
+    segment.recorder.onerror = null;
+    segment.chunks.length = 0;
+    this.stopRecorder(segment.recorder);
   }
 
   private stopRecorder(recorder: MediaRecorder) {
@@ -177,7 +193,7 @@ export class TileRecorder {
     const finish = () => {
       if (!this.chunks.length) return null;
       const type = (recorder.mimeType || "video/webm").split(";")[0];
-      return { blob: new Blob(this.chunks, { type }), durationMs };
+      return { blob: new Blob(this.chunks.splice(0), { type }), durationMs };
     };
     if (recorder.state === "inactive") return Promise.resolve(finish());
     return new Promise((resolve) => {

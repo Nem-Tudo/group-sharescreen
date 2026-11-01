@@ -42,9 +42,11 @@ export type StripeClient = {
     clientSecret: string,
     data: { payment_method: { card: StripeCardField; billing_details?: { name?: string } } }
   ): Promise<{ error?: StripeError; paymentIntent?: { status: string } }>;
-  initEmbeddedCheckout(options: {
+  createEmbeddedCheckoutPage(options: {
     fetchClientSecret: () => Promise<string>;
     onComplete?: () => void;
+    /** A private preview at Stripe: never fires on an account without access. */
+    onAnalyticsEvent?: (event: { eventType: string }) => void;
   }): Promise<StripeEmbeddedCheckout>;
 };
 
@@ -56,7 +58,9 @@ declare global {
   }
 }
 
-const SCRIPT_URL = "https://js.stripe.com/v3/";
+// Versioned to match the sessions the API creates: /v3/ refuses a session with
+// ui_mode=embedded_page, the only value Stripe still accepts for a new one.
+const SCRIPT_URL = "https://js.stripe.com/dahlia/stripe.js";
 
 let loading: Promise<StripeConstructor> | null = null;
 const clients = new Map<string, StripeClient>();

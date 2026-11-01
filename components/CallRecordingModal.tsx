@@ -186,7 +186,7 @@ export function CallRecordButton({
           role="status"
           className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
         >
-          <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          <span className="tip-arrow absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
           <span className="flex items-start gap-2">
             <span className="flex-1">{t("watch.watchRoom.callRecordingTip")}</span>
             <button

@@ -7,10 +7,12 @@
 import assert from "node:assert/strict";
 import {
   addSnapshot,
+  blameFor,
   createAccumulator,
   estimateBadRate,
   estimateSessions,
   summarize,
+  type SenderControlSample,
 } from "./connectionTelemetrySummary";
 import type { PcSnapshot, RecvVideoStats, RouteInfo, SendVideoStats } from "./connectionDiagnostics";
 
@@ -197,5 +199,145 @@ assert.equal(estimateBadRate(50, 5, 1), 0.1);
 // No sampling information: the raw count is all there is.
 assert.equal(estimateSessions(28, 10, 0), 28);
 assert.equal(estimateBadRate(0, 0, 0.2), 0);
+
+// A received slideshow on a clean link is the broadcaster's doing: named
+// "low-source-fps" and blamed on the sender.
+{
+  const s = session("recv", 12, () => ({ recv: recv({ fps: 5, kbps: 1000 }) }), "screen");
+  assert.equal(s.bad, true);
+  assert.ok(s.causes.includes("low-source-fps"));
+  assert.equal(s.blame, "sender");
+}
+// The same slideshow with real loss is the network's.
+{
+  const s = session("recv", 12, () => ({ recv: recv({ fps: 5, kbps: 1000, loss: 0.1 }) }), "screen");
+  assert.ok(!s.causes.includes("low-source-fps"));
+  assert.equal(s.blame, "network");
+}
+// A good session carries no blame.
+assert.equal(session("recv", 12, () => ({ recv: recv() })).blame, null);
+
+// Blame on the send side: held back on a clean link is the encoder; with loss, the link.
+assert.equal(blameFor("send", ["sender-bandwidth"], true), "sender");
+assert.equal(blameFor("send", ["network-loss", "sender-bandwidth"], true), "network");
+assert.equal(blameFor("send", ["sender-cpu", "network-loss"], true), "sender");
+assert.equal(blameFor("recv", ["freezes"], true), "unknown");
+assert.equal(blameFor("recv", ["freezes", "receiver-drops"], true), "receiver");
+
+// What the encoder and our controller did, averaged over a send session.
+{
+  const acc = createAccumulator(0);
+  const control = (ratio: number): SenderControlSample => ({
+    tier: "1080p30",
+    ceilingKbps: 4000,
+    ratio,
+    degradationPreference: "balanced",
+  });
+  addSnapshot(acc, snap({ send: send(), intervalSeconds: 0 }, 0), control(1));
+  for (let i = 1; i <= 4; i += 1) {
+    addSnapshot(acc, snap({ send: send({ qp: 30 + i * 2, resolutionChanges: 1 }) }, i * 10_000), control(i % 2 ? 0.5 : 1));
+  }
+  const s = summarize(acc, 50_000, "send", "screen");
+  assert.equal(s.qpAvg, 35);
+  assert.equal(s.resolutionChanges, 4);
+  assert.equal(s.tier, "1080p30");
+  assert.equal(s.ceilingKbpsAvg, 4000);
+  assert.equal(s.congestionRatioAvg, 0.75);
+  assert.equal(s.congestionRatioMin, 0.5);
+  assert.equal(s.degradationPreference, "balanced");
+  // None of it belongs on a recv report.
+  const r = session("recv", 4, () => ({ recv: recv() }));
+  assert.equal(r.qpAvg, null);
+  assert.equal(r.congestionRatioAvg, null);
+}
+
+// The capture's rate and the encoder's time per frame, averaged on a send report.
+{
+  const s = session("send", 4, () => ({ send: send({ sourceFps: 24, encodeMs: 12.5 }) }), "screen");
+  assert.equal(s.sourceFpsAvg, 24);
+  assert.equal(s.encodeMsAvg, 12.5);
+  assert.equal(session("recv", 4, () => ({ recv: recv() })).sourceFpsAvg, null);
+}
+
+// A sender's own slideshow is bad and the sender's, though its encoder never
+// said it was limited — libvpx's frame dropper does not.
+{
+  const s = session("send", 6, () => ({ send: send({ fps: 6, kbps: 900 }) }), "screen");
+  assert.equal(s.bad, true);
+  assert.ok(s.causes.includes("low-source-fps"));
+  assert.equal(s.blame, "sender");
+  // A still screen sends few frames and almost no bits: not a slideshow.
+  assert.equal(session("send", 6, () => ({ send: send({ fps: 3, kbps: 80 }) }), "screen").bad, false);
+}
+
+// A TCP relay on its own is a route, not a symptom.
+{
+  const tcp = route({ kind: "relay-local", localType: "relay", relayProtocol: "tcp" });
+  const s = session("recv", 6, () => ({ route: tcp, recv: recv() }), "screen");
+  assert.ok(s.causes.includes("turn-tcp"));
+  assert.equal(s.bad, false);
+}
+
+// A received slideshow or freezes while the tile was off screen are what the
+// viewer asked for (the worst tier), not a fault; on screen they still count.
+{
+  const run = (visible: boolean | null) => {
+    const acc = createAccumulator(0);
+    const r = recv({ fps: 5, kbps: 600 });
+    addSnapshot(acc, snap({ recv: r, intervalSeconds: 0 }, 0), null, visible);
+    for (let i = 1; i <= 6; i += 1) addSnapshot(acc, snap({ recv: r }, i * 10_000), null, visible);
+    return summarize(acc, 70_000, "recv", "screen");
+  };
+  const hidden = run(false);
+  assert.equal(hidden.bad, false);
+  assert.equal(hidden.visibleShare, 0);
+  assert.ok(!hidden.causes.includes("low-source-fps"));
+  assert.equal(run(true).bad, true);
+  assert.equal(run(true).visibleShare, 1);
+  // Nobody said: judged as before.
+  assert.equal(run(null).bad, true);
+  assert.equal(run(null).visibleShare, null);
+}
+
+// The tile that spins forever: connected, measured, and not one frame.
+{
+  const acc = createAccumulator(0);
+  acc.connectedAt = 1000;
+  const empty = recv({ fps: 0, kbps: 0, framesDecodedTotal: 0 });
+  addSnapshot(acc, snap({ recv: empty, intervalSeconds: 0 }, 0));
+  for (let i = 1; i <= 3; i += 1) addSnapshot(acc, snap({ recv: empty }, i * 10_000));
+  const s = summarize(acc, 40_000, "recv", "screen");
+  assert.equal(s.bad, true);
+  assert.deepEqual(s.causes, ["no-video"]);
+  assert.equal(s.blame, "unknown");
+  assert.equal(s.firstFrameS, null);
+}
+// Never connected at all: the path's failure.
+{
+  const acc = createAccumulator(0);
+  const s = summarize(acc, 30_000, "recv", "screen");
+  assert.ok(s.causes.includes("no-video"));
+  assert.equal(s.blame, "network");
+  // A sender has nothing to decode.
+  assert.ok(!summarize(createAccumulator(0), 30_000, "send", "screen").causes.includes("no-video"));
+}
+// Connected but not measured long enough yet: no verdict.
+{
+  const acc = createAccumulator(0);
+  acc.connectedAt = 1000;
+  addSnapshot(acc, snap({ recv: recv({ fps: 0, kbps: 0 }), intervalSeconds: 0 }, 0));
+  assert.ok(!summarize(acc, 25_000, "recv", "screen").causes.includes("no-video"));
+}
+// The first frame's time, at the sampler's grain.
+{
+  const acc = createAccumulator(0);
+  acc.connectedAt = 0;
+  addSnapshot(acc, snap({ recv: recv({ fps: 0, framesDecodedTotal: 0 }), intervalSeconds: 0 }, 0));
+  addSnapshot(acc, snap({ recv: recv({ framesDecodedTotal: 240 }) }, 10_000));
+  addSnapshot(acc, snap({ recv: recv({ framesDecodedTotal: 540 }) }, 20_000));
+  const s = summarize(acc, 30_000, "recv", "screen");
+  assert.equal(s.firstFrameS, 10);
+  assert.ok(!s.causes.includes("no-video"));
+}
 
 console.log("connectionTelemetry: ok");

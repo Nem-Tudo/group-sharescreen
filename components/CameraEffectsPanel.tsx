@@ -1,0 +1,516 @@
+"use client";
+
+import { useRef, useState, type ReactNode } from "react";
+import { MdAdd, MdAutoAwesome, MdEdit, MdExplore, MdLock, MdMovie, MdScreenShare, MdUpload, MdVideocam } from "react-icons/md";
+import { MenuToggleRow } from "@/components/MenuToggleRow";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import {
+  CAMERA_BACKGROUNDS,
+  CAMERA_COLORS,
+  CAMERA_EFFECTS_3D_FEATURE,
+  CAMERA_EFFECTS_FEATURE,
+  CAMERA_FACES,
+  CAMERA_FACES_3D,
+  CAMERA_REACTIONS,
+  CAMERA_STREAM_BG_EVENTS,
+  CAMERA_STREAM_BG_FEATURE,
+  CAMERA_WARP_FEATURE,
+  CAMERA_WARPS,
+  CUSTOM_BACKGROUND_TIER,
+  CUSTOM_BG_FREE_FEATURE,
+  canUseCustomBackground,
+  planAllowsCustomBackground,
+  setCameraEffect,
+  setCustomCameraBackground,
+  STREAM_BACKGROUND_TIER,
+  trackStreamBackground,
+  useCameraEffectSettings,
+  useCameraEffectsStatus,
+  useCustomCameraBackground,
+  type CameraEffectSettings,
+} from "@/lib/cameraEffects";
+import {
+  pickStreamBackground,
+  useStreamBackgroundSelected,
+  useStreamBackgroundSources,
+  type StreamBackgroundSource,
+} from "@/lib/cameraStreamBackground";
+import {
+  CAMERA_CUSTOM_FEATURE,
+  CUSTOM_EFFECT_WORKSHOP,
+  createCustomCameraEffect,
+  MAX_CUSTOM_EFFECTS,
+  openCustomEffectEditor,
+  useCustomCameraEffects,
+} from "@/lib/cameraCustomEffects";
+import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
+import { setTileExperimentMode, trackTileExperiment, TILE_EXPERIMENT_EVENTS } from "@/lib/clipsMode";
+import { useAuth } from "@/lib/AuthContext";
+import { TIER_NAMES } from "@/lib/entitlements";
+import { openProModal } from "@/lib/proModal";
+import { useFeature } from "@/lib/features";
+import { useT } from "@/lib/useI18n";
+
+// "Efeitos de câmera": the switch and what to draw. On a computer it is the
+// panel of its own button beside the camera's (`standalone`), where the
+// choices are always shown and picking one turns the switch on. On a phone,
+// where that button does not fit, it sits in the camera's panel (the arrow
+// beside the camera button) and the choices only show behind the switch.
+// Either way the switch is what costs nothing when off. The phone's bottom
+// bar has its own way in, a sheet with the picture in it (CameraEffectsSheet).
+
+export const CAMERA_EFFECT_LABELS: { [K in keyof CameraEffectSettings]: Record<CameraEffectSettings[K], string> } = {
+  background: {
+    none: "watch.watchRoom.cameraEffectNone",
+    blur: "watch.watchRoom.cameraEffectBlur",
+    sunset: "watch.watchRoom.cameraEffectSunset",
+    beach: "watch.watchRoom.cameraEffectBeach",
+    space: "watch.watchRoom.cameraEffectSpace",
+    office: "watch.watchRoom.cameraEffectOffice",
+    aurora: "watch.watchRoom.cameraEffectAurora",
+    studio: "watch.watchRoom.cameraEffectStudio",
+    custom: "watch.watchRoom.cameraEffectCustomBg",
+    stream: "watch.watchRoom.cameraEffectStreamBg",
+  },
+  color: {
+    none: "watch.watchRoom.cameraEffectNone",
+    mono: "watch.watchRoom.cameraEffectMono",
+    sepia: "watch.watchRoom.cameraEffectSepia",
+    vivid: "watch.watchRoom.cameraEffectVivid",
+  },
+  face: {
+    none: "watch.watchRoom.cameraEffectNone",
+    dog: "watch.watchRoom.cameraEffectDog",
+    cat: "watch.watchRoom.cameraEffectCat",
+    glasses: "watch.watchRoom.cameraEffectGlasses",
+    clown: "watch.watchRoom.cameraEffectClown",
+    crown: "watch.watchRoom.cameraEffectCrown",
+    bunny: "watch.watchRoom.cameraEffectBunny",
+    bear: "watch.watchRoom.cameraEffectBear",
+    pig: "watch.watchRoom.cameraEffectPig",
+    mustache: "watch.watchRoom.cameraEffectMustache",
+    hearts: "watch.watchRoom.cameraEffectHearts",
+    devil: "watch.watchRoom.cameraEffectDevil",
+    angel: "watch.watchRoom.cameraEffectAngel",
+    pirate: "watch.watchRoom.cameraEffectPirate",
+    party: "watch.watchRoom.cameraEffectParty",
+    glasses3d: "watch.watchRoom.cameraEffectGlasses3d",
+    tophat3d: "watch.watchRoom.cameraEffectTopHat3d",
+    viking3d: "watch.watchRoom.cameraEffectViking3d",
+  },
+  reactions: {
+    none: "watch.watchRoom.cameraEffectReactionsOff",
+    on: "watch.watchRoom.cameraEffectReactionsOn",
+  },
+  warp: {
+    none: "watch.watchRoom.cameraEffectNone",
+    sad: "watch.watchRoom.cameraWarpSad",
+    angry: "watch.watchRoom.cameraWarpAngry",
+    happy: "watch.watchRoom.cameraWarpHappy",
+    surprised: "watch.watchRoom.cameraWarpSurprised",
+    fat: "watch.watchRoom.cameraWarpFat",
+    thin: "watch.watchRoom.cameraWarpThin",
+    bigeyes: "watch.watchRoom.cameraWarpBigEyes",
+    bighead: "watch.watchRoom.cameraWarpBigHead",
+  },
+  // Only "none": the rest are named by whoever made them.
+  custom: {
+    none: "watch.watchRoom.cameraEffectNone",
+  },
+};
+
+const CHIP = "rounded-md px-2 py-1 text-xs font-medium transition";
+const CHIP_ON = "bg-emerald-600 text-white";
+const CHIP_OFF =
+  "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700";
+
+function EffectGroup<K extends keyof CameraEffectSettings>({
+  name,
+  title,
+  options,
+  value,
+  turnOn,
+  children,
+}: {
+  name: K;
+  title: string;
+  options: CameraEffectSettings[K][];
+  value: CameraEffectSettings[K];
+  // Set when picking an effect should also turn the switch on.
+  turnOn?: () => void;
+  // More chips after the plain choices (the custom background's).
+  children?: ReactNode;
+}) {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">{title}</span>
+      <div className="flex flex-wrap gap-1">
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={value === option}
+            onClick={() => {
+              setCameraEffect(name, option);
+              if (option !== "none") {
+                markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+                turnOn?.();
+              }
+            }}
+            className={`${CHIP} ${value === option ? CHIP_ON : CHIP_OFF}`}
+          >
+            {t((CAMERA_EFFECT_LABELS[name] as Record<string, string>)[option])}
+          </button>
+        ))}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// "Seu fundo": an image of the person's own, Pro Max and up. Below the plan it
+// is still shown, locked, and opens the plans. With the plan and no image yet
+// it asks for one; with one, it picks it, and a second chip swaps the image.
+export function CustomBackgroundChips({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
+  const t = useT();
+  const { account } = useAuth();
+  // Experiment "custom-bg-free" unlocks it below the plan. Only counted as an
+  // exposure for whoever it changes something for: the plan already has it.
+  const planAllows = planAllowsCustomBackground(account?.flags);
+  const free = useFeature(CUSTOM_BG_FREE_FEATURE, { track: !planAllows }).enabled;
+  const allowed = canUseCustomBackground(account?.flags, free);
+  const image = useCustomCameraBackground();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  if (!allowed) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.bgLocked);
+          openProModal(CUSTOM_BACKGROUND_TIER);
+        }}
+        title={t("watch.watchRoom.cameraEffectCustomBgLocked", { plan: TIER_NAMES[CUSTOM_BACKGROUND_TIER] })}
+        className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+      >
+        <MdLock className="h-3 w-3 text-amber-500" />
+        {t("watch.watchRoom.cameraEffectCustomBg")}
+        <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+          {TIER_NAMES[CUSTOM_BACKGROUND_TIER]}
+        </span>
+      </button>
+    );
+  }
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      await setCustomCameraBackground(file);
+      markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+      turnOn?.();
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          void upload(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      {image && (
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={() => {
+            setCameraEffect("background", "custom");
+            markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+            turnOn?.();
+          }}
+          className={`${CHIP} ${selected ? CHIP_ON : CHIP_OFF} inline-flex items-center gap-1.5`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- a data URL from this browser */}
+          <img src={image} alt="" className="h-4 w-6 rounded-sm object-cover" />
+          {t("watch.watchRoom.cameraEffectCustomBg")}
+        </button>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => input.current?.click()}
+        className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1 disabled:opacity-50`}
+      >
+        <MdUpload className="h-3.5 w-3.5" />
+        {busy
+          ? t("watch.watchRoom.cameraEffectsLoading")
+          : image
+            ? t("watch.watchRoom.cameraEffectChangeBg")
+            : t("watch.watchRoom.cameraEffectUploadBg")}
+      </button>
+      {failed && (
+        <span className="w-full text-[11px] text-red-600 dark:text-red-400">
+          {t("watch.watchRoom.cameraEffectBgError")}
+        </span>
+      )}
+    </>
+  );
+}
+
+// "Meus efeitos" (experiment "camera-custom-effects"): one chip per effect the
+// person made, the pencil on the one picked, and the way to make another. The
+// editor itself is rendered by the room (see openCustomEffectEditor).
+export function CustomEffectChips({ selected, turnOn }: { selected: string; turnOn?: () => void }) {
+  const t = useT();
+  const effects = useCustomCameraEffects();
+  // Experiment "camera-effects-workshop". An exposure is this chip being shown.
+  const hasWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: true }).enabled;
+  const picked = effects.some((effect) => effect.id === selected) ? selected : "none";
+  const create = () => {
+    const effect = createCustomCameraEffect(t("watch.watchRoom.cameraCustomDefaultName", { count: effects.length + 1 }));
+    if (!effect) return;
+    setCameraEffect("custom", effect.id);
+    markFeatureUsed(CAMERA_CUSTOM_FEATURE);
+    turnOn?.();
+    openCustomEffectEditor(effect.id);
+  };
+  return (
+    <>
+      <button
+        type="button"
+        aria-pressed={picked === "none"}
+        onClick={() => setCameraEffect("custom", "none")}
+        className={`${CHIP} ${picked === "none" ? CHIP_ON : CHIP_OFF}`}
+      >
+        {t("watch.watchRoom.cameraEffectNone")}
+      </button>
+      {effects.map((effect) => (
+        <button
+          key={effect.id}
+          type="button"
+          aria-pressed={picked === effect.id}
+          onClick={() => {
+            setCameraEffect("custom", effect.id);
+            markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+            turnOn?.();
+          }}
+          className={`${CHIP} ${picked === effect.id ? CHIP_ON : CHIP_OFF} max-w-[9rem] truncate`}
+        >
+          {effect.name || t("watch.watchRoom.cameraCustomUnnamed")}
+        </button>
+      ))}
+      {picked !== "none" && (
+        <button
+          type="button"
+          onClick={() => openCustomEffectEditor(picked)}
+          className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+        >
+          <MdEdit className="h-3.5 w-3.5" />
+          {t("watch.watchRoom.cameraCustomEdit")}
+        </button>
+      )}
+      {effects.length < MAX_CUSTOM_EFFECTS && (
+        <button type="button" onClick={create} className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}>
+          <MdAdd className="h-3.5 w-3.5" />
+          {t("watch.watchRoom.cameraCustomCreate")}
+          <NewBadge id={CAMERA_CUSTOM_FEATURE} />
+        </button>
+      )}
+      {hasWorkshop && (
+        <button
+          type="button"
+          onClick={() => openCustomEffectEditor(CUSTOM_EFFECT_WORKSHOP)}
+          className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+        >
+          <MdExplore className="h-3.5 w-3.5" />
+          {t("cameraWorkshop.discover")}
+          <NewBadge id={CAMERA_WORKSHOP_FEATURE} />
+        </button>
+      )}
+    </>
+  );
+}
+
+const STREAM_ICONS: Record<StreamBackgroundSource["kind"], typeof MdVideocam> = {
+  screen: MdScreenShare,
+  camera: MdVideocam,
+  file: MdMovie,
+};
+
+// "Transmissão ao vivo" (experiment "camera-stream-bg", Pro Max and up): one
+// chip per transmission in the room with a picture, and picking one puts it
+// behind the person, live. Below the plan it is one locked chip that opens
+// the plans, like "Seu fundo" — and "custom-bg-free" unlocks it the same way. Its own little block, under the backgrounds:
+// it changes with the room, where those never do.
+export function StreamBackgroundPicker({ selected, turnOn }: { selected: boolean; turnOn?: () => void }) {
+  const t = useT();
+  const { account } = useAuth();
+  // Exposure: this block shown to someone in the experiment.
+  const inExperiment = useFeature(CAMERA_STREAM_BG_FEATURE, { track: true }).enabled;
+  const sources = useStreamBackgroundSources();
+  const picked = useStreamBackgroundSelected();
+  // Its exposure is counted by "Seu fundo", always shown beside this.
+  const free = useFeature(CUSTOM_BG_FREE_FEATURE, { track: false }).enabled;
+  if (!inExperiment) return null;
+  const allowed = canUseCustomBackground(account?.flags, free);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.cameraEffectStreamBg")}</span>
+      <div className="flex flex-wrap gap-1">
+        {!allowed ? (
+          <button
+            type="button"
+            onClick={() => {
+              trackStreamBackground(CAMERA_STREAM_BG_EVENTS.locked);
+              openProModal(STREAM_BACKGROUND_TIER);
+            }}
+            title={t("watch.watchRoom.cameraEffectStreamBgLocked", { plan: TIER_NAMES[STREAM_BACKGROUND_TIER] })}
+            className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
+          >
+            <MdLock className="h-3 w-3 text-amber-500" />
+            {t("watch.watchRoom.cameraEffectStreamBgPick")}
+            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+              {TIER_NAMES[STREAM_BACKGROUND_TIER]}
+            </span>
+          </button>
+        ) : sources.length === 0 ? (
+          <span className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+            {t("watch.watchRoom.cameraEffectStreamBgEmpty")}
+          </span>
+        ) : (
+          sources.map((source) => {
+            const Icon = STREAM_ICONS[source.kind];
+            const on = selected && picked?.id === source.id;
+            return (
+              <button
+                key={source.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  pickStreamBackground(source.id);
+                  markFeatureUsed(CAMERA_EFFECTS_FEATURE);
+                  turnOn?.();
+                }}
+                className={`${CHIP} ${on ? CHIP_ON : CHIP_OFF} inline-flex max-w-full items-center gap-1`}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{source.name}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; standalone?: boolean }) {
+  const t = useT();
+  const settings = useCameraEffectSettings();
+  const status = useCameraEffectsStatus();
+  // Experiment "camera-effects-3d": the 3D faces after the others, and the
+  // reactions. An exposure is this panel being shown to someone in it.
+  const has3d = useFeature(CAMERA_EFFECTS_3D_FEATURE, { track: true }).enabled;
+  // Experiment "camera-warp": the warps, after the faces. Exposure the same way.
+  const hasWarp = useFeature(CAMERA_WARP_FEATURE, { track: true }).enabled;
+  // Experiment "camera-custom-effects": "Meus efeitos". Exposure the same way.
+  const hasCustom = useFeature(CAMERA_CUSTOM_FEATURE, { track: true }).enabled;
+  const turnOn = standalone && !on ? () => setTileExperimentMode("cameraEffects", true) : undefined;
+  return (
+    <div className="flex flex-col">
+      <MenuToggleRow
+        label={t("watch.watchRoom.cameraEffects")}
+        badge={<NewBadge id={CAMERA_EFFECTS_FEATURE} />}
+        active={on}
+        onToggle={() => setTileExperimentMode("cameraEffects", !on)}
+        hint={t("watch.watchRoom.cameraEffectsHint")}
+        activeIcon={<MdAutoAwesome className="h-4 w-4" />}
+        inactiveIcon={<MdAutoAwesome className="h-4 w-4 opacity-50" />}
+      />
+      {(on || standalone) && (
+        // Dimmed while the switch is off: what is highlighted is what will be
+        // drawn once it is on, not what the room sees now.
+        <div className={`flex flex-col gap-2 px-2 pb-2 ${on ? "" : "opacity-60"}`}>
+          {hasCustom && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.cameraCustomTitle")}</span>
+              <div className="flex flex-wrap gap-1">
+                <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
+              </div>
+            </div>
+          )}
+          <EffectGroup
+            name="face"
+            title={t("watch.watchRoom.cameraEffectFace")}
+            options={has3d ? [...CAMERA_FACES, ...CAMERA_FACES_3D] : CAMERA_FACES}
+            value={settings.face}
+            turnOn={turnOn}
+          />
+          {hasWarp && (
+            <EffectGroup
+              name="warp"
+              title={t("watch.watchRoom.cameraEffectWarp")}
+              options={CAMERA_WARPS}
+              value={settings.warp}
+              turnOn={turnOn}
+            />
+          )}
+          {has3d && (
+            <div className="flex flex-col gap-1">
+              <EffectGroup
+                name="reactions"
+                title={t("watch.watchRoom.cameraEffectReactions")}
+                options={CAMERA_REACTIONS}
+                value={settings.reactions}
+                turnOn={turnOn}
+              />
+              <span className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+                {t("watch.watchRoom.cameraEffectReactionsHint")}
+              </span>
+            </div>
+          )}
+          <EffectGroup
+            name="background"
+            title={t("watch.watchRoom.cameraEffectBackground")}
+            options={CAMERA_BACKGROUNDS}
+            value={settings.background}
+            turnOn={turnOn}
+          >
+            <CustomBackgroundChips selected={settings.background === "custom"} turnOn={turnOn} />
+          </EffectGroup>
+          <StreamBackgroundPicker selected={settings.background === "stream"} turnOn={turnOn} />
+          <EffectGroup
+            name="color"
+            title={t("watch.watchRoom.cameraEffectColor")}
+            options={CAMERA_COLORS}
+            value={settings.color}
+            turnOn={turnOn}
+          />
+          {status.failed ? (
+            <span className="text-xs text-red-600 dark:text-red-400">
+              {t("watch.watchRoom.cameraEffectsFailed")}
+            </span>
+          ) : status.loading ? (
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {t("watch.watchRoom.cameraEffectsLoading")}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}

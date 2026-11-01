@@ -157,7 +157,7 @@ const nextConfig: NextConfig = {
     // The Discord screenshots on /discord-bot live on the project's own CDN.
     // next/image refuses any remote host that is not declared here, so this
     // is what lets that page use it instead of a plain <img>.
-    remotePatterns: [{ protocol: "https", hostname: "cdn.nemtudo.me" },{ protocol: "https", hostname: "public-blob.squarecloud.dev" }],
+    remotePatterns: [{ protocol: "https", hostname: "cdn.nemtudo.me" },{ protocol: "https", hostname: "public-blob.squarecloud.dev" },{ protocol: "https", hostname: "blob.squarecloud.dev" }],
   },
   async rewrites() {
     return [

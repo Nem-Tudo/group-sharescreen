@@ -169,6 +169,7 @@ let version = 0;
 
 function changed() {
   version += 1;
+  viewCache.clear();
   for (const listener of listeners) listener();
 }
 
@@ -230,6 +231,26 @@ export function startFileAudioTracks() {
   started = true;
   signalingClient.onSignal((from, raw) => {
     const data = raw as { kind?: string; channel?: string; key?: string | null; index?: number | null } & Partial<Offer>;
+    if (data?.kind === "peer-left") {
+      let dirty = false;
+      for (const k of [...choices.keys()]) {
+        if (k.endsWith(` ${from}`)) choices.delete(k);
+      }
+      for (const k of [...offers.keys()]) {
+        if (k.startsWith(`${from} `)) {
+          offers.delete(k);
+          dirty = true;
+        }
+      }
+      for (const k of [...myChoices.keys()]) {
+        if (k.startsWith(`${from} `)) {
+          myChoices.delete(k);
+          dirty = true;
+        }
+      }
+      if (dirty) changed();
+      return;
+    }
     if (typeof data?.channel !== "string") return;
     if (data.kind === "file-audio-query") {
       const owner = owners.get(data.channel);

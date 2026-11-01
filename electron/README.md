@@ -1,4 +1,4 @@
-# GoLive desktop (Electron)
+# Go Live desktop (Electron)
 
 A **shell around the deployed site**, not a second copy of it. The window
 loads `https://golive.nemtudo.me` and the entire UI — every component, all
@@ -22,14 +22,14 @@ Five things, and everything in `main.ts` exists for one of them:
    also where the share's sound is decided: a "Compartilhar som da tela"
    switch, and behind its gear the applications currently open, any of which
    can be ticked to keep its sound out of the stream. Nothing starts out
-   ticked except GoLive itself, which is always muted and cannot be
+   ticked except Go Live itself, which is always muted and cannot be
    un-muted — see `audioSettings.ts`.
 2. **A working OAuth flow.** Providers refuse to authenticate inside an
    embedded browser — Google rejects it outright as `disallowed_useragent` —
    so login leaves for the real browser and comes back through a custom
    protocol. See below.
 3. **System audio without the echo.** A screen share carrying system audio
-   captures GoLive too — every participant's voice, and the audio of any
+   captures Go Live too — every participant's voice, and the audio of any
    share being watched — and sends it back to the room, so everyone hears
    themselves a beat late. `native/golive-audiocap.exe` captures the mix with
    our own process tree excluded instead. Windows only; see below.
@@ -88,7 +88,7 @@ que o intervalo até a primeira repetição** (o atraso de teclado do Windows,
 tipicamente 500ms), senão toda frase começaria cortada. Depois que as
 repetições estão chegando o intervalo entre elas é curto, e a espera cai junto.
 
-O site estreita isso sozinho: com o GoLive em foco ele tem keyup de verdade e
+O site estreita isso sozinho: com o Go Live em foco ele tem keyup de verdade e
 usa esse (`lib/pushToTalk.ts`). O caminho daqui é para o que só o shell pode
 fazer — a tecla segurada dentro de um jogo, com a janela em lugar nenhum.
 
@@ -323,7 +323,7 @@ architectures apart and one file that runs on both is the only honest answer.
 
 ## System audio, and why the room does not hear itself
 
-A share with system audio captures *everything* the machine plays, GoLive
+A share with system audio captures *everything* the machine plays, Go Live
 included — the participants' voices and the audio of whatever share is being
 watched. Sent back out, that is an echo of the whole room.
 
@@ -353,7 +353,7 @@ Three things about the handoff are worth knowing before touching it:
   version-skew directions working: an old site in a new shell never arms it
   and gets ordinary loopback, and a new site in an old shell finds nothing to
   arm.
-- **Everything GoLive plays is excluded, not just the voices** — the chimes,
+- **Everything Go Live plays is excluded, not just the voices** — the chimes,
   an embedded YouTube tile. There is no process-level distinction to make,
   and it is the right outcome anyway: everyone in the room already hears
   those locally.
@@ -365,7 +365,7 @@ Three things about the handoff are worth knowing before touching it:
   it anyway fails the *whole* capture rather than just the audio — so the
   handler requests video alone there. The web app already degrades that way
   for Firefox, so nothing extra was needed on its side.
-- **Excluding GoLive from that capture is decided at runtime, not by
+- **Excluding Go Live from that capture is decided at runtime, not by
   version.** Microsoft documents process loopback as needing build 20348,
   which looks like "Windows 11 only" — but that is Server 2022's build, and
   the API is reported working on Windows 10 22H2, where only

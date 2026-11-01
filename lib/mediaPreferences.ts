@@ -67,6 +67,24 @@ const SPEAKER_DEVICE_ID_KEY = "sharescreen:speakerDeviceId";
 const CAMERA_DEVICE_ID_KEY = "sharescreen:cameraDeviceId";
 const CAMERA_FACING_KEY = "sharescreen:cameraFacing";
 
+// The preferences more than one mounted component shows at once: a running call
+// and a menu of the group's bar are on screen together, and a private copy in
+// each is how a switch ends up not reaching the call. See lib/usePreferences.
+const sharedPreferenceListeners = new Set<() => void>();
+
+function notifySharedPreferences() {
+  sharedPreferenceListeners.forEach((listener) => listener());
+}
+
+export function subscribeSharedPreferences(listener: () => void) {
+  sharedPreferenceListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    sharedPreferenceListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
 function getStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
   try {
@@ -130,6 +148,7 @@ export function getStoredDoubleClickFocus(): boolean {
 }
 export function setStoredDoubleClickFocus(value: boolean) {
   setStoredBoolean(DOUBLE_CLICK_FOCUS_KEY, value);
+  notifySharedPreferences();
 }
 
 export function getStoredMicsMuted(): boolean {
@@ -283,6 +302,7 @@ export function getStoredOpenRoomsInApp(): boolean {
 }
 export function setStoredOpenRoomsInApp(value: boolean) {
   setStoredBoolean(OPEN_IN_APP_KEY, value);
+  notifySharedPreferences();
 }
 
 // Whether the offer to open in the app has been waved away. Separate from
@@ -333,6 +353,25 @@ export function getStoredMicDeviceId(): string | null {
 }
 export function setStoredMicDeviceId(value: string | null) {
   setStoredString(MIC_DEVICE_ID_KEY, value);
+}
+
+// "Várias entradas de áudio" (experiment "multi-mic"): the inputs mixed in
+// alongside the one above. Kept apart from it rather than folded into a list,
+// so switching the experiment off leaves the main choice exactly as it was.
+const EXTRA_MIC_DEVICE_IDS_KEY = "sharescreen:extraMicDeviceIds";
+
+export function getStoredExtraMicDeviceIds(): string[] {
+  const raw = getStoredString(EXTRA_MIC_DEVICE_IDS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && id !== "") : [];
+  } catch {
+    return [];
+  }
+}
+export function setStoredExtraMicDeviceIds(ids: string[]) {
+  setStoredString(EXTRA_MIC_DEVICE_IDS_KEY, ids.length ? JSON.stringify(ids) : null);
 }
 
 export function getStoredSpeakerDeviceId(): string | null {

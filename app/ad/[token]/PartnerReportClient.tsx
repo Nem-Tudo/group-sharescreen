@@ -546,7 +546,7 @@ export function PartnerReportClient({ token }: { token: string }) {
                   color: ad.buttonTextColor ?? "#ffffff",
                 }}
               >
-                {ad.buttonLabel}
+                {ad.buttonLabel || t("affiliateProduct.seeOffer")}
               </div>
               {/* The card's own "Resgatar X" button, and it works: it opens
                   the real reward popup in preview mode (nothing counted, no

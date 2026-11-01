@@ -178,6 +178,8 @@ export type InlineCheckout = {
   ui: "embedded" | "custom";
   clientSecret: string;
   publishableKey: string;
+  /** Paying an upgrade's top-up (pro-upgrade-card), not a new subscription. */
+  upgrade?: boolean;
 };
 
 export type HostedCheckoutResult =
@@ -616,6 +618,10 @@ export type UpgradeQuote = {
   remainingDays: number;
   amountLabel: string;
   amountCents: number;
+  /** Set when the upgrade's minimum set the price: the days it is priced as. */
+  minimumDays?: number | null;
+  /** Whether /premium/upgrade/card would take this one (pro-upgrade-card). */
+  cardAvailable?: boolean;
 };
 
 /**
@@ -680,7 +686,52 @@ export async function startUpgradePix(
         needsTaxId: data.needsTaxId,
       };
     }
-    return { ok: true, charge: { ...(data as PixCharge), remainingDays: data.remainingDays ?? 0 } };
+    // The API says how many days are left, not `days`: a top-up buys none of its
+    // own, and those are the ones the dialog is talking about.
+    const remainingDays = data.remainingDays ?? 0;
+    return { ok: true, charge: { ...(data as PixCharge), days: remainingDays, remainingDays } };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/**
+ * Pays the same top-up by card, in a form on this page, and starts the new
+ * plan's subscription from the day the current one ends. The plan changes when
+ * the API hears the payment landed, not when this returns.
+ */
+export async function startUpgradeCard(
+  planId: string,
+  email?: string
+): Promise<
+  | { ok: true; inline: InlineCheckout; remainingDays: number }
+  | { ok: false; error: string; needsEmail?: boolean }
+> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/upgrade/card`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ planId, ...(email ? { email } : {}) }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      clientSecret?: string;
+      publishableKey?: string;
+      remainingDays?: number;
+      error?: string;
+      needsEmail?: boolean;
+    };
+    if (!res.ok || !data.clientSecret || !data.publishableKey) {
+      return {
+        ok: false,
+        error: data.error ?? translate("premiumApi.couldNotStartThePayment"),
+        needsEmail: data.needsEmail,
+      };
+    }
+    return {
+      ok: true,
+      inline: { ui: "embedded", clientSecret: data.clientSecret, publishableKey: data.publishableKey, upgrade: true },
+      remainingDays: data.remainingDays ?? 0,
+    };
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };
   }

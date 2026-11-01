@@ -147,3 +147,26 @@ assert.ok(run(sample({ fractionLost: 0.08, qualityLimitationReason: "cpu" }), 3)
 }
 
 console.log("peerQuality: ok");
+
+// --- experiment "congestion-recover" ---------------------------------------
+
+// A software H264 encoder reports "bandwidth" nearly all the time (WebRTC files
+// its QP-driven quality scaling there). Once loss had cut its ratio, the old
+// rule — healthy only with reason "none" — never let it climb back.
+{
+  const lossy = sample({ fractionLost: 0.08, qualityLimitationReason: "bandwidth" });
+  const cleanButLabelled = sample({ qualityLimitationReason: "bandwidth" });
+  const cut = run(lossy, 9);
+  assert.ok(cut.ratio < 1, "desceu com perda");
+  let state = cut;
+  for (let i = 0; i < 20; i += 1) state = congestionStep(state, cleanButLabelled);
+  assert.equal(state.ratio, cut.ratio, "sem o experiment, o rótulo do encoder prende o corte");
+  state = cut;
+  for (let i = 0; i < 20; i += 1) state = congestionStep(state, cleanButLabelled, { recoverWhileLimited: true });
+  assert.equal(state.ratio, 1, "com o experiment, link limpo recupera mesmo rotulado");
+  // And it still backs off on real evidence.
+  let backed = initialCongestionState();
+  for (let i = 0; i < 9; i += 1) backed = congestionStep(backed, lossy, { recoverWhileLimited: true });
+  assert.ok(backed.ratio < 1, "o experiment não impede o recuo com perda");
+}
+

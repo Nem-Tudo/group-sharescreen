@@ -13,7 +13,6 @@ import {
   type EmbeddedPlayer,
 } from "@/lib/youtubePlayer";
 import { signalingClient } from "@/lib/signalingClient";
-import { BetaMark } from "./BetaMark";
 import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
@@ -929,7 +928,6 @@ export function VideoSourceTile({
           and nothing of ours ever covers a pixel of theirs. */}
       <div className="flex shrink-0 items-center justify-between gap-2 bg-zinc-900 px-2.5 py-1.5">
         <span className="flex min-w-0 items-center gap-1.5">
-          <BetaMark/>
           <span className="truncate text-sm font-medium text-white">{label}</span>
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${

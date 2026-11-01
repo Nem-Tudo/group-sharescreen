@@ -173,7 +173,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
   // on the other, so a name can be tried against the banner it will sit on.
   const previewName = tab === "name_color" && selected ? selected.value : equippedNameColor;
   const previewBanner = (tab === "profile_color" && selected ? selected.value : equippedProfileColor) ?? DEFAULT_BANNER;
-  const displayName = account?.displayName ?? state.name ?? "GoLive";
+  const displayName = account?.displayName ?? state.name ?? "Go Live";
 
   return (
     <div className="flex max-h-[90dvh] w-[min(44rem,calc(100vw-1rem))] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">

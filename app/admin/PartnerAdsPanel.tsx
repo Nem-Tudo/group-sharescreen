@@ -512,6 +512,14 @@ export function PartnerAdsPanel() {
                       {p.schedules.length} faixa{p.schedules.length > 1 ? "s" : ""} de horário
                     </span>
                   )}
+                  {p.launchUntil && p.launchUntil > asOf && p.launchWeight ? (
+                    <span className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                      {t("admin.partnerOrders.launching", {
+                        weight: p.launchWeight,
+                        time: new Date(p.launchUntil).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" }),
+                      })}
+                    </span>
+                  ) : null}
                   <span className="shrink-0 text-zinc-500 dark:text-zinc-400">peso {p.weight}</span>
                   <button
                     type="button"

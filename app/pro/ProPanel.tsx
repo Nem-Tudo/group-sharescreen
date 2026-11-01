@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   MdArrowUpward,
   MdCardGiftcard,
+  MdCreditCard,
   MdCheck,
   MdClose,
   MdExpandMore,
@@ -23,6 +24,8 @@ import type { BillingCycle } from "@/lib/premiumApi";
 import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
+import { holdPaymentShake } from "@/lib/useShake";
+import { trackProSourceCheckout } from "@/lib/proSourceAttribution";
 import { CardCheckoutModal } from "@/components/CardCheckoutModal";
 import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
@@ -33,6 +36,9 @@ import { AURAS_PER_PLAN, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import { ACCOUNT_EMOJI_LIMITS, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
 import { FEATURE_TIERS, accountTierOf, planTierOf, tierAbove, tierAtLeast, type Feature } from "@/lib/entitlements";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
+import { CAMERA_WORKSHOP_FEATURE, PUBLISHED_EFFECT_LIMITS } from "@/lib/cameraEffectWorkshop";
+import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
+import { CAMERA_OTHERS_FEATURE } from "@/lib/cameraEffectGift";
 import {
   fetchPremiumPlans,
   fetchPremiumStatus,
@@ -41,6 +47,7 @@ import {
   isPremiumActive,
   startPixPayment,
   startPremiumCheckout,
+  startUpgradeCard,
   startUpgradePix,
   startUpgradeSchedule,
   type InlineCheckout,
@@ -53,7 +60,15 @@ import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { CALL_TRANSCRIPT_FREE_FEATURE } from "@/lib/useCallTranscript";
 import { LIVE_TRANSLATION_FREE_FEATURE } from "@/lib/useLiveTranslation";
-import { PlanComparison, PRO_COMPARE_BUY_TOP, PRO_COMPARE_FEATURE, type ComparisonRow } from "./PlanComparison";
+import {
+  PlanComparison,
+  PRO_COMPARE_BUY_TOP,
+  PRO_COMPARE_CARDS,
+  PRO_COMPARE_FEATURE,
+  PRO_MODAL_LAYOUT_FEATURE,
+  type ComparisonRow,
+} from "./PlanComparison";
+import { ProCardsHero, ProCardsTable, ProEveryPlan, ProPlanCards } from "./ProCardsLayout";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -75,6 +90,9 @@ import { formatLocale } from "@/lib/i18n";
 // surface that quotes a price follows.
 
 /** An upload limit in MiB, as people say it: "100 MB", or "1 GB" from 1024 up. */
+/** The feature's key in the admin panel. Target: user. */
+const PRO_SUB_HIGHLIGHT_FEATURE = "pro-sub-highlight";
+
 function formatUploadLimit(mb: number): string {
   if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
   return `${mb} MB`;
@@ -106,6 +124,8 @@ const FEATURE_LABELS: Partial<Record<Feature, string>> = {
   get profile_links() { return translate("pro.proPanel.linkYourSocialNetworksOnYour"); },
   get room_theme() { return translate("pro.proPanel.createThemesAndGiveRoomsYour"); },
   get room_theme_publish() { return translate("pro.proPanel.publishYourThemesOnDiscoverFor"); },
+  get camera_effect_publish() { return translate("pro.proPanel.publishCameraEffects"); },
+  get camera_effect_others() { return translate("pro.proPanel.putEffectsOnOthers"); },
   get room_theme_set() { return translate("pro.proPanel.changeTheThemeOfAnyRoom"); },
   get uncapped_relay() { return translate("pro.proPanel.noQualityLimitOnRelayedConnections"); },
   get force_relay() { return translate("pro.proPanel.hideYourIpFromEveryoneInA"); },
@@ -243,9 +263,11 @@ export function ProPanel({
    * tremble. Two answers because they differ in one case — a new Pix code
    * requested from inside the Pix dialog, which shakes itself, and which sits
    * inside the dialog around this panel: shaking that one too would move the
-   * Pix dialog out from under the person (see ProModal).
+   * Pix dialog out from under the person (see ProModal). `dialogOpen`: one of
+   * the payment dialogs below is up, and those close only by their own ×, so
+   * Escape must not take the dialog around this panel away with them.
    */
-  onCheckoutLockChange?: (lock: { locked: boolean; shake: boolean }) => void;
+  onCheckoutLockChange?: (lock: { locked: boolean; shake: boolean; dialogOpen: boolean }) => void;
 } = {}) {
   const t = useT();
   const { account, loading: resolvingAccount, refresh } = useAuth();
@@ -287,8 +309,18 @@ export function ProPanel({
   // Derived, not stored. Keeping a second copy of the chosen plan in state
   // would need an effect to follow the list, and the whole page below reads
   // `plan` — one of the two would eventually be a render behind the other.
+  // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
+  // is drawn until it is decided, so nobody sees one layout flip to the other.
+  const compare = useFeature(PRO_COMPARE_FEATURE);
+  // The "cards" treatment is the /pro page's own. The popup has no room for it
+  // and opens as "buy-top".
+  const cardsVariant = compare.variant === PRO_COMPARE_CARDS && !isModal;
   const plan =
-    plans.find((entry) => entry.id === selectedPlanId) ?? plans[0] ?? null;
+    plans.find((entry) => entry.id === selectedPlanId) ??
+    // Its checkout is on screen before anybody picks: Max is what it opens on.
+    (cardsVariant ? plans.find((entry) => entry.id === RECOMMENDED_PLAN_ID) : null) ??
+    plans[0] ??
+    null;
   /**
    * The prices for the cycle on screen, from the API.
    *
@@ -326,15 +358,25 @@ export function ProPanel({
    */
   const pixOffered = plan?.pixAvailable !== false;
   const [loadingPlan, setLoadingPlan] = useState(true);
-  // The comparison-table experiment (see PlanComparison). Nothing plan-shaped
-  // is drawn until it is decided, so nobody sees one layout flip to the other.
-  const compare = useFeature(PRO_COMPARE_FEATURE);
+  // The subscription as the lead button, in green, and Pix as an outline.
+  const subHighlight = useFeature(PRO_SUB_HIGHLIGHT_FEATURE).enabled;
+  const subscribeButtonClass = subHighlight
+    ? "rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:opacity-60"
+    : "rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
+  const pixButtonClass = subHighlight
+    ? "flex items-center gap-2 rounded-lg border border-[#32BCAD] px-4 py-2.5 text-sm font-medium text-[#1f8f83] transition hover:bg-[#32BCAD]/10 disabled:opacity-60 dark:text-[#32BCAD]"
+    : "flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60";
   // Perks that sit behind their own experiments: sold only to whoever can
   // see them (see lib/groupAura and lib/customEmoji).
   const auraPerk = useFeature(GROUP_AURA_FEATURE, { track: false }).enabled;
   const emojiPerk = useFeature(CUSTOM_EMOJI_FEATURE, { track: false }).enabled;
   // Free for this person (see lib/useCallTranscript): not something to sell them.
   const transcriptFree = useFeature(CALL_TRANSCRIPT_FREE_FEATURE, { track: false }).enabled;
+  // Only sold to who would get it: outside these experiments, somebody paying for
+  // it would find nowhere to publish.
+  const effectsWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: false }).enabled;
+  const customEffects = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
+  const effectsOnOthers = useFeature(CAMERA_OTHERS_FEATURE, { track: false }).enabled;
   const translationFree = useFeature(LIVE_TRANSLATION_FREE_FEATURE, { track: false }).enabled;
   // Where the subscription's card form opens (the checkout-inline experiment).
   // The API decides and counts the exposure (premiumRoutes' checkoutUiFor);
@@ -349,9 +391,18 @@ export function ProPanel({
     stripeRollout.enabled &&
     stripeRollout.variant !== "pix";
   const [inlineCheckout, setInlineCheckout] = useState<InlineCheckout | null>(null);
+  // How many days an upgrade's form is paying for. Null for a subscription,
+  // which pays one cycle.
+  const [inlineUpgradeDays, setInlineUpgradeDays] = useState<number | null>(null);
   const compareLayout = compare.enabled && plans.length > 1;
+  // While the plans load it already holds the page, so the old heading does
+  // not flash; with one plan or none it steps aside.
+  const cardsLayout = cardsVariant && (loadingPlan || plans.length > 1);
   // The "buy-top" treatment: the price and checkout card above the table.
-  const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP;
+  const buyOnTop = compare.variant === PRO_COMPARE_BUY_TOP || compare.variant === PRO_COMPARE_CARDS;
+  // Only the popup with the table: counted there, the one place it changes anything.
+  const modalLayout = useFeature(PRO_MODAL_LAYOUT_FEATURE, { track: isModal && compareLayout }).enabled;
+  const twoPane = isModal && compareLayout && modalLayout;
   const selectPlan = useCallback((planId: string) => {
     setSelectedPlanId(planId);
     trackFeatureEvent("pro_plan_click");
@@ -362,12 +413,36 @@ export function ProPanel({
   const buyPlan = useCallback(
     (planId: string) => {
       selectPlan(planId);
-      requestAnimationFrame(() =>
-        checkoutCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
-      );
+      requestAnimationFrame(() => {
+        const card = checkoutCardRef.current;
+        card?.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Beside the table it is already on screen and nothing would scroll, so
+        // the press has to show where the checkout is some other way. The cards
+        // layout too: the card keeps its place and only its contents change,
+        // which is easy to miss.
+        if ((twoPane || cardsVariant) && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          card?.animate(
+            cardsVariant
+              ? [
+                  { boxShadow: "0 0 0 0 rgba(59, 130, 246, 0)" },
+                  { boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.9), 0 0 36px 8px rgba(59, 130, 246, 0.45)" },
+                  { boxShadow: "0 0 0 0 rgba(59, 130, 246, 0)" },
+                ]
+              : [{ boxShadow: "0 0 0 0 rgba(16, 185, 129, 0.7)" }, { boxShadow: "0 0 0 10px rgba(16, 185, 129, 0)" }],
+            cardsVariant ? { duration: 1100, easing: "ease-out" } : { duration: 700, iterations: 2 }
+          );
+        }
+      });
     },
-    [selectPlan]
+    [selectPlan, twoPane, cardsVariant]
   );
+  const pickCycle = (next: BillingCycle) => {
+    setCycle(next);
+    // Which cycle people actually pick, per side. A yearly subscription is
+    // worth twelve monthly ones and a combination that moves people onto it
+    // earns far more than its sale count suggests.
+    trackFeatureEvent(`pro_cycle_click_${next}`);
+  };
   // The plan to steer toward: Pro Max, unless the account already has it —
   // then the one above it, and nothing once they are at the top.
   const accountTier = accountTierOf(account?.flags);
@@ -487,6 +562,9 @@ export function ProPanel({
   const canUpgrade = Boolean(
     active && !activeHere && effectivePlanId && plan && tierAbove(planTierOf(plan.id), planTierOf(effectivePlanId))
   );
+  // Paying that upgrade by card. Counted only where the upgrade is on offer.
+  const upgradeCard = useFeature("pro-upgrade-card", { track: canUpgrade }).enabled;
+  const upgradeCardOffered = upgradeCard && Boolean(upgradeQuote?.cardAvailable);
   // The plan on screen is *below* the one still running. Sold by card only,
   // and deferred: charged today, starting when the higher plan ends (see the
   // API's /premium/subscribe and DeferredDowngradeModal). Not while a carried
@@ -513,6 +591,8 @@ export function ProPanel({
     (feature) =>
       plans.some((entry) => entry.features.includes(feature)) &&
       !(feature === "call_transcript" && transcriptFree) &&
+      !(feature === "camera_effect_publish" && !(effectsWorkshop && customEffects)) &&
+      !(feature === "camera_effect_others" && !effectsOnOthers) &&
       !(feature === "live_translation" && translationFree)
   );
 
@@ -537,6 +617,10 @@ export function ProPanel({
     if (feature === "room_theme_publish" && entry && included) {
       const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
       if (limit) return t("pro.proPanel.publishThemesWithLimit", { limit });
+    }
+    if (feature === "camera_effect_publish" && entry && included) {
+      const limit = PUBLISHED_EFFECT_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_EFFECT_LIMITS];
+      if (limit) return t("pro.proPanel.publishCameraEffectsWithLimit", { limit });
     }
     return FEATURE_LABELS[feature];
   };
@@ -803,6 +887,10 @@ export function ProPanel({
               const limit = PUBLISHED_THEME_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_THEME_LIMITS];
               if (limit) return amount(limit);
             }
+            if (feature === "camera_effect_publish" && included) {
+              const limit = PUBLISHED_EFFECT_LIMITS[planTierOf(entry.id) as keyof typeof PUBLISHED_EFFECT_LIMITS];
+              if (limit) return amount(limit);
+            }
             return included;
           }),
         });
@@ -942,6 +1030,7 @@ export function ProPanel({
     // be blamed for a checkout it never got to start.
     trackFeatureEvent("pro_checkout_click");
     trackFeatureEvent("pro_checkout_click_subscription");
+    trackProSourceCheckout();
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1085,6 +1174,8 @@ export function ProPanel({
     // See handleSubscribe: the click, before anything can go wrong with it.
     trackFeatureEvent("pro_checkout_click");
     trackFeatureEvent("pro_checkout_click_pix");
+    trackProSourceCheckout();
+    const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1094,6 +1185,8 @@ export function ProPanel({
       cycle,
       taxId.trim() || undefined
     );
+    // Only where something is shaking: a popup, not the page itself.
+    if (isModal || pix) await holdPaymentShake(startedAt);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
@@ -1115,7 +1208,7 @@ export function ProPanel({
     setBusy(false);
     setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
-  }, [email, taxId, plan?.id, cycle, premium?.currentPeriodEnd]);
+  }, [email, taxId, plan?.id, cycle, premium?.currentPeriodEnd, isModal, pix]);
 
   // Pix is paid in a banking app, which tells this page nothing. Polling is
   // the only way it learns — the focus listener above does not fire, because
@@ -1158,6 +1251,7 @@ export function ProPanel({
   // handleUpgradeSubscription.
   const handleUpgrade = useCallback(async (): Promise<boolean> => {
     if (!plan) return false;
+    const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);
     setError(null);
@@ -1166,6 +1260,7 @@ export function ProPanel({
       email.trim() || undefined,
       taxId.trim() || undefined
     );
+    if (isModal || upgradePix) await holdPaymentShake(startedAt);
     if (!result.ok) {
       setError(result.error);
       if (result.needsEmail) setNeedsEmail(true);
@@ -1178,7 +1273,27 @@ export function ProPanel({
     setBusy(false);
     setGenerating(false);
     return true;
-  }, [email, taxId, plan]);
+  }, [email, taxId, plan, isModal, upgradePix]);
+
+  // The same top-up by card, in the form on this page. Starts the new plan's
+  // subscription too, so it replaces the "Assinatura" option where it is offered.
+  const handleUpgradeCard = useCallback(async () => {
+    if (!plan) return;
+    trackFeatureEvent("pro_upgrade_card_click");
+    setBusy(true);
+    setGenerating(true);
+    setError(null);
+    const result = await startUpgradeCard(plan.id, email.trim() || undefined);
+    if (result.ok) {
+      setInlineUpgradeDays(result.remainingDays);
+      setInlineCheckout(result.inline);
+    } else {
+      setError(result.error);
+      if (result.needsEmail) setNeedsEmail(true);
+    }
+    setBusy(false);
+    setGenerating(false);
+  }, [email, plan]);
 
   // Schedules the mandate that takes over billing, at the new plan's full
   // price, the moment the current cycle runs out — see startUpgradeSchedule.
@@ -1249,18 +1364,57 @@ export function ProPanel({
     onCheckoutLockChange?.({
       locked: generating,
       shake: generating && !pix && !upgradePix,
+      dialogOpen: Boolean(pix || upgradePix || inlineCheckout || deferredOpen),
     });
-  }, [generating, pix, upgradePix, onCheckoutLockChange]);
+  }, [generating, pix, upgradePix, inlineCheckout, deferredOpen, onCheckoutLockChange]);
+  // What was bought, for all three payment dialogs below. Their own plan, so
+  // their own face in the confetti.
+  const purchaseConfirmation = plan
+    ? {
+        planId: plan.id,
+        planTitle: plan.title,
+        planIconId: plan.iconId,
+        face: account ? { name: account.displayName, avatarUrl: account.avatarUrl } : null,
+      }
+    : null;
 
 
 
 
 
   return (
-    <div className={isModal ? "w-full p-5 sm:p-7" : `mx-auto w-full ${compareLayout ? "max-w-3xl" : "max-w-2xl"} px-4 py-10`}>
-      <div className="flex items-start justify-between gap-4">
+    <div
+      className={
+        isModal
+          ? `w-full p-5 sm:p-7 ${twoPane ? "lg:grid lg:grid-cols-[23rem_minmax(0,1fr)] lg:gap-7" : ""}`
+          : cardsLayout
+            ? // Paints the page's background too, so the padding centres it.
+              "w-full flex-1 bg-zinc-100 px-[max(1rem,calc((100%-64rem)/2))] py-10 [font-family:var(--font-jakarta),sans-serif] dark:bg-[#0d1117]"
+            : `mx-auto w-full ${compareLayout ? "max-w-3xl" : "max-w-2xl"} px-4 py-10`
+      }
+    >
+      {cardsLayout && (
+        <ProCardsHero
+          cycles={plans[0]?.cycles ?? []}
+          cycle={cycle}
+          onCycle={pickCycle}
+          topPlan={plans[plans.length - 1] ?? null}
+          topScreens={plans.length ? Math.max(...plans.map(screensOf)) : MULTI_SCREEN_LIMITS.pro_ultra}
+        />
+      )}
+      {/* The column that stays put while the table scrolls beside it. Off the
+          layout entirely (contents) for everybody else. */}
+      <div className={twoPane ? "lg:sticky lg:top-7 lg:max-h-[calc(90dvh-3.5rem)] lg:self-start lg:overflow-y-auto" : "contents"}>
+      <div
+        className={`${cardsLayout ? "hidden" : "flex"} items-start justify-between gap-4 ${
+          // Below lg the popup scrolls as one: the title and the × stay on top.
+          twoPane
+            ? "sticky top-0 z-20 -mx-5 -mt-5 bg-zinc-50 px-5 py-3 sm:-mx-7 sm:-mt-7 sm:px-7 lg:static lg:m-0 lg:bg-transparent lg:p-0 dark:bg-black lg:dark:bg-transparent"
+            : ""
+        }`}
+      >
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          <h1 className={`flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 ${twoPane ? "whitespace-nowrap" : ""}`}>
             {plan?.title ?? t("common.golivePro")}
             {/* The plan's own mark, chosen by its `iconId` in the database (see
                 components/planIcons.tsx). Rendered from the plan rather than
@@ -1268,9 +1422,12 @@ export function ProPanel({
                 product's identity is a row, not a literal in a page. */}
             <PlanMark className={`h-6 w-6 shrink-0 ${mark.className}`} />
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {plan?.description ?? t("pro.proPanel.moreQualityInYourBroadcast")}
-          </p>
+          {/* The popup's short layout goes straight to the price. */}
+          {!twoPane && (
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {plan?.description ?? t("pro.proPanel.moreQualityInYourBroadcast")}
+            </p>
+          )}
         </div>
         {onClose && (
           <div className="flex shrink-0 items-center gap-1">
@@ -1285,12 +1442,15 @@ export function ProPanel({
               target="_blank"
               rel="noopener"
               aria-disabled={generating || undefined}
+              aria-label={t("pro.proPanel.openFullPage")}
+              title={t("pro.proPanel.openFullPage")}
               className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${
                 generating ? "pointer-events-none opacity-40" : ""
               }`}
             >
               <MdOpenInNew className="h-4 w-4" />
-              <span className="hidden sm:inline">{t("pro.proPanel.openFullPage")}</span>
+              {/* Beside the table the column has no room for the title and this label. */}
+              <span className={twoPane ? "hidden sm:inline lg:hidden" : "hidden sm:inline"}>{t("pro.proPanel.openFullPage")}</span>
             </Link>
           )}
           <button
@@ -1378,7 +1538,7 @@ export function ProPanel({
         </div>
       )}
 
-      {compare.ready && compareLayout && !buyOnTop && (
+      {compare.ready && compareLayout && !buyOnTop && !twoPane && (
         <PlanComparison
           plans={plans}
           rows={comparisonRows()}
@@ -1388,7 +1548,14 @@ export function ProPanel({
           onBuy={buyPlan}
         />
       )}
-      <div ref={checkoutCardRef} className="mt-6 scroll-mt-20 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+      <div
+        ref={checkoutCardRef}
+        className={
+          cardsLayout
+            ? "mt-6 scroll-mt-20 rounded-[28px] bg-white p-6 dark:bg-[#161b22]"
+            :"mt-6 scroll-mt-20 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
+        }
+      >
         {loadingPlan ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("pro.proPanel.loadingThePlan")}</p>
         ) : !plan ? (
@@ -1399,7 +1566,13 @@ export function ProPanel({
           <>
             {/* Monthly / yearly. Only when the API offers the choice — an
                 older one sends no cycles and the page stays as it was. */}
-            {plan.cycles && plan.cycles.length > 1 && (
+            {cardsLayout && (
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-extrabold tracking-tight text-zinc-950 dark:text-zinc-50">
+                <PlanMark className={`h-5 w-5 shrink-0 ${mark.className}`} />
+                {plan.title}
+              </h2>
+            )}
+            {!cardsLayout && plan.cycles && plan.cycles.length > 1 && (
               <div className="mb-4 inline-flex rounded-xl border border-zinc-200 p-1 dark:border-zinc-800">
                 {plan.cycles.map((entry) => {
                   const active = entry.cycle === cycle;
@@ -1407,14 +1580,7 @@ export function ProPanel({
                     <button
                       key={entry.cycle}
                       type="button"
-                      onClick={() => {
-                        setCycle(entry.cycle);
-                        // Which cycle people actually pick, per side. A
-                        // yearly subscription is worth twelve monthly ones
-                        // and a combination that moves people onto it earns
-                        // far more than its sale count suggests.
-                        trackFeatureEvent(`pro_cycle_click_${entry.cycle}`);
-                      }}
+                      onClick={() => pickCycle(entry.cycle)}
                       aria-pressed={active}
                       className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                         active
@@ -1445,8 +1611,13 @@ export function ProPanel({
             {/* The comparison experiment's plan picker: under the cycle, in the
                 card that holds the price and the buttons it drives. One line
                 of pills; the price is the big figure right below. */}
-            {compareLayout && (
-              <div className="mb-4 flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("pro.compare.choosePlan")}>
+            {compareLayout && !cardsLayout && (
+              <div
+                // From lg the table beside it picks the plan with its own columns.
+                className={`mb-4 flex-wrap gap-1.5 ${twoPane ? "flex lg:hidden" : "flex"}`}
+                role="radiogroup"
+                aria-label={t("pro.compare.choosePlan")}
+              >
                 {plans.map((entry) => {
                   const entryMark = planIcon(entry.iconId);
                   const chosen = entry.id === plan.id;
@@ -1515,13 +1686,6 @@ export function ProPanel({
                     one cannot be compared as they stand. */}
                 {t("pro.proPanel.equivalentTo")} {pricing.monthlyEquivalentLabel} {t("pro.proPanel.perMonth")}
               </p>
-            )}
-
-            {/* The table above already lists every benefit, per plan. */}
-            {!compareLayout && (
-              <ul className="mt-4 flex flex-col gap-2">
-                {featureRows(plan)}
-              </ul>
             )}
 
             <div className="mt-6">
@@ -1762,6 +1926,13 @@ export function ProPanel({
                                   ? t("pro.proPanel.upgradeRemainingDays", { days: upgradeQuote.remainingDays })
                                   : t("pro.proPanel.calculatingTheUpgrade")}
                               </p>
+                              {/* The text above says "proportional", which stops
+                                  being the whole story here. */}
+                              {upgradeQuote?.minimumDays && (
+                                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                  {t("pro.proPanel.upgradeMinimumApplied", { days: upgradeQuote.minimumDays })}
+                                </p>
+                              )}
                             </div>
                           </div>
 
@@ -1778,7 +1949,7 @@ export function ProPanel({
                               just today: the plan changes now, and renewing
                               it again later is a manual purchase, same as any
                               other Pix plan. */}
-                          {premium?.scheduledUpgradeRef ? (
+                          {premium?.scheduledUpgradeRef && !upgradeCardOffered ? (
                             <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                               {t("pro.proPanel.upgradeScheduled", {
                                 value: periodEndLabel(premium.currentPeriodEnd),
@@ -1793,14 +1964,27 @@ export function ProPanel({
                             </p>
                           )}
                           <div className="flex flex-wrap gap-2">
-                            {!premium?.scheduledUpgradeRef && (
+                            {upgradeCardOffered && (
+                              <button
+                                type="button"
+                                onClick={handleUpgradeCard}
+                                disabled={busy || (needsEmail && !email.trim())}
+                                className={`flex items-center gap-2 ${subscribeButtonClass}`}
+                              >
+                                <MdCreditCard className="h-4 w-4 shrink-0" />
+                                {busy
+                                  ? t("pro.proPanel.openingThePayment")
+                                  : t("pro.proPanel.upgradeWithCard", { value: upgradeQuote?.amountLabel ?? "—" })}
+                              </button>
+                            )}
+                            {!upgradeCardOffered && !premium?.scheduledUpgradeRef && (
                               <button
                                 type="button"
                                 onClick={handleUpgradeSubscription}
                                 disabled={
                                   busy || scheduling || !upgradeQuote || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())
                                 }
-                                className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                                className={subscribeButtonClass}
                               >
                                 {scheduling || busy
                                   ? t("pro.proPanel.openingThePayment")
@@ -1813,7 +1997,7 @@ export function ProPanel({
                               type="button"
                               onClick={handleUpgrade}
                               disabled={busy || !upgradeQuote || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                              className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                              className={pixButtonClass}
                             >
                               <PixIcon className="h-4 w-4 shrink-0" />
                               {busy
@@ -1827,8 +2011,9 @@ export function ProPanel({
                       )}
                     </div>
                   )}
-                  {/* Both ways to pay, side by side and equal in weight —
-                      they are two products, not a default and an alternative:
+                  {/* Both ways to pay, side by side and equal in weight (unless
+                      the pro-sub-highlight experiment leads with the subscription)
+                      — they are two products, not a default and an alternative:
                       one starts a renewal, the other buys days. Wrapping
                       rather than a fixed row, because the two labels carry
                       prices and stop fitting one line on a phone.
@@ -1883,8 +2068,9 @@ export function ProPanel({
                         type="button"
                         onClick={lowerThanCurrent ? () => setDeferredOpen(true) : handleSubscribe}
                         disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                        className="rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                        className={cardsLayout ? `inline-flex items-center gap-2 ${subscribeButtonClass}` : subscribeButtonClass}
                       >
+                        {cardsLayout && <PlanMark className={`h-4 w-4 shrink-0 ${mark.className}`} />}
                         {busy
                           ? t("pro.proPanel.openingThePayment")
                           : `${activeHere ? t("pro.proPanel.renew") : active ? t("common.change") : t("pro.proPanel.subscribe")} por ${
@@ -1907,7 +2093,7 @@ export function ProPanel({
                         type="button"
                         onClick={handlePix}
                         disabled={busy || (needsEmail && !email.trim()) || (needsTaxId && !taxId.trim())}
-                        className="flex items-center gap-2 rounded-lg bg-[#32BCAD] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2ba99b] disabled:opacity-60"
+                        className={pixButtonClass}
                       >
                         <PixIcon className="h-4 w-4 shrink-0" />
                         {busy
@@ -1953,18 +2139,57 @@ export function ProPanel({
                 {error}
               </p>
             )}
+
+            {/* Under the buttons, so buying does not take a scroll past every
+                benefit. With the table, that already lists them per plan. */}
+            {!compareLayout && (
+              <ul className="mt-5 flex flex-col gap-2 border-t border-zinc-200 pt-5 dark:border-zinc-800">
+                {featureRows(plan)}
+              </ul>
+            )}
           </>
         )}
       </div>
-      {compare.ready && compareLayout && buyOnTop && (
-        <PlanComparison
-          plans={plans}
-          rows={comparisonRows()}
-          selectedId={plan?.id ?? null}
-          recommendedId={recommendedPlanId}
-          onSelect={selectPlan}
-          onBuy={buyPlan}
-        />
+      </div>
+      {cardsLayout && plans.length > 1 && (
+        <>
+          <ProPlanCards
+            plans={plans}
+            rows={comparisonRows()}
+            cycle={cycle}
+            selectedId={plan?.id ?? null}
+            recommendedId={recommendedPlanId}
+            currentId={active ? effectivePlanId ?? null : null}
+            signedIn={Boolean(account)}
+            stats={(entry) => [
+              ...(entry.features.includes("quality_2160p") ? [{ value: "4K", label: t("pro.cards.statImage") }] : []),
+              { value: String(screensOf(entry)), label: t("pro.cards.statScreens") },
+              ...(entry.uploadLimitMb
+                ? [{ value: formatUploadLimit(entry.uploadLimitMb), label: t("pro.cards.statUpload") }]
+                : []),
+            ]}
+            onBuy={(planId) => {
+              trackFeatureEvent("pro_cards_cta_click", { feature: PRO_COMPARE_FEATURE });
+              buyPlan(planId);
+              if (!account) setAccountModal("create");
+            }}
+          />
+          <ProEveryPlan rows={comparisonRows()} />
+          <ProCardsTable plans={plans} rows={comparisonRows()} recommendedId={recommendedPlanId} />
+        </>
+      )}
+      {compare.ready && compareLayout && !cardsLayout && (buyOnTop || twoPane) && (
+        <div className={twoPane ? "min-w-0 lg:[&>*:first-child]:mt-0" : "contents"}>
+          <PlanComparison
+            plans={plans}
+            rows={comparisonRows()}
+            selectedId={plan?.id ?? null}
+            recommendedId={recommendedPlanId}
+            onSelect={selectPlan}
+            onBuy={buyPlan}
+            roomyLabels={twoPane}
+          />
+        </div>
       )}
 
       {/* Rendered here rather than beside the button: it is fixed to the
@@ -2011,8 +2236,11 @@ export function ProPanel({
               }`
             : ""
         }
+        confirmation={purchaseConfirmation}
+        days={inlineUpgradeDays ?? pricing?.periodDays ?? null}
         onClose={() => {
           setInlineCheckout(null);
+          setInlineUpgradeDays(null);
           void syncStatus(true);
         }}
         onPaid={() => {
@@ -2025,19 +2253,7 @@ export function ProPanel({
         charge={pix}
         paid={pixPaid}
         paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
-        confirmation={
-          plan
-            ? {
-                planId: plan.id,
-                planTitle: plan.title,
-                planIconId: plan.iconId,
-                // Their own plan, so their own face in the confetti.
-                face: account
-                  ? { name: account.displayName, avatarUrl: account.avatarUrl }
-                  : null,
-              }
-            : null
-        }
+        confirmation={purchaseConfirmation}
         busy={busy}
         onRegenerate={handlePix}
         onCheckNow={() => void syncStatus(true)}
@@ -2053,18 +2269,7 @@ export function ProPanel({
         charge={upgradePix}
         paid={upgradePaid}
         paidUntilLabel={premium ? periodEndLabel(premium.currentPeriodEnd) : null}
-        confirmation={
-          plan
-            ? {
-                planId: plan.id,
-                planTitle: plan.title,
-                planIconId: plan.iconId,
-                face: account
-                  ? { name: account.displayName, avatarUrl: account.avatarUrl }
-                  : null,
-              }
-            : null
-        }
+        confirmation={purchaseConfirmation}
         busy={busy}
         onRegenerate={handleUpgrade}
         onCheckNow={() => void syncStatus(true)}

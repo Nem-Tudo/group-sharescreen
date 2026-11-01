@@ -21,6 +21,8 @@
 //      renderer, no navigating away from our own origin, no in-app windows
 //      for third-party links.
 
+// Has to stay first: it may restart the process (see the file).
+import "./linuxEgl";
 import {
   app,
   BrowserWindow,
@@ -66,8 +68,14 @@ import {
 // bundles into the main process without dragging the app in with it.
 import { desktopOAuthNonce } from "../lib/desktop";
 import { initAutoUpdater } from "./updater";
-import { createInputHook } from "./inputHook";
+import {
+  createInputHook,
+  inputHookEnabled,
+  onInputHookEnabledChange,
+  setInputHookEnabled,
+} from "./inputHook";
 import { createScreenPen } from "./screenPen";
+import { getDiscordRpc, type DiscordActivity } from "./discordRpc";
 import { createStoreDesktopShortcutOnce } from "./storeShortcut";
 import {
   applyFirstRunDefaults,
@@ -85,6 +93,7 @@ import {
   saveSystemAudioSettings,
 } from "./audioSettings";
 import { getHiddenWindowSettings, saveHiddenWindowSettings } from "./videoSettings";
+import { applyWebrtcTrials, saveH264QpTrial, webrtcTrialState } from "./webrtcTrials";
 import {
   applySystemAudioSettings,
   isSystemAudioCapturing,
@@ -126,6 +135,10 @@ const APP_USER_MODEL_ID = "me.nemtudo.golive";
 // the renderer forever. Generous, because the flow legitimately involves
 // typing a password and possibly a 2FA code in another application.
 const OAUTH_TIMEOUT_MS = 5 * 60_000;
+
+// Experiment sq-h264-qp's field trial, decided by the site on an earlier run
+// (see webrtcTrials.ts). Switches only count before the app is ready.
+applyWebrtcTrials();
 
 // System audio on macOS. Chromium can capture it through ScreenCaptureKit on
 // macOS 13 (Darwin 22) and later, but only behind feature flags — Electron's
@@ -391,17 +404,6 @@ async function resolveSavedShareSource(): Promise<DesktopCapturerSource | null> 
 }
 
 async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
-  const sources = await desktopCapturer.getSources({
-    types: ["screen", "window"],
-    thumbnailSize: { width: 320, height: 200 },
-    fetchWindowIcons: true,
-  });
-  if (sources.length === 0) return { source: null, audio: null, hidden: null };
-  // Whether covering a window is on the table at all. Both halves matter and
-  // neither is guessable from the other: the machine has to be able to run
-  // the helper, and the page has to actually be going to use it.
-  const canHide = willUseNativeVideo() && (await probeNativeVideo()).supported;
-
   const picker = new BrowserWindow({
     parent: parent ?? undefined,
     modal: Boolean(parent),
@@ -422,38 +424,70 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     },
   });
   picker.setMenuBarVisibility(false);
-
-  const payload: PickerSource[] = sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    thumbnail: source.thumbnail.toDataURL(),
-    kind: source.id.startsWith("screen:") ? "screen" : "window",
-    appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
-  }));
-
-  const data: PickerData = {
-    // Pre-selects the last shared surface when it is still on this list —
-    // see PickerData.selectedId. Matched here, where both the saved value
-    // and the live list are in hand.
-    selectedId: matchSavedSourceIn(sources)?.id ?? null,
-    sources: payload,
-    audio: {
-      // Windows, Linux, and macOS 13+ (see MAC_LOOPBACK_SUPPORTED). Elsewhere
-      // there is no system audio to offer at all, so the row is not drawn
-      // rather than drawn and inert.
-      supported: systemAudioSupported(),
-      // Leaving individual applications out needs the native helper. Without
-      // it the only honest choice is all of the sound or none of it.
-      perApp: isSystemAudioExclusionSupported(),
-      enabled: getSystemAudioSettings().enabled,
-    },
-    video: {
-      supported: canHide,
-      hiddenCount: canHide ? getHiddenWindowSettings().hiddenApps.length : 0,
-    },
-  };
+  // The window opens before the sources are read, so the click answers at once
+  // and picker.html draws placeholders in the meantime. Kept out of capture
+  // until then, or every screen thumbnail would be a picture of the picker.
+  picker.setContentProtection(true);
+  const pickerSourceId = picker.getMediaSourceId();
 
   return new Promise((resolve) => {
+    let sources: DesktopCapturerSource[] = [];
+    const shown = new Promise<void>((resolveShown) => {
+      picker.once("ready-to-show", () => {
+        picker.show();
+        resolveShown();
+      });
+    });
+    const data = shown.then(async (): Promise<PickerData> => {
+      const captured = await desktopCapturer.getSources({
+        types: ["screen", "window"],
+        thumbnailSize: { width: 320, height: 200 },
+        fetchWindowIcons: true,
+      });
+      if (!picker.isDestroyed()) picker.setContentProtection(false);
+      sources = captured.filter((source) => source.id !== pickerSourceId);
+      if (sources.length === 0) finish(null);
+      // Whether covering a window is on the table at all. Both halves matter and
+      // neither is guessable from the other: the machine has to be able to run
+      // the helper, and the page has to actually be going to use it.
+      const canHide = willUseNativeVideo() && (await probeNativeVideo()).supported;
+
+      const payload: PickerSource[] = sources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail.toDataURL(),
+        kind: source.id.startsWith("screen:") ? "screen" : "window",
+        appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
+      }));
+
+      return {
+        // Pre-selects the last shared surface when it is still on this list —
+        // see PickerData.selectedId. Matched here, where both the saved value
+        // and the live list are in hand.
+        selectedId: matchSavedSourceIn(sources)?.id ?? null,
+        sources: payload,
+        audio: {
+          // Windows, Linux, and macOS 13+ (see MAC_LOOPBACK_SUPPORTED). Elsewhere
+          // there is no system audio to offer at all, so the row is not drawn
+          // rather than drawn and inert.
+          supported: systemAudioSupported(),
+          // Leaving individual applications out needs the native helper. Without
+          // it the only honest choice is all of the sound or none of it.
+          perApp: isSystemAudioExclusionSupported(),
+          enabled: getSystemAudioSettings().enabled,
+        },
+        video: {
+          supported: canHide,
+          hiddenCount: canHide ? getHiddenWindowSettings().hiddenApps.length : 0,
+        },
+      };
+    });
+    // A failed read has nothing to offer, and the share is waiting on an answer.
+    data.catch((err) => {
+      console.error("[golive] Falha ao listar o que compartilhar:", err);
+      finish(null);
+    });
+
     let settled = false;
     const finish = (choice: ResolvedChoice | null) => {
       if (settled) return;
@@ -480,7 +514,6 @@ async function pickSource(parent: BrowserWindow | null): Promise<PickResult> {
     // Closing the window with the OS chrome is a cancellation like any other.
     picker.on("closed", () => finish(null));
 
-    picker.once("ready-to-show", () => picker.show());
     void picker.loadFile(path.join(__dirname, "..", "picker.html"));
   });
 }
@@ -508,7 +541,9 @@ async function audioAppRows(): Promise<PickerAudioApp[]> {
     // build, and a row nobody recognises would defeat the point of listing
     // ourselves at all.
     name: "Go Live",
-    icon: await fileIcon(process.execPath),
+    // The mark itself and not the executable's icon, which Windows answers
+    // with its generic program icon.
+    icon: overlayLogo(),
     muted: true,
     locked: true,
   });
@@ -555,7 +590,7 @@ async function hiddenAppRows(): Promise<PickerHiddenApp[]> {
     rows.set(entry.key, {
       key: entry.key,
       name: entry.self ? "Go Live" : entry.name,
-      icon: await fileIcon(entry.path),
+      icon: entry.self ? overlayLogo() : await fileIcon(entry.path),
       hidden: hidden.has(entry.key),
     });
   }
@@ -1010,7 +1045,7 @@ function createWindow(initialUrl: string = APP_URL) {
     minHeight: 600,
     show: false,
     backgroundColor: "#101014",
-    title: "GoLive",
+    title: "Go Live",
     ...(process.platform === "linux" ? { icon: WINDOW_ICON } : {}),
     autoHideMenuBar: true,
     webPreferences: {
@@ -1147,6 +1182,11 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     if (ringingCall) setCallRinging(null);
+    // The same for the call's taskbar buttons: nothing is left to answer them.
+    if (callControls) {
+      callControls = null;
+      applyCallControls();
+    }
     // A page that reloads or leaves never says it is done being protected;
     // the one that loads next asks again for whatever it shows.
     if (captureProtected) setCaptureProtection(false);
@@ -1154,8 +1194,15 @@ function createWindow(initialUrl: string = APP_URL) {
   mainWindow.webContents.on("devtools-opened", () => {
     if (captureProtected) mainWindow?.webContents.closeDevTools();
   });
-  mainWindow.webContents.on("render-process-gone", () => {
+  // Windows forgets a window's taskbar buttons when it is hidden to the tray.
+  mainWindow.on("show", applyCallControls);
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
     if (ringingCall) setCallRinging(null);
+    if (callControls) {
+      callControls = null;
+      applyCallControls();
+    }
+    recoverFromRendererCrash(details);
   });
 
   // A site that does not load (offline, DNS, server down) used to leave a bare
@@ -1170,6 +1217,56 @@ function createWindow(initialUrl: string = APP_URL) {
   });
 
   void mainWindow.loadURL(initialUrl);
+}
+
+// A renderer that dies (out of memory, a crash in Chromium's media stack, the
+// OS killing it) takes the whole page with it: every call and socket drops,
+// the window paints nothing but its backgroundColor, and there is no page for
+// DevTools to inspect. Closing and reopening only hides and shows that same
+// dead window (see the "close" handler), so the one way back was Ctrl+R.
+// Reload on our own, and write down why it died — nothing else records it.
+//
+// Bounded, because a page that kills its renderer on load would otherwise
+// reload forever, at full CPU, possibly hidden in the tray. Past the limit the
+// window stays blank and Ctrl+R is still there.
+const CRASH_RELOAD_WINDOW_MS = 5 * 60_000;
+const CRASH_RELOAD_MAX = 3;
+const CRASH_LOG_FILE = "renderer-crash.log";
+const CRASH_LOG_MAX_BYTES = 256 * 1024;
+let crashReloads: number[] = [];
+
+function logProcessCrash(message: string) {
+  const file = path.join(app.getPath("userData"), CRASH_LOG_FILE);
+  try {
+    if (fs.statSync(file).size > CRASH_LOG_MAX_BYTES) fs.writeFileSync(file, "");
+  } catch {}
+  try {
+    fs.appendFileSync(file, `${new Date().toISOString()} v${app.getVersion()} ${message}\n`);
+  } catch {}
+  console.error(`[golive] ${message}`);
+}
+
+function recoverFromRendererCrash(details: Electron.RenderProcessGoneDetails) {
+  const url = mainWindow?.webContents.getURL() ?? "";
+  const mem = Math.round(process.getSystemMemoryInfo().free / 1024);
+  logProcessCrash(
+    `renderer gone: reason=${details.reason} exitCode=${details.exitCode} freeMemMB=${mem} url=${url}`
+  );
+  if (quitting || details.reason === "clean-exit") return;
+
+  const now = Date.now();
+  crashReloads = crashReloads.filter((at) => now - at < CRASH_RELOAD_WINDOW_MS);
+  if (crashReloads.length >= CRASH_RELOAD_MAX) {
+    logProcessCrash("renderer keeps dying; not reloading again");
+    return;
+  }
+  crashReloads.push(now);
+  // Next tick: reloading from inside the event that reports the death is not
+  // something Electron promises to handle.
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.webContents.isCrashed()) mainWindow.webContents.reload();
+  }, 0);
 }
 
 const REDIRECT_ONLY_PATHS = new Set(["/bot"]);
@@ -1199,12 +1296,12 @@ function safeRetryUrl(url: string): string {
 function loadErrorPage(retryUrl: string, errorCode: number): string {
   const lang = app.getLocale().toLowerCase();
   const t = lang.startsWith("pt")
-    ? { title: "Não foi possível conectar", body: "Não conseguimos carregar o GoLive. Verifique sua conexão com a internet e tente de novo.", retry: "Recarregar", code: "Código do erro" }
+    ? { title: "Não foi possível conectar", body: "Não conseguimos carregar o Go Live. Verifique sua conexão com a internet e tente de novo.", retry: "Recarregar", code: "Código do erro" }
     : lang.startsWith("es")
-      ? { title: "No se pudo conectar", body: "No pudimos cargar GoLive. Revisa tu conexión a internet e inténtalo de nuevo.", retry: "Recargar", code: "Código de error" }
-      : { title: "Couldn't connect", body: "We couldn't load GoLive. Check your internet connection and try again.", retry: "Reload", code: "Error code" };
+      ? { title: "No se pudo conectar", body: "No pudimos cargar Go Live. Revisa tu conexión a internet e inténtalo de nuevo.", retry: "Recargar", code: "Código de error" }
+      : { title: "Couldn't connect", body: "We couldn't load Go Live. Check your internet connection and try again.", retry: "Reload", code: "Error code" };
   const logo = overlayLogo();
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>GoLive</title>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Go Live</title>
 <style>
 html,body{height:100%;margin:0}
 body{background:#101014;color:#e8e8ee;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;user-select:none}
@@ -1248,7 +1345,7 @@ function buildTrayMenu(): Menu {
   const settings = getBackgroundSettings();
   return Menu.buildFromTemplate([
     {
-      label: "Abrir GoLive",
+      label: "Abrir Go Live",
       click: () => {
         if (!mainWindow) createWindow();
         else focusMainWindow();
@@ -1280,9 +1377,21 @@ function buildTrayMenu(): Menu {
         refreshTrayMenu();
       },
     },
+    {
+      // Off, the shortcuts go back to globalShortcut — see inputHook.ts for
+      // why this exists. Windows only: elsewhere there is no hook to turn off.
+      label: "Atalhos com botões do mouse (desmarque se o Alt+Tab travar em jogos)",
+      type: "checkbox",
+      checked: inputHookEnabled(),
+      visible: process.platform === "win32",
+      click: (item) => {
+        setInputHookEnabled(item.checked);
+        refreshTrayMenu();
+      },
+    },
     { type: "separator" },
     {
-      label: "Sair do GoLive",
+      label: "Sair do Go Live",
       click: () => {
         quitting = true;
         app.quit();
@@ -1302,7 +1411,7 @@ function createTray() {
   // scales it badly rather than refusing, and the result looks like a bug.
   const image = icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 });
   tray = new Tray(image);
-  tray.setToolTip("GoLive");
+  tray.setToolTip("Go Live");
   tray.setContextMenu(buildTrayMenu());
   // The gesture everybody tries first. Not wired on macOS, where clicking a
   // status item is what opens its menu and hijacking that would be wrong.
@@ -1440,8 +1549,49 @@ function openCallWindow(call: CallRingingInfo) {
   void window.loadFile(path.join(__dirname, "..", "call-overlay.html"));
 }
 
+interface CallControls {
+  micOn: boolean;
+  deafened: boolean;
+  micLabel: string;
+  deafenLabel: string;
+  leaveLabel: string;
+}
+
+// The call's buttons in the taskbar preview, as lib/taskbarCallControls last
+// described them. Null without a call.
+let callControls: CallControls | null = null;
+
+function thumbarIcon(name: string) {
+  // createFromPath picks up the @1.5x and @2x files beside it.
+  return nativeImage.createFromPath(path.join(__dirname, "..", "build", "thumbar", `${name}.png`));
+}
+
+function applyCallControls() {
+  if (process.platform !== "win32" || !mainWindow) return;
+  const press = (action: string) => () =>
+    mainWindow?.webContents.send(IPC.callControlPressed, action);
+  mainWindow.setThumbarButtons(
+    callControls
+      ? [
+          {
+            icon: thumbarIcon(callControls.micOn ? "mic" : "mic-off"),
+            tooltip: callControls.micLabel,
+            click: press("mic"),
+          },
+          {
+            icon: thumbarIcon(callControls.deafened ? "headset-off" : "headset"),
+            tooltip: callControls.deafenLabel,
+            click: press("deafen"),
+          },
+          { icon: thumbarIcon("hangup"), tooltip: callControls.leaveLabel, click: press("leave") },
+        ]
+      : []
+  );
+}
+
 /**
- * The GoLive mark, as a data URL for the ringing window's header.
+ * The GoLive mark, as a data URL for the ringing window's header and for
+ * GoLive's own rows in the picker's app lists.
  *
  * Read from the same file the tray icon comes from, and memoized: it cannot
  * change while the app is running, and re-reading a PNG off disk every time a
@@ -1610,7 +1760,7 @@ function showToast(toast: ToastInfo) {
     // and a click on it brings the *app* up (see the toastAction handler).
     focusable: false,
     backgroundColor: "#00000000",
-    title: "GoLive",
+    title: "Go Live",
     webPreferences: {
       preload: path.join(__dirname, "toast-preload.js"),
       contextIsolation: true,
@@ -1679,7 +1829,7 @@ function readToastAction(raw: unknown): ToastAction | null {
  */
 function setCallRinging(call: CallRingingInfo | null) {
   ringingCall = call;
-  tray?.setToolTip(call ? "GoLive — chamada recebida" : "GoLive");
+  tray?.setToolTip(call ? "Go Live — chamada recebida" : "Go Live");
 
   refreshTaskbarFlash();
 
@@ -1991,6 +2141,34 @@ if (!gotLock) {
     ipcMain.on(IPC.oauthCancel, (_event, nonce: unknown) => {
       if (typeof nonce === "string") settleLogin(nonce, null);
     });
+
+    // ─── Discord Rich Presence ──────────────────────────────────────────────
+    getDiscordRpc().onReady = () => mainWindow?.webContents.send(IPC.discordRpcReady);
+
+    ipcMain.on(IPC.discordRpcUpdate, (event, activity: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      if (activity && typeof activity === "object") {
+        getDiscordRpc().setActivity(activity as DiscordActivity);
+      }
+    });
+
+    ipcMain.on(IPC.discordRpcClear, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      getDiscordRpc().clearActivity();
+    });
+
+    ipcMain.on(IPC.discordRpcConfigure, (event, config: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      if (config && typeof config === "object") {
+        const { clientId, enabled } = config as { clientId?: string; enabled?: boolean };
+        if (typeof clientId === "string" && clientId.trim()) {
+          getDiscordRpc().setClientId(clientId.trim());
+        }
+        if (enabled === false) {
+          getDiscordRpc().clearActivity();
+        }
+      }
+    });
     ipcMain.handle(IPC.openExternal, (_event, url: unknown) => {
       if (typeof url !== "string" || !/^https?:$/.test(safeProtocol(url))) return;
       return shell.openExternal(url);
@@ -2017,6 +2195,17 @@ if (!gotLock) {
       return startSystemAudioCapture(event.sender);
     });
     ipcMain.on(IPC.systemAudioStop, () => stopSystemAudioCapture());
+
+    // The WebRTC field trials (see webrtcTrials.ts). Origin-checked: only the
+    // site decides experiments.
+    ipcMain.handle(IPC.webrtcTrialsState, (event) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return { known: false, h264Qp: false };
+      return webrtcTrialState();
+    });
+    ipcMain.on(IPC.webrtcTrialsSetH264Qp, (event, on: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN) || typeof on !== "boolean") return;
+      saveH264QpTrial(on);
+    });
 
     // The GPU screen capture (see nativeVideo.ts), origin-checked for the same
     // reason: it records the screen.
@@ -2073,6 +2262,12 @@ if (!gotLock) {
     ipcMain.on(IPC.callRinging, (event, raw: unknown) => {
       if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
       setCallRinging(readCallInfo(raw));
+    });
+
+    ipcMain.on(IPC.callControlsSet, (event, raw: unknown) => {
+      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return;
+      callControls = raw && typeof raw === "object" ? (raw as CallControls) : null;
+      applyCallControls();
     });
 
     // What the small window is showing. Asked for once, as it opens.
@@ -2196,6 +2391,16 @@ if (!gotLock) {
     // fresh; this is for the code that ships inside the executable.
     initAutoUpdater(APP_URL, { onInstallRequested: saveResumeUrl });
 
+    // The other half of the crash log (see recoverFromRendererCrash). A GPU
+    // process that keeps dying can also leave the window blank, and Chromium
+    // restarts it on its own, so writing it down is all there is to do.
+    app.on("child-process-gone", (_event, details) => {
+      if (details.reason === "clean-exit") return;
+      logProcessCrash(
+        `${details.type} gone: reason=${details.reason} exitCode=${details.exitCode}${details.name ? ` name=${details.name}` : ""}`
+      );
+    });
+
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -2222,7 +2427,18 @@ if (!gotLock) {
     appFocused: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()),
   });
 
+  // The last set the site sent, so the tray's hook switch can register them
+  // again on the other path without waiting for the site to resend them.
+  let currentShortcuts: Record<string, string> = {};
+  onInputHookEnabledChange(() => {
+    // The hook may have been holding push to talk down; the other path
+    // starts from released.
+    releasePushToTalk();
+    updateGlobalShortcuts(currentShortcuts);
+  });
+
   function updateGlobalShortcuts(shortcuts: Record<string, string>) {
+    currentShortcuts = shortcuts;
     globalShortcut.unregisterAll();
     const hooked: Record<string, string> = {};
     for (const [action, accelerator] of Object.entries(shortcuts)) {
@@ -2350,6 +2566,7 @@ if (!gotLock) {
     screenPen.destroy();
     inputHook.stop();
     globalShortcut.unregisterAll();
+    getDiscordRpc().disconnect();
   });
 
   // A real quit, from the tray menu or from the OS. Read by the window's

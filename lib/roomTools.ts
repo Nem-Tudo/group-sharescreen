@@ -537,6 +537,11 @@ function handleMessage(msg: Record<string, unknown>) {
       const sameRoom = msg.room === joinedRoom;
       joinedRoom = typeof msg.room === "string" ? msg.room : null;
       textSync.clear();
+      wheelSpinStarts.clear();
+      calcSeq.clear();
+      usedToolIds.clear();
+      for (const entry of outgoingLive.values()) if (entry.timer) clearTimeout(entry.timer);
+      outgoingLive.clear();
       setState({
         ...EMPTY,
         pen: state.pen,
@@ -548,6 +553,11 @@ function handleMessage(msg: Record<string, unknown>) {
     case "room-tools": {
       const tools = Array.isArray(msg.tools) ? (msg.tools as RoomTool[]) : [];
       textSync.clear();
+      wheelSpinStarts.clear();
+      calcSeq.clear();
+      usedToolIds.clear();
+      for (const entry of outgoingLive.values()) if (entry.timer) clearTimeout(entry.timer);
+      outgoingLive.clear();
       for (const tool of tools) {
         if (isTextTool(tool)) startSync(tool);
         if (tool.kind === "wheel" && tool.spin) wheelSpinStart(tool.spin);
@@ -596,6 +606,11 @@ function handleMessage(msg: Record<string, unknown>) {
     case "tool-removed": {
       const id = msg.id as string;
       textSync.delete(id);
+      calcSeq.delete(id);
+      usedToolIds.delete(id);
+      const liveEntry = outgoingLive.get(id);
+      if (liveEntry?.timer) clearTimeout(liveEntry.timer);
+      outgoingLive.delete(id);
       setState({
         live: Object.fromEntries(Object.entries(state.live).filter(([, l]) => l.toolId !== id)),
         tools: state.tools.filter((t) => t.id !== id),
@@ -763,6 +778,11 @@ if (typeof window !== "undefined") {
     if (!room) {
       joinedRoom = null;
       textSync.clear();
+      wheelSpinStarts.clear();
+      calcSeq.clear();
+      usedToolIds.clear();
+      for (const entry of outgoingLive.values()) if (entry.timer) clearTimeout(entry.timer);
+      outgoingLive.clear();
       setState({ ...EMPTY, pen: state.pen });
     }
   });

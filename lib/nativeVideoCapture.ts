@@ -44,6 +44,7 @@
 
 import { getDesktopBridge } from "./desktop";
 import { noteGpuShareEnded } from "./gpuShareSurvey";
+import { isSqNativeKeyEnabled, SQ_EVENTS, SQ_NATIVE_KEY_FEATURE, sqTrack } from "./streamQuality";
 import {
   ParameterSetKeeper,
   codecStringFromSps,
@@ -122,6 +123,33 @@ interface NativeFrame {
 
 const KEY_REQUEST_GAP_MS = 250;
 const HOLD_KEY_TIMEOUT_MS = 1000;
+// Experiment sq-native-key. One helper encoder serves every viewer, so each
+// viewer's keyframe request is an IDR — several times a normal frame, at a
+// constant bitrate — for all of them; with ten viewers the old 250 ms gap let
+// four through a second. On, requests are coalesced to one IDR a second, and
+// a request that lands inside the gap is answered at its end instead of
+// being dropped. The held slot waits long enough for that IDR to arrive.
+const SQ_KEY_REQUEST_GAP_MS = 1000;
+const SQ_HOLD_KEY_TIMEOUT_MS = 2500;
+// A share shorter than this says nothing about its keyframe rate.
+const KEY_RATE_MIN_MS = 20_000;
+
+/** How one connection's keyframe slots went — see nativeSinkStats. */
+export interface NativeSinkStats {
+  /** Keyframe slots held for a fresh IDR from the helper. */
+  keyHolds: number;
+  /** Held slots that timed out and were filled with the last IDR instead. */
+  keyStale: number;
+  /** Times the frame chain restarted from an IDR (backlog, stall, reconnect). */
+  resyncs: number;
+}
+
+const sinkStats = new WeakMap<RTCPeerConnection, NativeSinkStats>();
+
+/** This connection's GPU-capture counters, or null when it carries no GPU capture. */
+export function nativeSinkStats(pc: RTCPeerConnection): NativeSinkStats | null {
+  return sinkStats.get(pc) ?? null;
+}
 const STALL_TIMEOUT_MS = 300;
 // How often the links are sampled. Deliberately not the 2000 ms of the shared
 // mediaStats pump: two timers on the same period land on the same tick for
@@ -249,6 +277,12 @@ export class NativeVideoSource {
   private lastRaise = 0;
   private statsCursor = 0;
   private lastKeyRequest = 0;
+  private keyTimer: ReturnType<typeof setTimeout> | null = null;
+  // For experiment sq-native-key's events: keyframes asked for (by viewers
+  // and by our own preview) and IDRs actually forced on the helper.
+  private keysAsked = 0;
+  private keysForced = 0;
+  private readonly startedAt = performance.now();
   private stopped = false;
   lastKey: NativeFrame | null = null;
   readonly fps: number;
@@ -302,13 +336,6 @@ export class NativeVideoSource {
     const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
     if (transceiver) preferH264(transceiver);
     void configureSender(sender, this.ceilingKbps);
-    const forget = () => {
-      if (pc.connectionState !== "closed") return;
-      pc.removeEventListener("connectionstatechange", forget);
-      sink.close();
-      this.sinks.delete(sink);
-    };
-    pc.addEventListener("connectionstatechange", forget);
     return sender;
   }
 
@@ -325,10 +352,35 @@ export class NativeVideoSource {
   }
 
   requestKeyFrame(): void {
+    this.keysAsked += 1;
+    this.forceKeyFrame();
+  }
+
+  private forceKeyFrame(): void {
+    if (this.stopped) return;
+    const coalesce = isSqNativeKeyEnabled();
+    const gap = coalesce ? SQ_KEY_REQUEST_GAP_MS : KEY_REQUEST_GAP_MS;
     const now = performance.now();
-    if (now - this.lastKeyRequest < KEY_REQUEST_GAP_MS) return;
+    const wait = gap - (now - this.lastKeyRequest);
+    if (wait > 0) {
+      // Without the experiment a request inside the gap is lost, and a viewer
+      // whose request it was waits for the helper's own GOP (four seconds).
+      if (coalesce && !this.keyTimer) {
+        this.keyTimer = setTimeout(() => {
+          this.keyTimer = null;
+          this.forceKeyFrame();
+        }, wait);
+      }
+      return;
+    }
     this.lastKeyRequest = now;
+    this.keysForced += 1;
     this.bridge.control({ keyFrame: true });
+  }
+
+  /** How long a held keyframe slot waits for a fresh IDR (longer under sq-native-key). */
+  holdTimeoutMs(): number {
+    return isSqNativeKeyEnabled() ? SQ_HOLD_KEY_TIMEOUT_MS : HOLD_KEY_TIMEOUT_MS;
   }
 
   stop(): void {
@@ -338,6 +390,16 @@ export class NativeVideoSource {
     // Windows' own "parar de compartilhar", the helper dying — which is why
     // the survey is armed from here and not from the room's stop handler.
     noteGpuShareEnded();
+    if (this.keyTimer) clearTimeout(this.keyTimer);
+    this.keyTimer = null;
+    // Per minute, so a long share and a short one weigh the same.
+    const elapsed = performance.now() - this.startedAt;
+    if (elapsed >= KEY_RATE_MIN_MS) {
+      const perMinute = (n: number) => Math.round((n * 60_000) / elapsed);
+      const feature = SQ_NATIVE_KEY_FEATURE;
+      sqTrack(SQ_EVENTS.keyAsked, feature, perMinute(this.keysAsked));
+      sqTrack(SQ_EVENTS.keyForced, feature, perMinute(this.keysForced));
+    }
     clearInterval(this.bitrateTimer);
     this.unsubscribe();
     this.bridge.stop();
@@ -356,7 +418,10 @@ export class NativeVideoSource {
     const { data, idr } = this.keeper.process(raw);
     const frame: NativeFrame = { data, key: idr };
     if (idr) this.lastKey = frame;
-    for (const sink of this.sinks) sink.onNative(frame);
+    for (const sink of this.sinks) {
+      if (sink.closed) this.sinks.delete(sink);
+      else sink.onNative(frame);
+    }
     this.preview.push(frame);
   }
 
@@ -478,15 +543,17 @@ class SenderSink {
   private inflight: NativeFrame | null = null;
   private held: { frame: EncodedFrame; controller: TransformStreamDefaultController<EncodedFrame>; resolve: () => void } | null = null;
   private needKey = true;
-  private closed = false;
+  closed = false;
   private timestamp = 0;
   private stallTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly blank: Uint8Array;
   private readonly onState = () => this.onConnectionState();
+  private readonly stats: NativeSinkStats = { keyHolds: 0, keyStale: 0, resyncs: 0 };
 
   constructor(source: NativeVideoSource, pc: RTCPeerConnection) {
     this.source = source;
     this.pc = pc;
+    sinkStats.set(pc, this.stats);
     this.track = new MediaStreamTrackGenerator({ kind: "video" });
     this.writer = this.track.writable.getWriter();
     // A black 16x16 I420 frame: Y at 16, chroma at 128.
@@ -536,6 +603,18 @@ class SenderSink {
 
   onNative(frame: NativeFrame) {
     if (this.closed) return;
+    // pc.close() fires no connectionstatechange, so a closed link is only seen here.
+    const state = this.pc.connectionState;
+    if (state === "closed") {
+      this.close();
+      return;
+    }
+    // Nothing goes out until the link is up, and onConnectionState restarts
+    // from an IDR when it is, so frames held meanwhile are only memory.
+    if (state !== "connected") {
+      this.queue = [];
+      return;
+    }
     if (this.held) {
       if (!frame.key) return;
       this.release(frame);
@@ -575,6 +654,8 @@ class SenderSink {
   }
 
   private resync() {
+    this.stats.resyncs += 1;
+    sqTrack(SQ_EVENTS.keyResync, SQ_NATIVE_KEY_FEATURE);
     this.inflight = null;
     this.queue = [];
     this.needKey = true;
@@ -601,7 +682,7 @@ class SenderSink {
       codedHeight: 16,
       timestamp: this.timestamp,
     });
-    void this.writer.write(frame).catch(() => {});
+    void this.writer.write(frame).then(() => frame.close(), () => frame.close());
     if (this.stallTimer) clearTimeout(this.stallTimer);
     this.stallTimer = setTimeout(() => {
       // The encoder dropped what it was given; whatever was in flight is lost.
@@ -639,18 +720,31 @@ class SenderSink {
       // this slot. Held until the helper makes one.
       this.queue = [];
       this.needKey = true;
+      this.stats.keyHolds += 1;
       this.source.requestKeyFrame();
       return new Promise<void>((resolve) => {
         this.held = { frame, controller, resolve };
         setTimeout(() => {
           if (this.held?.frame !== frame) return;
           const fallback = this.source.lastKey;
-          if (fallback) this.release(fallback);
-          else {
+          if (fallback) {
+            this.stats.keyStale += 1;
+            sqTrack(SQ_EVENTS.keyStale, SQ_NATIVE_KEY_FEATURE);
+            this.release(fallback);
+            // An old IDR in the slot is only a picture to start from: the
+            // helper's next frames reference frames in between that this
+            // viewer never got, and decoding them corrupts the picture —
+            // which asks for a keyframe again, and around it goes. Under
+            // sq-native-key nothing more goes out until a fresh IDR does.
+            if (isSqNativeKeyEnabled()) {
+              this.needKey = true;
+              this.source.requestKeyFrame();
+            }
+          } else {
             this.held = null;
             resolve();
           }
-        }, HOLD_KEY_TIMEOUT_MS);
+        }, this.source.holdTimeoutMs());
       }).then(() => queueMicrotask(() => this.pump()));
     }
 
@@ -670,18 +764,18 @@ class SenderSink {
 /** Decodes the helper's stream into the share's own video track. */
 class Preview {
   private readonly writer: WritableStreamDefaultWriter<VideoFrame>;
+  private readonly keeper: ParameterSetKeeper;
+  private readonly requestKey: () => void;
   private decoder: VideoDecoder | null = null;
   private waitingForKey = true;
   private writing = false;
   private ended = false;
   private active = true;
 
-  constructor(
-    track: TrackGenerator,
-    private readonly keeper: ParameterSetKeeper,
-    private readonly requestKey: () => void
-  ) {
+  constructor(track: TrackGenerator, keeper: ParameterSetKeeper, requestKey: () => void) {
     this.writer = track.writable.getWriter();
+    this.keeper = keeper;
+    this.requestKey = requestKey;
   }
 
   /**
@@ -767,9 +861,11 @@ class Preview {
     this.writer.write(frame).then(
       () => {
         this.writing = false;
+        frame.close();
       },
       () => {
         this.writing = false;
+        frame.close();
       }
     );
   }

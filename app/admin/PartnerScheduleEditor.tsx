@@ -4,7 +4,7 @@ import { useState } from "react";
 import { MdAdd, MdDelete, MdExpandLess, MdExpandMore } from "react-icons/md";
 import type { PartnerSchedule } from "@/lib/partner";
 import { formatMinuteOfDay, parseMinuteOfDay } from "@/lib/partnerSchedule";
-import { PartnerMediaDrop } from "./PartnerMediaDrop";
+import { PartnerImageUpload, PartnerMediaDrop } from "./PartnerMediaDrop";
 
 // The dayparting editor for one ad: its windows, and what each one changes.
 //
@@ -84,9 +84,12 @@ export function PartnerScheduleEditor({
   schedules,
   onChange,
   base,
+  advertiser = false,
 }: {
   schedules: PartnerSchedule[];
   onChange: (next: PartnerSchedule[]) => void;
+  /** The self-serve dashboard: uploads go through the advertiser's own route. */
+  advertiser?: boolean;
   /** The ad's own fields, used as every input's placeholder. */
   base: PartnerScheduleBase;
 }) {
@@ -243,31 +246,54 @@ export function PartnerScheduleEditor({
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <label className={labelClass}>Banner</label>
-                        <input
-                          value={schedule.imageUrl ?? ""}
-                          onChange={(e) => patchText(schedule.id, "imageUrl", e.target.value)}
-                          placeholder={base.imageUrl || "(mantém o do anúncio)"}
-                          className={inputClass}
-                        />
-                        <PartnerMediaDrop
-                          kind="image"
-                          compact
-                          onUploaded={(url) => patch(schedule.id, { imageUrl: url })}
-                        />
+                        {advertiser ? (
+                          // The self-serve dashboard takes files only (see PartnerImageUpload).
+                          <PartnerImageUpload
+                            compact
+                            value={schedule.imageUrl}
+                            onChange={(url) => patch(schedule.id, { imageUrl: url })}
+                          />
+                        ) : (
+                          <>
+                            <input
+                              value={schedule.imageUrl ?? ""}
+                              onChange={(e) => patchText(schedule.id, "imageUrl", e.target.value)}
+                              placeholder={base.imageUrl || "(mantém o do anúncio)"}
+                              className={inputClass}
+                            />
+                            <PartnerMediaDrop
+                              kind="image"
+                              compact
+                              onUploaded={(url) => patch(schedule.id, { imageUrl: url })}
+                            />
+                          </>
+                        )}
                       </div>
                       <div>
                         <label className={labelClass}>Ícone quadrado</label>
-                        <input
-                          value={schedule.iconUrl ?? ""}
-                          onChange={(e) => patchText(schedule.id, "iconUrl", e.target.value)}
-                          placeholder={base.iconUrl || "(mantém o do anúncio)"}
-                          className={inputClass}
-                        />
-                        <PartnerMediaDrop
-                          kind="image"
-                          compact
-                          onUploaded={(url) => patch(schedule.id, { iconUrl: url })}
-                        />
+                        {advertiser ? (
+                          // The self-serve dashboard takes files only (see PartnerImageUpload).
+                          <PartnerImageUpload
+                            compact
+                            square
+                            value={schedule.iconUrl}
+                            onChange={(url) => patch(schedule.id, { iconUrl: url })}
+                          />
+                        ) : (
+                          <>
+                            <input
+                              value={schedule.iconUrl ?? ""}
+                              onChange={(e) => patchText(schedule.id, "iconUrl", e.target.value)}
+                              placeholder={base.iconUrl || "(mantém o do anúncio)"}
+                              className={inputClass}
+                            />
+                            <PartnerMediaDrop
+                              kind="image"
+                              compact
+                              onUploaded={(url) => patch(schedule.id, { iconUrl: url })}
+                            />
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

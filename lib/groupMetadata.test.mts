@@ -50,7 +50,7 @@ const twitterCard = (m: ReturnType<typeof groupLinkMetadata>) => (m.twitter as {
     kind: "group",
     group: { ...group, iconUrl: null, description: "  ", memberCount: 1 },
   });
-  assert.equal(m.description, "Grupo no GoLive · 1 membro");
+  assert.equal(m.description, "Grupo no Go Live · 1 membro");
   const [image] = images(m);
   assert.match(image.url, /^\/api\/og\?/);
   assert.match(image.url, /title=Go\+Live\+Oficial/);
@@ -61,7 +61,7 @@ const twitterCard = (m: ReturnType<typeof groupLinkMetadata>) => (m.twitter as {
 // No public card (a private group, a dead link): nothing about the group at all.
 {
   const m = groupLinkMetadata({ path: "/groups/secret", kind: "group", group: null });
-  assert.equal(m.title, "Grupo no GoLive");
+  assert.equal(m.title, "Grupo no Go Live");
   const inv = groupLinkMetadata({ path: "/invite/zzz", kind: "invite", group: null });
   assert.equal(inv.title, "Convite para um grupo");
 }

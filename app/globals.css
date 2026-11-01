@@ -240,6 +240,20 @@ body {
   padding: 0;
 }
 
+/* The "novo" tips' hand-drawn arrow (.tip-arrow) follows the side Tippy
+   actually put the tip on, not the one asked for: a tip placed under its
+   button flips above it when the button is at the bottom of the screen (the
+   call bar under the stage), and its arrow has to point down then. */
+.tippy-box[data-placement^="top"] .tip-arrow {
+  top: auto;
+  bottom: -0.25rem;
+}
+
+.tippy-box[data-placement^="bottom"] .tip-arrow {
+  top: -0.25rem;
+  bottom: auto;
+}
+
 /* A room theme's background picture (see lib/roomThemes.ts).
    Two fixed layers on <html>, drawn only while a theme with an image is worn:
 
@@ -345,6 +359,227 @@ html[data-room-theme][data-theme="light"] :is(.tippy-box, .ntpopups-main, .goliv
 .room-accent {
   background-color: var(--room-accent, var(--color-zinc-50));
   color: var(--room-accent-text, var(--color-zinc-950));
+}
+
+/* ─── The room redesign (experiment room-redesign, lib/roomRedesign.ts) ────
+   Plus Jakarta, bigger radii, flat cards, pill dock buttons and a frosted
+   bottom bar. Everything hangs off data-room-redesign on the room's page
+   element, and it changes shapes and type through Tailwind's own radius
+   tokens rather than a second copy of WatchRoom's markup. The colours keep
+   their original lightness and only lean blue (see the zinc scale below): a
+   darker canvas was tried and read as brown.
+
+   Popovers, modals and menus are portalled onto <body>, outside that element,
+   so while the redesigned room is on screen WatchRoom also marks <html> with
+   data-room-redesign-on, and each rule below that sets type, shape or colour
+   names the floating layers too — the same list the room themes use.
+
+   In a group's room only the shapes, the type and the layout apply: the
+   colours are the group's (data-rr-group on the page, "group" as the value
+   of the mark on <html>), so the colour rules leave both out. */
+[data-room-redesign],
+html[data-room-redesign-on] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+  font-family: var(--font-jakarta), "Twemoji", sans-serif;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.75rem;
+}
+
+[data-room-redesign] [data-rr-card] {
+  border-radius: 1.25rem;
+  box-shadow: none;
+}
+
+/* The neutrals with a hint of blue: the room paints its surfaces, borders
+   and text with the zinc scale, so retinting the scale inside the room
+   retints all of it at once — the same lever a room theme pulls. Only without
+   a theme, which owns these tokens itself. Each step is the original zinc
+   with a fifth of a blue-grey of the same lightness mixed in: a full slate
+   read as too blue. */
+html:not([data-room-theme]) [data-room-redesign]:not([data-rr-group]),
+html[data-room-redesign-on=""]:not([data-room-theme]) :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+  --color-zinc-50: color-mix(in oklab, #fafafa 80%, #f8fafc);
+  --color-zinc-100: color-mix(in oklab, #f4f4f5 80%, #f1f5f9);
+  --color-zinc-200: color-mix(in oklab, #e4e4e7 80%, #e2e8f0);
+  --color-zinc-300: color-mix(in oklab, #d4d4d8 80%, #cbd5e1);
+  --color-zinc-400: color-mix(in oklab, #a1a1aa 80%, #94a3b8);
+  --color-zinc-500: color-mix(in oklab, #71717a 80%, #64748b);
+  --color-zinc-600: color-mix(in oklab, #52525b 80%, #475569);
+  --color-zinc-700: color-mix(in oklab, #3f3f46 80%, #334155);
+  --color-zinc-800: color-mix(in oklab, #27272a 80%, #1e293b);
+  --color-zinc-900: color-mix(in oklab, #18181b 80%, #131c31);
+  --color-zinc-950: color-mix(in oklab, #09090b 80%, #0b1222);
+}
+
+/* The page under the room: `bg-black` in the dark theme, which is not a zinc
+   token (and is also every dialog backdrop and video letterbox, so it is set
+   here rather than through the token). Below the cards' #161b22. */
+html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-page]:not([data-rr-group]) {
+  background-color: #0d1117;
+}
+
+/* The dark theme's surfaces, lifted: the original black page with near-black
+   cards read as too dark once the cards lost their weight, and a neutral
+   grey in between read as brown. These are a dark blue-grey a step or two up
+   (cards over the page, borders over the cards), with the same faint lean
+   toward blue as the light end. */
+html:not([data-room-theme])[data-theme="dark"] [data-room-redesign]:not([data-rr-group]),
+html[data-room-redesign-on=""]:not([data-room-theme])[data-theme="dark"] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
+  --color-zinc-950: #161b22;
+  --color-zinc-900: #1c222b;
+  --color-zinc-800: #2a313c;
+  --color-zinc-700: #3a424e;
+}
+
+[data-room-redesign] [data-rr-sheet] {
+  border-top-color: transparent;
+  border-radius: 1.75rem 1.75rem 0 0;
+}
+
+/* Through the surface tokens, so a theme's own colour is what gets frosted. */
+[data-room-redesign] [data-rr-dock] {
+  background-color: color-mix(in srgb, var(--color-white) 65%, transparent);
+  border-top-color: rgb(255 255 255 / 0.4);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+}
+
+html[data-theme="dark"] [data-room-redesign] [data-rr-dock] {
+  background-color: color-mix(in srgb, var(--color-zinc-950) 60%, transparent);
+  border-top-color: rgb(255 255 255 / 0.08);
+}
+
+[data-room-redesign] [data-rr-dock] nav :is(button, a).rounded-xl {
+  border-radius: 9999px;
+}
+
+/* Split buttons (camera + effects + flip): the main half keeps its flat right
+   edge so the segments still meet, and the last segment closes the pill. */
+[data-room-redesign] [data-rr-dock] nav :is(button, a).rounded-xl.rounded-r-none {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+[data-room-redesign] [data-rr-dock] nav :is(button, a).rounded-r-xl {
+  border-top-right-radius: 9999px;
+  border-bottom-right-radius: 9999px;
+}
+
+/* The flip segment is 1.5rem wide, less than the pill's curve: widened so
+   its icon sits clear of the rounded end instead of inside it. */
+[data-room-redesign] [data-rr-dock] nav button.rounded-r-xl.w-6 {
+  width: 2.25rem;
+  padding-right: 0.375rem;
+}
+
+/* ─── Room redesign, desktop ──────────────────────────────────────────────
+   The call controls, wherever they are drawn: the bar under the stage
+   (WatchRoom's dockInStage), a group's top bar, the floating call bar, a
+   direct call and the phone's bottom bar. Their buttons are the header's,
+   which paint "something you can press" in emerald; in a call
+   bar the convention is the other way round — neutral when it is fine, red
+   only for what is off or ends the call — so emerald is read as neutral
+   here. Red, amber and the badges keep their meaning. Unlayered, so these
+   win over the utilities whatever their specificity.
+
+   Not inside the panels the bar's buttons open (the mic's, the camera's):
+   Tippy mounts them next to their button, so they are inside the bar in the
+   DOM, and a switch that is on has to stay green there. */
+[data-rr-calldock] .bg-emerald-600:not([data-tippy-root] *) {
+  background-color: var(--color-zinc-100);
+  color: var(--color-zinc-800);
+}
+
+[data-rr-calldock] .bg-emerald-600:hover:not(:disabled, [data-tippy-root] *) {
+  background-color: var(--color-zinc-200);
+}
+
+/* One height for everything in the bar (the header's buttons came in 32 to
+   40px), and no "BETA" pills: in a row of icons they read as three more
+   buttons. The tooltip still says what each one is. */
+[data-rr-calldock] button:not([data-tippy-root] *) {
+  min-height: 2.5rem;
+}
+
+[data-rr-calldock] [data-header-label] {
+  display: none !important;
+}
+
+html[data-theme="dark"] [data-rr-calldock] .bg-emerald-600:not([data-tippy-root] *) {
+  background-color: var(--color-zinc-800);
+  color: var(--color-zinc-100);
+}
+
+html[data-theme="dark"] [data-rr-calldock] .bg-emerald-600:hover:not(:disabled, [data-tippy-root] *) {
+  background-color: var(--color-zinc-700);
+}
+
+/* One way of answering a press, a hover and the keyboard, in the places the
+   redesign owns: the bar, the panel's tabs, the header. */
+:is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:not([data-tippy-root] *) {
+  transition-property: background-color, color, transform, box-shadow;
+  transition-duration: 150ms;
+}
+
+:is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+:is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:focus-visible {
+  outline: 2px solid rgb(14 165 233 / 0.6);
+  outline-offset: 2px;
+}
+
+/* With the call controls out of the header there is room for its labels
+   again, from xl rather than only from 2xl. */
+@media (min-width: 80rem) {
+  [data-room-redesign] [data-rr-header] [data-header-label] {
+    display: inline;
+  }
+}
+
+/* The side panel folds by its width (WatchRoom sets it), with the same curve
+   as the phone's sheets; never while it is being dragged to a new width,
+   where an easing would make the edge trail the pointer. */
+[data-rr-panel] {
+  transition:
+    width 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body[style*="ew-resize"] [data-rr-panel] {
+  transition: none;
+}
+
+/* A message that arrives while the chat is open eases in (ChatPanel's
+   animateNew); the log handed over on joining does not. */
+@keyframes rr-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rr-msg-in {
+  animation: rr-msg-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-rr-panel] {
+    transition: none;
+  }
+
+  .rr-msg-in {
+    animation: none;
+  }
+
+  :is([data-rr-calldock], [data-rr-tabs], [data-room-redesign] [data-rr-header]) button:not(:disabled):active {
+    transform: none;
+  }
 }
 
 /* The colour picker in the theme editor (react-colorful, see
@@ -670,6 +905,65 @@ body:has([data-group-shell]) {
 @media (prefers-reduced-motion: reduce) {
   .golive-eq-bar,
   .golive-live-dot {
+    animation: none;
+  }
+}
+
+/* The face on a payment's confirmation (PurchaseHappyArt): it pops in, jumps
+   for joy a few times and settles, while the paper around it keeps twinkling. */
+@keyframes golive-happy-pop {
+  0% {
+    transform: scale(0.2) rotate(-14deg);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.14) rotate(5deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes golive-happy-hop {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  35% {
+    transform: translateY(-4px) rotate(-4deg);
+  }
+  70% {
+    transform: translateY(-2px) rotate(4deg);
+  }
+}
+
+@keyframes golive-happy-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.golive-happy-art {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation:
+    golive-happy-pop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both,
+    golive-happy-hop 0.9s ease-in-out 0.55s 4;
+}
+
+.golive-happy-bit {
+  animation: golive-happy-twinkle 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .golive-happy-art,
+  .golive-happy-bit {
     animation: none;
   }
 }

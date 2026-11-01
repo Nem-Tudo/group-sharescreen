@@ -414,6 +414,11 @@ export function useGlobalShortcutListener({
     }
   }, [shortcuts, enabled]);
 
+  // Leaving the room takes the shortcuts out of the shell too. Otherwise they
+  // stay registered — and the system-wide input hook running — for as long
+  // as the app stays open, with nothing left on the page to act on them.
+  useEffect(() => () => syncDesktopShortcuts(DEFAULT_SHORTCUTS), []);
+
   // Listen for Electron global shortcuts trigger from background
   useEffect(() => {
     if (!enabled) return;

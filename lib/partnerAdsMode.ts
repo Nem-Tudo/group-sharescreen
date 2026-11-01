@@ -19,6 +19,14 @@ import { hasClaimedPartnerReward, type PartnerCardData } from "@/lib/partner";
 /** The feature's key in the admin panel. Target: user. */
 export const PARTNER_ADS_MODE_FEATURE = "hide-partner-ads";
 
+/** The card's own way into the setting (see PartnerAdsSettingsButton). Target: user. */
+export const PARTNER_ADS_CARD_FEATURE = "partner-ads-card-settings";
+
+export const PARTNER_ADS_CARD_EVENTS = {
+  open: "partner_ads_card_open",
+  change: "partner_ads_card_change",
+};
+
 /** The id the blue "NOVO" badge is tracked by — the feature's key. */
 export const PARTNER_ADS_MODE_BADGE = PARTNER_ADS_MODE_FEATURE;
 

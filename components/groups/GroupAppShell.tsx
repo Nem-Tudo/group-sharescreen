@@ -36,6 +36,8 @@ import {
 } from "@/components/groups/GroupSidebar";
 import { useAccountToken } from "@/lib/accountApi";
 import { setCallChrome, useCallSession } from "@/lib/callSession";
+import { useFeature } from "@/lib/features";
+import { SETTINGS_HUB_FEATURE, useAccountCardOnScreen } from "@/lib/settingsHub";
 import { useGuestToken } from "@/lib/guestToken";
 import { groupPath, groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
 import { prefetchChannel } from "@/lib/groupCache";
@@ -134,6 +136,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // elsewhere on the site. Both get the same place in this bar.
   const call = useCallSession();
   const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
+  const settingsHub = useFeature(SETTINGS_HUB_FEATURE, { track: false }).enabled;
+  const accountCardOnScreen = useAccountCardOnScreen();
   const [navOpen, setNavOpen] = useState(false);
   // The group's people as a sheet, below lg — see GroupNavContext.openMembers.
   const [membersOpen, setMembersOpen] = useState(false);
@@ -434,7 +438,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               {/* Private conversations, as faces. From lg up they sit on the
                   left instead, where the switcher was. */}
               <NotificationInboxBell />
-              <AccountMenu />
+              {/* While your card is on screen it already says who you are. */}
+              {!(settingsHub && accountCardOnScreen) && <AccountMenu />}
               <UpdateAppButton />
               {/* Last in the bar: "more options", in the corner — the voice
                   room's while it is on screen, the group bar's own otherwise. */}
@@ -517,7 +522,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   unmounted, not merely hidden, with the column folded away: a
                   hidden ad would go on counting impressions, and the call puts
                   it in its grid instead (see WatchRoom's sponsored tile). */}
-              {isWide && !columnsCollapsed && (
+              {isWide && !columnsCollapsed && !dmDocked && (
                 <GroupPartnerSlot reservedAbove={roomsMinHeight ? roomsMinHeight + ASIDE_GAP_PX : undefined} />
               )}
             </aside>

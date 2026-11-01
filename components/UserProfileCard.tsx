@@ -52,6 +52,7 @@ import {
   type AvatarShape,
 } from "@/lib/avatarShape";
 import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialog";
+import { AvatarBuilderDialog, AvatarBuilderEntry, trackAvatarBuilderSave } from "@/components/AvatarBuilderDialog";
 import { ProfileGroupCard } from "@/components/groups/ProfileGroupCard";
 import { fetchMyGroups, type GroupSummary } from "@/lib/groupsApi";
 import useNtPopups from "ntpopups";
@@ -586,6 +587,7 @@ function ProfileContent({
   const [previewBanner, setPreviewBanner] = useState<string | null>(account.bannerUrl ?? null);
   const [editTheme, setEditTheme] = useState<ProfileTheme | null>(account.profileTheme ?? null);
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const [avatarBuilderOpen, setAvatarBuilderOpen] = useState(false);
   const [editSong, setEditSong] = useState("");
   const [editSongVolume, setEditSongVolume] = useState(
     account.profileSong?.volume ?? DEFAULT_SONG_VOLUME
@@ -904,6 +906,7 @@ function ProfileContent({
 
       // The card is built by GET /users/:id, not by the save, so a changed
       // group is read back from there.
+      trackAvatarBuilderSave(avatarDataUrl);
       const reread = profileGroupChanged ? await fetchUserProfile(account.id).catch(() => null) : null;
       onProfileUpdated?.(reread ?? { ...profile, account: updatedAccount });
 
@@ -1273,6 +1276,13 @@ function ProfileContent({
                   paths={avatarOptions.defaults}
                   selected={stripAvatarShape(currentAvatar)}
                   onPick={handlePickPreset}
+                />
+
+                <AvatarBuilderEntry
+                  onOpen={() => {
+                    setAvatarPickerOpen(false);
+                    setAvatarBuilderOpen(true);
+                  }}
                 />
 
                 {avatarOptions.gallery.length > 0 && (
@@ -1809,6 +1819,17 @@ function ProfileContent({
             mimeType={cropping.mimeType}
             onCancel={closeCropper}
             onConfirm={handleCropped}
+          />
+        )}
+        {avatarBuilderOpen && (
+          <AvatarBuilderDialog
+            current={previewAvatar}
+            shape={editAvatarShape}
+            onCancel={() => setAvatarBuilderOpen(false)}
+            onConfirm={(path) => {
+              handlePickPreset(path);
+              setAvatarBuilderOpen(false);
+            }}
           />
         )}
 

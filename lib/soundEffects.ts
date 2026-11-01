@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { getSharedAudioContext, ensureSharedAudioContextRunning } from "./audioContext";
 
 // Every effect here is synthesized with the Web Audio API instead of
@@ -31,6 +32,23 @@ export function setSoundEffectsEnabled(value: boolean) {
   } catch {
     // ignored - localStorage may be unavailable (private mode, quota, etc.)
   }
+  soundEffectsListeners.forEach((listener) => listener());
+}
+
+const soundEffectsListeners = new Set<() => void>();
+
+function subscribeSoundEffects(listener: () => void) {
+  soundEffectsListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    soundEffectsListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+/** The switch as a hook, so every menu showing it stays in step with the others. */
+export function useSoundEffectsEnabled(): boolean {
+  return useSyncExternalStore(subscribeSoundEffects, getSoundEffectsEnabled, () => true);
 }
 
 function getAudioContext(): AudioContext | null {

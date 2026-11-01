@@ -211,7 +211,7 @@ export function useCheapestProPrice(): string | null {
   const [label, setLabel] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void fetchPremiumPlans(controller.signal).then((plans) => {
+    void fetchPremiumPlans(controller.signal, { personal: true }).then((plans) => {
       if (controller.signal.aborted) return;
       const cheapest = plans[0];
       if (cheapest?.priceLabel) setLabel(cheapest.priceLabel);

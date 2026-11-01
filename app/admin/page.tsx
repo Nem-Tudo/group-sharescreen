@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { useAuth } from "@/lib/AuthContext";
@@ -10,6 +10,11 @@ import { AdminPermissionsPanel } from "./AdminPermissionsPanel";
 import { adminPermissionsFromFlags } from "@/lib/adminPermissions";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import { fetchPartnerOrdersPendingCount } from "@/lib/partnerOrders";
+import { PARTNER_ORDERS_CHANGED_EVENT } from "./PartnerOrdersPanel";
+
+// How often the "Anúncios" tab asks whether an ad order is waiting for review.
+const PENDING_ORDERS_POLL_MS = 30_000;
 
 // Site administration: statistics, announcements, partners, supporters, the
 // desktop update nudge, anti-spam, banned words, bans, ads, comped plans — and
@@ -53,6 +58,28 @@ export default function AdminPage() {
     [flagsKey]
   );
   const can: AdminCan = (...needed) => needed.some((permission) => permissions.has(permission));
+  // The red dot on "Anúncios": self-serve ad orders (or edits) waiting for an
+  // admin. Polled, and refreshed at once when the panel decides one.
+  const canAds = permissions.has("ads");
+  const [pendingOrders, setPendingOrders] = useState(0);
+  useEffect(() => {
+    if (!canAds) return;
+    let cancelled = false;
+    const load = () =>
+      fetchPartnerOrdersPendingCount()
+        .then((count) => {
+          if (!cancelled) setPendingOrders(count);
+        })
+        .catch(() => undefined);
+    void load();
+    const id = setInterval(load, PENDING_ORDERS_POLL_MS);
+    window.addEventListener(PARTNER_ORDERS_CHANGED_EVENT, load);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener(PARTNER_ORDERS_CHANGED_EVENT, load);
+    };
+  }, [canAds]);
   const sections = ADMIN_SECTIONS.filter((section) => section.needs.some((permission) => permissions.has(permission)));
   const tabs = [
     ...sections.map((section) => ({ id: section.id, label: section.label })),
@@ -146,6 +173,14 @@ export default function AdminPage() {
               }`}
             >
               {entry.label}
+              {entry.id === "ads" && pendingOrders > 0 && (
+                <span
+                  aria-label={t("admin.partnerOrders.pendingBadge", { count: pendingOrders })}
+                  className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 align-middle text-[10px] font-bold leading-none text-white"
+                >
+                  {pendingOrders}
+                </span>
+              )}
             </button>
           ))}
         </div>

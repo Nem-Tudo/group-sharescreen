@@ -48,6 +48,9 @@ import {
 import { THEME_TRENDING_EVENTS, WORKSHOP_SORT_LABELS, trackThemeShopEvent, useWorkshopSorts } from "@/lib/themeTrending";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
+import { useFeature } from "@/lib/features";
+import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
+import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
 
 // The Workshop: everybody's themes, and yours.
 //
@@ -336,6 +339,9 @@ export function WorkshopPanel() {
   const { account, refresh } = useAuth();
   const { openPopup } = useNtPopups();
   const router = useRouter();
+  // Experiment "camera-effects-workshop": the way to the effects, beside the themes.
+  const effectsWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: true }).enabled;
+  const customEffects = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
   // Null until somebody picks one: the grid starts on whatever the
   // theme-trending experiment says is first (see lib/themeTrending).
   const [chosenSort, setChosenSort] = useState<WorkshopSort | null>(null);
@@ -529,6 +535,15 @@ export function WorkshopPanel() {
           </button>
         )}
       </div>
+
+      {effectsWorkshop && customEffects && (
+        <Link
+          href="/workshop/effects"
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+        >
+          {t("cameraWorkshop.title")}
+        </Link>
+      )}
 
       {banned && (
         <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">

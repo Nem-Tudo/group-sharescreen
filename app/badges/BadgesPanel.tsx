@@ -1,8 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { MdCheck } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { getUserBadges, useBadgesCatalog, type BadgeDefinition } from "@/lib/badges";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import {
+  isPlanBadge,
+  PRO_BADGE_FEATURE,
+  PRO_BADGE_MONTHS,
+  proBadgeLevel,
+  proBadgeLevelLabel,
+  withProBadgeLevel,
+} from "@/lib/proBadge";
 import { useT } from "@/lib/useI18n";
 
 // What every badge is and how somebody ends up with one.
@@ -13,7 +23,43 @@ import { useT } from "@/lib/useI18n";
 // Each row carries its own colours too, so a new badge arrives on this page
 // looking like itself without a deploy.
 
-function BadgeCard({ badge, owned }: { badge: BadgeDefinition; owned: boolean }) {
+/** Every level of a plan badge, with the one this person is on picked out. */
+function ProBadgeLadder({ badge, current }: { badge: BadgeDefinition; current: number | null }) {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+      <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+        {t("badges.badgesPanel.proBadgeEvolves")}
+      </p>
+      <ul className="grid grid-cols-4 gap-1.5">
+        {PRO_BADGE_MONTHS.map((_, level) => (
+          <li
+            key={level}
+            className={`flex flex-col items-center gap-1 rounded-lg p-1.5 text-center ${
+              level === current ? `border ${badge.borderClass ?? ""} ${badge.bgClass ?? ""}` : "border border-transparent"
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={withProBadgeLevel(badge, level).iconUrl} alt="" className="h-5 w-5" />
+            <span className="text-[10px] leading-tight text-zinc-600 dark:text-zinc-400">{proBadgeLevelLabel(level)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function BadgeCard({
+  badge,
+  owned,
+  ladder,
+  level,
+}: {
+  badge: BadgeDefinition;
+  owned: boolean;
+  ladder: boolean;
+  level: number;
+}) {
   const t = useT();
   return (
     <li
@@ -47,6 +93,8 @@ function BadgeCard({ badge, owned }: { badge: BadgeDefinition; owned: boolean })
           {badge.description}
         </p>
       </div>
+
+      {ladder && isPlanBadge(badge.id) && <ProBadgeLadder badge={badge} current={owned ? level : null} />}
     </li>
   );
 }
@@ -59,6 +107,13 @@ export function BadgesPanel() {
   // disagree about who has what.
   const owned = account ? getUserBadges(account, true, badges) : [];
   const ownedIds = new Set(owned.map((badge) => badge.id));
+  const { enabled: ladder } = useFeature(PRO_BADGE_FEATURE);
+  const [now] = useState(() => Date.now());
+  const level = proBadgeLevel(account?.premium?.streakStartedAt, now);
+
+  useEffect(() => {
+    if (ladder) trackFeatureEvent("pro_badge_ladder_view", { feature: PRO_BADGE_FEATURE });
+  }, [ladder]);
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-12 sm:py-16">
@@ -88,7 +143,7 @@ export function BadgesPanel() {
       ) : (
         <ul className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {badges.map((badge) => (
-            <BadgeCard key={badge.id} badge={badge} owned={ownedIds.has(badge.id)} />
+            <BadgeCard key={badge.id} badge={badge} owned={ownedIds.has(badge.id)} ladder={ladder} level={level} />
           ))}
         </ul>
       )}

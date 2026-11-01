@@ -47,6 +47,8 @@ export interface PublicFeature {
   includeGuests: boolean;
   enabled: boolean;
   overrides: Record<string, string>;
+  /** The public section of the feature's data. Absent when there is none. */
+  data?: Record<string, unknown>;
 }
 
 export interface FeatureDecision {
@@ -335,7 +337,11 @@ export interface FeatureState extends FeatureDecision {
    * for a moment would matter.
    */
   ready: boolean;
+  /** The public section of the feature's data (see the API's FeatureDataConfig). */
+  data: Record<string, unknown>;
 }
+
+const NO_DATA: Record<string, unknown> = {};
 
 export function useFeature(key: string, options: UseFeatureOptions = {}): FeatureState {
   const definitions = useFeatureDefinitions();
@@ -376,5 +382,5 @@ export function useFeature(key: string, options: UseFeatureOptions = {}): Featur
     reportExposure(key, target, id);
   }, [ready, track, feature, id, decision.group, key, target]);
 
-  return { ...decision, enabled: decision.variant !== null, ready };
+  return { ...decision, enabled: decision.variant !== null, ready, data: feature?.data ?? NO_DATA };
 }

@@ -23,6 +23,7 @@ import {
   usePartnerExperiment,
 } from "@/lib/partnerExperiment";
 import { PartnerClickRewardPill } from "@/components/PartnerClickReward";
+import { formatProductPrice, trackProductClick, trackProductVideoOpen } from "@/lib/affiliateProducts";
 
 export function PartnerMediaTile({
   partner,
@@ -43,7 +44,7 @@ export function PartnerMediaTile({
 
   // The server's answer for whoever is here (see lib/partner's
   // usePartnerRewardStatus), this browser's flag until it comes.
-  usePartnerRewardStatus(partner.id);
+  usePartnerRewardStatus(partner.product && !partner.rewardVideoUrl ? null : partner.id);
   const rewardClaimedLocally = Boolean(
     partner.id && hasClaimedPartnerReward(partner.id, "video")
   );
@@ -60,7 +61,8 @@ export function PartnerMediaTile({
 
         if (partner.id) {
           signalingClient.reportPartnerClick(partner.id, "card");
-          trackPartnerClick("tile");
+          if (partner.product) trackProductClick();
+          else trackPartnerClick("tile");
           // Not asked again once collected — the server would only refuse it.
           if (clickRewardAppliesTo(partner, "card") && !hasClaimedPartnerReward(partner.id, "click")) {
             const id = partner.id;
@@ -95,7 +97,8 @@ export function PartnerMediaTile({
         partnerId: partner.id,
         source: "media_tile",
       });
-      trackPartnerVideoOpen();
+      if (partner.product) trackProductVideoOpen();
+      else trackPartnerVideoOpen();
 
       openPopup("partner_reward", {
         ...partnerRewardPopupSize(partner.hasExtendedDescription),
@@ -115,6 +118,7 @@ export function PartnerMediaTile({
           buttonUrl: partner.buttonUrl,
           buttonBackgroundColor: partner.buttonBackgroundColor,
           buttonTextColor: partner.buttonTextColor,
+          isProduct: Boolean(partner.product),
           clickRewardPoints: clickRewardAppliesTo(partner, "video")
             ? partner.clickRewardPoints
             : null,
@@ -224,7 +228,7 @@ export function PartnerMediaTile({
                     </span>
                   </>
                 )}
-                <span className="truncate">{partner.buttonLabel}</span>
+                <span className="truncate">{partner.buttonLabel || t("affiliateProduct.seeOffer")}</span>
                 {earnLook && <PartnerClickRewardPill points={partner.clickRewardPoints!} />}
               </div>
             </>
@@ -238,7 +242,7 @@ export function PartnerMediaTile({
           artwork this is the only thing that says whose it is. Only over a
           banner: with no banner the mark is the tile's own picture above,
           and a second copy in the corner would be the same logo twice. */}
-      {partner.iconUrl && hasImage && (
+      {partner.iconUrl && hasImage && !partner.product && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={partner.iconUrl}
@@ -338,6 +342,12 @@ export function PartnerMediaTile({
               points, so they ride here — the whole tile is the click. */}
           {earnLook && hasImage && (
             <PartnerClickRewardPill points={partner.clickRewardPoints!} size={compact ? "sm" : "md"} />
+          )}
+          {/* A product's photo says what it is; the price is what it adds. */}
+          {partner.product?.price != null && (
+            <span className={`shrink-0 font-bold text-white drop-shadow-sm ${compact ? "text-[11px]" : "text-xs sm:text-sm"}`}>
+              {formatProductPrice(partner.product.price, partner.product.currency)}
+            </span>
           )}
           {!compact && (
             <span className="shrink-0 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[11px] font-semibold text-white shadow-xs drop-shadow-sm sm:text-xs">

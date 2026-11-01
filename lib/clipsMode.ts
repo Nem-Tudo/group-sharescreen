@@ -21,11 +21,21 @@ export type TileExperiment =
   | "pushToTalk"
   | "musicQueue"
   | "orientation"
+  | "discordRpc"
   | "callRecording"
   | "callTranscript"
   | "roomTools"
   | "vscodeEditor"
-  | "univerSheet";
+  | "univerSheet"
+  | "fullscreenChat"
+  | "stereoMic"
+  | "multiMic"
+  | "cameraEffects"
+  | "cameraWorkshop"
+  | "phoneCamera"
+  | "multiCamera"
+  | "partnerAdsCard"
+  | "avatarBuilder";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -78,6 +88,12 @@ const CONFIG: Record<
     tipKey: "sharescreen:orientationTipSeen",
     defaultOn: true,
   },
+  discordRpc: {
+    feature: "discord-rich-presence",
+    modeKey: "sharescreen:discordRpcMode",
+    tipKey: "sharescreen:discordRpcTipSeen",
+    defaultOn: true,
+  },
   // "Gravar chamada" (ver lib/callRecording). Está aqui só pela dica azul de
   // "novo" (useTileExperimentTip): não tem interruptor — o botão já é o
   // interruptor, e nada roda até a pessoa clicar em começar. Por isso
@@ -121,6 +137,84 @@ const CONFIG: Record<
     feature: "room-sheet-univer",
     modeKey: "sharescreen:univerSheetMode",
     tipKey: "sharescreen:univerSheetTipSeen",
+  },
+  // "Chat na tela cheia" (ver lib/fullscreenChat): o chat da sala numa coluna
+  // à direita de um tile em tela cheia. Sem interruptor no "⋯": o botão de
+  // chat que aparece na própria tela cheia é o interruptor, desligado por
+  // padrão — com ele aberto o vídeo perde a faixa da direita.
+  fullscreenChat: {
+    feature: "fullscreen-chat",
+    modeKey: "sharescreen:fullscreenChatMode",
+    tipKey: "sharescreen:fullscreenChatTipSeen",
+  },
+  // "Microfone estéreo" (ver lib/opusStereo e captureNoiseSuppressedMic): o
+  // microfone capturado e enviado em dois canais. Desligado por padrão — sem
+  // cancelamento de eco nem supressão de ruído, quem não usa fone ecoa a sala
+  // de volta. O interruptor fica no painel do microfone.
+  stereoMic: {
+    feature: "stereo-mic",
+    modeKey: "sharescreen:stereoMicMode",
+    tipKey: "sharescreen:stereoMicTipSeen",
+  },
+  // "Várias entradas de áudio" (ver captureNoiseSuppressedMic): outras
+  // entradas misturadas no mesmo microfone. Desligado por padrão — cada
+  // entrada extra é mais uma captura aberta. O interruptor fica no painel do
+  // microfone.
+  multiMic: {
+    feature: "multi-mic",
+    modeKey: "sharescreen:multiMicMode",
+    tipKey: "sharescreen:multiMicTipSeen",
+  },
+  // "Efeitos de câmera" (ver lib/cameraEffects): fundo desfocado, filtros de
+  // cor e máscaras no rosto, desenhados na câmera antes de sair. Desligado por
+  // padrão — é um modelo rodando em cada quadro da câmera. O interruptor fica
+  // no painel da câmera (setinha ao lado do botão da câmera).
+  cameraEffects: {
+    feature: "camera-effects",
+    modeKey: "sharescreen:cameraEffectsMode",
+    tipKey: "sharescreen:cameraEffectsTipSeen",
+  },
+  // O workshop de efeitos (ver lib/cameraEffectWorkshop): não tem interruptor, só
+  // o aviso azul no botão dos efeitos, por isso o modeKey nunca é usado.
+  cameraWorkshop: {
+    feature: "camera-effects-workshop",
+    modeKey: "sharescreen:cameraWorkshopMode",
+    tipKey: "sharescreen:cameraWorkshopTipSeen",
+  },
+  // "Celular como câmera" (ver lib/phoneCamera): um celular que abre o link
+  // do QR code vira a câmera deste computador, sem entrar na sala. Desligado
+  // por padrão — ligado, a sala mantém um socket a mais aberto, esperando o
+  // celular. O interruptor fica no painel da câmera.
+  phoneCamera: {
+    feature: "phone-camera",
+    modeKey: "sharescreen:phoneCameraMode",
+    tipKey: "sharescreen:phoneCameraTipSeen",
+  },
+  // "Várias câmeras" (ver lib/multiCamera): mais de uma câmera saindo ao mesmo
+  // tempo — outras webcams, outros celulares, ou os dois. Desligado por padrão
+  // (cada câmera a mais é mais um encode). O interruptor fica no painel da
+  // câmera; ligado, aparece um "+" ao lado do botão da câmera.
+  multiCamera: {
+    feature: "multi-camera",
+    modeKey: "sharescreen:multiCameraMode",
+    tipKey: "sharescreen:multiCameraTipSeen",
+  },
+  // O ícone do card de anúncio (ver components/PartnerAdsChoice). Como o
+  // callRecording: aqui só pela dica azul, sem interruptor.
+  partnerAdsCard: {
+    feature: "partner-ads-card-settings",
+    modeKey: "sharescreen:partnerAdsCardMode",
+    tipKey: "sharescreen:partnerAdsCardTipSeen",
+    defaultOn: true,
+  },
+  // "Criar meu avatar" (ver components/AvatarBuilderDialog). Como o
+  // callRecording: aqui só pela dica azul, que fica no card da conta do
+  // cabeçalho (components/AccountMenu), sem interruptor.
+  avatarBuilder: {
+    feature: "avatar-builder",
+    modeKey: "sharescreen:avatarBuilderMode",
+    tipKey: "sharescreen:avatarBuilderTipSeen",
+    defaultOn: true,
   },
   musicQueue: {
     feature: "room-music-queue",
@@ -166,6 +260,10 @@ export const TILE_EXPERIMENT_EVENTS = {
     modeOn: "orientation_mode_on",
     modeOff: "orientation_mode_off",
   },
+  discordRpc: {
+    modeOn: "discord_rpc_mode_on",
+    modeOff: "discord_rpc_mode_off",
+  },
   // Sem interruptor (ver CONFIG): estes dois nunca são enviados. Os eventos
   // de verdade estão em CALL_RECORDING_EVENTS (lib/useCallRecording).
   callRecording: {
@@ -190,6 +288,59 @@ export const TILE_EXPERIMENT_EVENTS = {
     modeOn: "univer_sheet_on",
     modeOff: "univer_sheet_off",
   },
+  fullscreenChat: {
+    modeOn: "fullscreen_chat_on",
+    modeOff: "fullscreen_chat_off",
+  },
+  stereoMic: {
+    modeOn: "stereo_mic_on",
+    modeOff: "stereo_mic_off",
+  },
+  multiMic: {
+    modeOn: "multi_mic_on",
+    modeOff: "multi_mic_off",
+    add: "multi_mic_add", // uma entrada extra foi marcada
+    start: "multi_mic_start", // value: quantas entradas o mic abriu juntas
+  },
+  cameraEffects: {
+    modeOn: "camera_effects_on",
+    modeOff: "camera_effects_off",
+    pick: "camera_effects_pick", // um efeito escolhido (qualquer um que não seja "nenhum")
+    start: "camera_effects_start", // uma câmera começou a passar pelos efeitos
+    error: "camera_effects_error", // um modelo não carregou, ou o desenho falhou
+    slow: "camera_effects_slow", // value: ms por quadro (uma vez por sessão, acima de 30)
+    bgUpload: "camera_effects_bg_upload", // enviou uma imagem de fundo própria
+    bgLocked: "camera_effects_bg_locked", // tocou em "Seu fundo" sem o plano (abriu os planos)
+    sheet: "camera_effects_sheet", // abriu a folha de efeitos pelo botão ✨ da barra de baixo (celular)
+  },
+  // Sem interruptor (ver CONFIG): nunca enviados. O resto está em
+  // CAMERA_WORKSHOP_EVENTS (lib/cameraEffectWorkshop).
+  cameraWorkshop: {
+    modeOn: "camera_workshop_on",
+    modeOff: "camera_workshop_off",
+  },
+  // O resto das estatísticas está em PHONE_CAMERA_EVENTS (lib/phoneCamera).
+  phoneCamera: {
+    modeOn: "phone_camera_on",
+    modeOff: "phone_camera_off",
+  },
+  // O resto das estatísticas está em MULTI_CAMERA_EVENTS (lib/multiCamera).
+  multiCamera: {
+    modeOn: "multi_camera_on",
+    modeOff: "multi_camera_off",
+  },
+  // Sem interruptor (ver CONFIG): nunca enviados.
+  partnerAdsCard: {
+    modeOn: "partner_ads_card_on",
+    modeOff: "partner_ads_card_off",
+  },
+  // Sem interruptor (ver CONFIG): os dois de modo nunca são enviados.
+  avatarBuilder: {
+    modeOn: "avatar_builder_on",
+    modeOff: "avatar_builder_off",
+    open: "avatar_builder_open",
+    tipOpen: "avatar_builder_tip_open", // abriu o editor pelo botão da dica
+  },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
     // desse experimento é o botão que abre a lista.
@@ -213,6 +364,7 @@ export const TILE_EXPERIMENT_EVENTS = {
 // shows it as the blue count beside "Exposições".
 export const VSCODE_EDITOR_FEATURE = "room-code-vscode";
 export const UNIVER_SHEET_FEATURE = "room-sheet-univer";
+export const AVATAR_BUILDER_FEATURE = "avatar-builder";
 
 export const TIP_CLICK_EVENT = "new_feature_tip_click";
 
@@ -259,6 +411,34 @@ export function setTileExperimentMode(experiment: TileExperiment, on: boolean) {
 }
 
 /** The experiment and the person's switch together — what tiles check. */
+// Which of clips/recording the current room's management turned off for this
+// person (the room's "clips" and "recording" switches — see WatchRoom, which
+// is what sets this, managers never being subject to it). Module state like
+// the protected room above, so every tile reads it without a prop.
+let roomBlocked: { clips: boolean; recording: boolean } = { clips: false, recording: false };
+const roomBlockedListeners = new Set<() => void>();
+
+export function setRoomBlockedTileExperiments(next: { clips: boolean; recording: boolean }) {
+  if (next.clips === roomBlocked.clips && next.recording === roomBlocked.recording) return;
+  roomBlocked = next;
+  roomBlockedListeners.forEach((listener) => listener());
+}
+
+function subscribeRoomBlocked(listener: () => void) {
+  roomBlockedListeners.add(listener);
+  return () => {
+    roomBlockedListeners.delete(listener);
+  };
+}
+
+function useRoomBlocked(experiment: TileExperiment): boolean {
+  return useSyncExternalStore(
+    subscribeRoomBlocked,
+    () => (experiment === "clips" || experiment === "recording" ? roomBlocked[experiment] : false),
+    () => false
+  );
+}
+
 export function useTileExperiment(experiment: TileExperiment, options: { track?: boolean } = {}) {
   const { feature, modeKey, defaultOn = false } = CONFIG[experiment];
   const { enabled: available } = useFeature(feature, { track: options.track ?? false });
@@ -273,7 +453,10 @@ export function useTileExperiment(experiment: TileExperiment, options: { track?:
   // Clips and recordings save the room to disk — the one thing a protected
   // room exists to prevent (see lib/captureProtection.ts).
   const blocked = useProtectedRoom() && (experiment === "clips" || experiment === "recording");
-  return { available, on, active: available && on && !blocked };
+  // Turned off by the room for this person: the switch in "⋯" is greyed out
+  // and the tiles stop offering it (and stop a recording already running).
+  const blockedByRoom = useRoomBlocked(experiment);
+  return { available, on, blockedByRoom, active: available && on && !blocked && !blockedByRoom };
 }
 
 /**
