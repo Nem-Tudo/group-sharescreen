@@ -6,6 +6,8 @@ import { diagnose, isRelayed, type PcSnapshot } from "@/lib/connectionDiagnostic
 import { connectionRegistry, createStatsSampler } from "@/lib/connectionRegistry";
 import { signalingClient } from "@/lib/signalingClient";
 import { turnProvider } from "@/lib/iceConfig";
+import { nativeSinkPaused } from "@/lib/nativeVideoCapture";
+import { senderQualityState } from "@/lib/peerQualityController";
 
 const POLL_MS = 2000;
 
@@ -14,6 +16,8 @@ interface Row {
   name: string;
   channel: string;
   snapshot: PcSnapshot;
+  /** They are not looking at it, so nothing is being sent (see lib/qualityNegotiation). */
+  paused: boolean;
 }
 
 /**
@@ -56,6 +60,7 @@ export function ViewerConnectionList() {
           name: names.get(entry.peerId) ?? entry.peerId.slice(0, 6),
           channel: entry.channel,
           snapshot,
+          paused: senderQualityState(entry.pc)?.paused === true || nativeSinkPaused(entry.pc),
         });
       }
       if (!cancelled) setRows(next);
@@ -91,7 +96,7 @@ export function ViewerConnectionList() {
           {rows.length === 0 && <li className="text-zinc-500">{t("connectionStats.noViewers")}</li>}
           {rows.map((row) => {
             const { route, send } = row.snapshot;
-            const causes = diagnose({ route, send, recv: null });
+            const causes = row.paused ? [] : diagnose({ route, send, recv: null });
             const worst = causes[0];
             const provider = route.localType === "relay" ? turnProvider(route.relayUrl) : null;
             return (
@@ -105,11 +110,15 @@ export function ViewerConnectionList() {
                       ConnectionStatsOverlay) — a viewer's relay is theirs. */}
                   {provider && ` · ${t(provider === "cloudflare" ? "connectionStats.turnCloudflare" : "connectionStats.turnOwn")}`}
                 </span>
-                {send && (
-                  <span className="block font-mono text-[11px] text-zinc-500 tabular-nums">
-                    {send.height}p · {send.fps} fps · {(send.kbps / 1000).toFixed(1)} Mbps
-                    {route.rttMs != null && ` · ${route.rttMs} ms`}
-                  </span>
+                {row.paused ? (
+                  <span className="block text-[11px] text-zinc-500">{t("connectionStats.viewerNotLooking")}</span>
+                ) : (
+                  send && (
+                    <span className="block font-mono text-[11px] text-zinc-500 tabular-nums">
+                      {send.height}p · {send.fps} fps · {(send.kbps / 1000).toFixed(1)} Mbps
+                      {route.rttMs != null && ` · ${route.rttMs} ms`}
+                    </span>
+                  )
                 )}
                 {worst && (
                   <span

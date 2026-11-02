@@ -302,18 +302,6 @@ export interface DesktopBridge {
     onData(onChunk: (chunk: Uint8Array) => void, onEnded: () => void): () => void;
   };
   /**
-   * The WebRTC field trials this app process started with, and the site's
-   * decision for the next start — experiment sq-h264-qp (see
-   * lib/streamQuality.ts and electron/webrtcTrials.ts). Absent on a shell
-   * from before it existed.
-   */
-  webrtcTrials?: {
-    /** `known`: a decision was on disk at start; `h264Qp`: the trial is running. */
-    state(): Promise<{ known: boolean; h264Qp: boolean }>;
-    /** Stores the decision; it applies from the app's next start. */
-    setH264Qp(on: boolean): void;
-  };
-  /**
    * Screen capture encoded on the GPU by a native helper — an experiment (see
    * lib/nativeVideoCapture.ts, the only thing that should touch this, and
    * electron/nativeVideo.ts). Absent unless the helper shipped with the build.
@@ -332,6 +320,8 @@ export interface DesktopBridge {
       bitrateKbps: number;
       cursor?: boolean;
       captureMethod?: "duplication" | "wgc";
+      /** Deliver the frames over a MessagePort instead of onFrame — see framePort. */
+      framePort?: boolean;
     }): Promise<
       | {
           ok: true;
@@ -356,6 +346,12 @@ export interface DesktopBridge {
     setIntent(wanted: boolean): void;
     control(command: { bitrateKbps?: number; keyFrame?: boolean }): void;
     stop(): void;
+    /**
+     * This shell can hand the frames over a MessagePort, which the page gives
+     * to a worker so they never pass through its main thread. The port arrives
+     * as a "message" event on the window. Absent on an older shell.
+     */
+    framePort?: boolean;
     /**
      * Subscribes to the encoded frames. `onEnded` fires when the capture stops
      * on its own. Returns an unsubscribe.

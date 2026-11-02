@@ -72,7 +72,7 @@ export function ConnectionStatsOverlay({
   onClose: () => void;
 }) {
   const t = useT();
-  const [local, setLocal] = useState<{ snapshot: PcSnapshot; viaRelay: boolean } | null>(null);
+  const [local, setLocal] = useState<{ snapshot: PcSnapshot } | null>(null);
   const [sender, setSender] = useState<{ id: string; since: number } | null>(null);
   const [remote, setRemote] = useState<{ senderId: string; diag: RemoteDiag } | null>(null);
   const [now, setNow] = useState(0);
@@ -98,7 +98,7 @@ export function ConnectionStatsOverlay({
         lastSender = entry.peerId;
         setSender({ id: entry.peerId, since: Date.now() });
       }
-      if (snapshot) setLocal({ snapshot, viaRelay: entry.viaRelay });
+      if (snapshot) setLocal({ snapshot });
       setNow(Date.now());
     };
     // One tick at a time: a slow getStats must not have the next one start
@@ -128,7 +128,7 @@ export function ConnectionStatsOverlay({
   }, [channel, senderId, originId]);
 
   // Only a reply about the sender we are currently connected to, and only a
-  // recent one: a relay handover must not leave the old sender's numbers up.
+  // recent one: a rebuilt connection must not leave the old sender's numbers up.
   const diag =
     remote && remote.senderId === senderId && now - remote.diag.receivedAt < SENDER_SILENCE_MS
       ? remote.diag
@@ -163,7 +163,6 @@ export function ConnectionStatsOverlay({
       at: new Date().toISOString(),
       channel,
       originId,
-      viaCascade: local?.viaRelay ?? false,
       route,
       turn: {
         ours: localRelays ? (turnProvider(snapshot?.route.relayUrl) ?? "unknown") : null,
@@ -232,9 +231,6 @@ export function ConnectionStatsOverlay({
             TURN · {line}
           </span>
         ))}
-        {local?.viaRelay && (
-          <span className="block text-zinc-400">{t("connectionStats.viaCascade")}</span>
-        )}
       </Row>
 
       <Row label={t("connectionStats.receiving")}>
@@ -273,9 +269,6 @@ export function ConnectionStatsOverlay({
               {diag?.tier ? ` · ${diag.tier}` : ""}
             </span>
             {limitation && <span className="block text-amber-300">{limitation}</span>}
-            {diag?.relayed && (
-              <span className="block text-zinc-400">{t("connectionStats.senderIsRelay")}</span>
-            )}
           </>
         ) : (
           <span className="text-zinc-400">

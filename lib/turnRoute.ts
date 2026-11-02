@@ -5,8 +5,8 @@
 // ends up on a TURN server is served at no more than RELAY_ROUTE_CAP and
 // RELAY_ROUTE_MAX_KBPS (see PeerQualityController's route cap). Only the
 // *send* side is capped, and nothing says so on screen: the broadcaster's
-// dials, the planner and every indicator carry on as if the connection were
-// direct. Pro Ultra accounts ("uncapped_relay") are exempt.
+// dials and every indicator carry on as if the connection were direct. Pro
+// Ultra accounts ("uncapped_relay") are exempt.
 //
 // Only *this side's* relay is visible here: the browser reports whether our
 // own selected candidate is a relay, and says nothing useful about the other

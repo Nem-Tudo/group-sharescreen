@@ -41,8 +41,8 @@ assert.equal(
 // Not connected yet: no selected pair, nothing to cap.
 assert.equal(relayedViaTurn([]), false);
 
-// Whose server it is travels with the answer (experiment "own-turn" caps the
-// VPS alone); an unnamed or unknown server has no provider.
+// Whose server it is travels with the answer; an unnamed or unknown server has no
+// provider.
 assert.deepEqual(relayRouteOf(report({ candidateType: "relay", url: "turn:turn.cloudflare.com:3478?transport=udp" })), {
   via: true,
   provider: "cloudflare",

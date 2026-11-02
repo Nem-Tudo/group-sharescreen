@@ -47,17 +47,12 @@ export interface SenderContext {
 export interface RemoteDiag extends SenderContext {
   send: SendVideoStats | null;
   route: RouteInfo | null;
-  /** The sender is a relay re-encoding somebody else's stream. */
-  relayed: boolean;
   cores: number | null;
   receivedAt: number;
 }
 
 type DiagListener = (diag: RemoteDiag) => void;
 
-// Sender and origin both, because a relay can be sending one viewer two
-// pictures on the same channel — its own share and somebody else's re-encoded
-// (see connectionRegistry's originId).
 function keyOf(channel: QualityChannel, senderId: string, originId: string) {
   return `${channel} ${senderId} ${originId}`;
 }
@@ -72,7 +67,6 @@ function sanitize(raw: unknown): Omit<RemoteDiag, "receivedAt"> | null {
   return {
     send: r.send && typeof r.send === "object" ? (r.send as SendVideoStats) : null,
     route: r.route && typeof r.route === "object" ? (r.route as RouteInfo) : null,
-    relayed: r.relayed === true,
     cores: count(r.cores) ?? null,
     tier: text(r.tier),
     profile: text(r.profile),
@@ -146,7 +140,7 @@ class ConnectionDiagLink {
   /**
    * Sender: `from` asked for our side of the connection carrying `originId`'s
    * picture to them. `context` is read on every reply, so it follows dial
-   * changes; it describes our own share and is left out of a relayed one.
+   * changes.
    */
   respond(
     channel: QualityChannel,
@@ -189,9 +183,8 @@ class ConnectionDiagLink {
         diag: {
           send: snapshot.send,
           route: snapshot.route,
-          relayed: connection.viaRelay,
           cores: typeof navigator !== "undefined" ? navigator.hardwareConcurrency || null : null,
-          ...(connection.viaRelay ? {} : context()),
+          ...context(),
         },
       });
     };

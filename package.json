@@ -12,6 +12,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./lib/ts-resolve.mjs --experimental-strip-types --test lib/*.test.mts",
+    "workers:build": "node lib/nativeVideoSink.build.mjs",
     "electron:typecheck": "tsc --noEmit -p electron/tsconfig.json",
     "electron:native": "node electron/native/build.mjs",
     "electron:build": "node electron/native/build.mjs && node electron/build.mjs",

@@ -1,27 +1,15 @@
 // Single shared getStats() pump for every outbound peer connection.
 //
-// This replaces the previous design of one setInterval per sendPC (see the
-// old startPeerAdaptiveBitrateMonitor): in a 30-person room that was 29
-// independent timers each doing its own getStats() pass, all landing at
-// unrelated moments. getStats() is not free — it walks the whole stats graph
-// and allocates a report map per call — so 29 uncoordinated calls per tick
-// is real main-thread work on the machine that is simultaneously trying to
-// encode 29 video streams.
-//
-// One timer, one pass, results fanned out to subscribers. Everything that
-// needs sender telemetry (per-peer congestion control, capacity estimation,
-// the content-cost multiplier) reads from this one sample.
-
-import {
-  measureContentMultiplier,
-  type QualityTier,
-} from "./videoQuality";
+// One timer, one pass, results fanned out to subscribers: getStats() walks the
+// whole stats graph and allocates a report map per call, and this runs on the
+// machine that is simultaneously trying to encode for everybody in the room.
+// Everything that needs sender telemetry reads from this one sample.
 
 export interface SenderSample {
   /**
    * The key this sender was registered under — see PeerQualityRegistry, which
-   * namespaces it per channel/relay rather than using the bare peer id, since
-   * this pump is one map shared by every registry in the process.
+   * namespaces it per channel rather than using the bare peer id, since this
+   * pump is one map shared by every registry in the process.
    */
   peerId: string;
   /** Loss fraction reported by the *remote* end (0..1). */
@@ -37,51 +25,54 @@ export interface SenderSample {
   frameHeight: number;
   /** The encoder the browser picked ("libvpx", "OpenH264", …), or null where it does not say. */
   encoderImplementation?: string | null;
+  /** Whether the browser calls that encoder power efficient; absent where it does not say. */
+  powerEfficient?: boolean;
   /**
    * Frames the capture delivered per second (the track's media-source), or
    * null where the browser does not say. Set against framesPerSecond, it
    * tells a sender that cannot keep up from content that is simply still.
    */
   sourceFps?: number | null;
+  /**
+   * The size of what the capture actually delivers, before any scaling; null where
+   * the browser does not say. Unlike the track's settings it is true of a window or
+   * a tab, whose frames are not necessarily the size the track claims.
+   */
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
   /** Milliseconds the encoder spent per frame since the last visit; null on the first. */
   encodeMs?: number | null;
+  /** Average QP of what was encoded since the last visit; null when nothing was. */
+  qp?: number | null;
+  /** "VP9", "H264", …, or null where the browser does not say. QP scales differ per codec. */
+  codec?: string | null;
+  /** What the bandwidth estimator lets this encoder spend, kbps; 0 when unknown. */
+  targetKbps?: number;
+  /** The estimate for this connection's path, kbps; 0 when unknown. */
+  availableKbps?: number;
 }
 
 export interface CapacitySample {
   /** Bandwidth estimate from ICE, in kbps. 0 when not yet known. */
   availableOutgoingKbps: number;
-  /**
-   * Sum of what we are currently sending across all peers, kbps.
-   *
-   * Across *all* of them, which is the whole point and was not what this
-   * used to report: the round-robin window below visits at most
-   * MAX_SENDERS_PER_PASS senders per tick, and this was summed inside that
-   * loop. In an 80-person room it therefore reported about a seventh of the
-   * truth — and it is read (see useMeshTopology's estimatedUplinkKbps) as
-   * the *proof* of what this uplink demonstrably carries, which is the one
-   * thing that breaks the circularity of "we send little, so the estimator
-   * reads little, so we are told we may only send little". The guard was
-   * disabled in exactly the rooms that need it.
-   */
+  /** Sum of what we are currently sending across all peers, kbps. */
   usedOutgoingKbps: number;
   /** Fraction of active senders currently reporting a CPU limitation (0..1). */
   cpuPressure: number;
-  /** Best available estimate of the content's cost relative to motion video. */
-  contentMultiplier: number;
   sampledAt: number;
 }
 
 type SenderEntry = {
   pc: RTCPeerConnection;
   sender: RTCRtpSender;
-  tier: QualityTier;
-  prev?: { bytes: number; frames: number; encodeTime: number; at: number };
+  prev?: { bytes: number; frames: number; encodeTime: number; qpSum: number; at: number };
   // What this sender was last measured producing, kbps. Held across passes
   // so the room total can be summed over every sender rather than only the
-  // ones this tick happened to visit — see CapacitySample.usedOutgoingKbps.
-  // A stale reading from ten seconds ago is a far better estimate of a
-  // steady stream than counting it as zero.
+  // ones this tick happened to visit.
   lastKbps: number;
+  // Nobody is looking at this one, so nothing is being encoded for it and there
+  // is nothing to read. In a big room that is most of them.
+  paused: boolean;
 };
 
 const POLL_INTERVAL_MS = 2000;
@@ -103,34 +94,31 @@ class MediaStatsPump {
     availableOutgoingKbps: 0,
     usedOutgoingKbps: 0,
     cpuPressure: 0,
-    contentMultiplier: 1,
     sampledAt: 0,
   };
-  // Smoothed across passes: a single tick's bandwidth estimate is noisy
-  // enough that feeding it straight into topology decisions would make the
-  // planner rebuild the tree on nothing but measurement jitter.
+  // Smoothed across passes: availableOutgoingBitrate ramps as the estimator
+  // probes, and it is only shown to the person.
   private smoothedAvailable = 0;
-  private smoothedMultiplier = 1;
 
-  register(peerId: string, pc: RTCPeerConnection, sender: RTCRtpSender, tier: QualityTier) {
-    this.senders.set(peerId, { pc, sender, tier, lastKbps: 0 });
+  register(peerId: string, pc: RTCPeerConnection, sender: RTCRtpSender) {
+    this.senders.set(peerId, { pc, sender, lastKbps: 0, paused: false });
     this.ensureRunning();
   }
 
-  /** Updates the tier a peer is being served at, without resetting its history. */
-  setTier(peerId: string, tier: QualityTier) {
+  /** Stops or restarts reading a sender. See SenderEntry.paused. */
+  setPaused(peerId: string, paused: boolean) {
     const entry = this.senders.get(peerId);
-    if (entry) entry.tier = tier;
+    if (!entry || entry.paused === paused) return;
+    entry.paused = paused;
+    entry.lastKbps = 0;
+    // The counters did not move in between, and a difference across the gap
+    // would read as a long stretch of nothing.
+    entry.prev = undefined;
   }
 
   unregister(peerId: string) {
     this.senders.delete(peerId);
     if (this.senders.size === 0) this.stop();
-  }
-
-  clear() {
-    this.senders.clear();
-    this.stop();
   }
 
   onSender(fn: (s: SenderSample) => void): () => void {
@@ -151,11 +139,7 @@ class MediaStatsPump {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
       // One pass at a time. A pass is a chain of sequential getStats awaits,
-      // and on a machine already short of CPU — the only machine where it is
-      // slow — it can outlast the interval. Started anyway, the next pass
-      // read the same senders concurrently, each overwriting the other's
-      // `entry.prev`, so the deltas the congestion controller runs on came out
-      // as garbage exactly when it most needed them right.
+      // and on a machine already short of CPU it can outlast the interval.
       if (this.passing) return;
       this.passing = true;
       void this.pass().finally(() => {
@@ -171,8 +155,14 @@ class MediaStatsPump {
   }
 
   private async pass() {
-    const entries = [...this.senders.entries()];
-    if (entries.length === 0) return;
+    const entries = [...this.senders.entries()].filter(([, entry]) => !entry.paused);
+    if (entries.length === 0) {
+      // Everybody stopped looking: nothing is going out, and the panel should say so.
+      if (this.lastCapacity.usedOutgoingKbps > 0) {
+        this.publish({ ...this.lastCapacity, usedOutgoingKbps: 0, cpuPressure: 0, sampledAt: Date.now() });
+      }
+      return;
+    }
 
     // Round-robin window so a huge room doesn't make each tick unbounded.
     let window = entries;
@@ -187,12 +177,9 @@ class MediaStatsPump {
     let cpuLimited = 0;
     let counted = 0;
     let bestAvailable = 0;
-    let multiplierAccum = 0;
-    let multiplierCount = 0;
 
     // Sequential rather than Promise.all: these all contend for the same
-    // main thread, and firing a dozen getStats() calls simultaneously
-    // produces a latency spike on the very thread that is encoding video.
+    // main thread.
     for (const [peerId, entry] of window) {
       if (entry.pc.connectionState !== "connected") {
         // Nothing is going out over a connection in this state, and its last
@@ -218,9 +205,14 @@ class MediaStatsPump {
       let frameWidth = 0;
       let frameHeight = 0;
       let encoderImplementation: string | null = null;
+      let powerEfficient: boolean | undefined;
       let encodeTime = 0;
+      let qpSum = 0;
+      let targetBitrate = 0;
+      let codecId: string | null = null;
       let mediaSourceId: string | null = null;
-      const sourceFpsById = new Map<string, number>();
+      let availableKbps = 0;
+      const sourceById = new Map<string, { fps: number | null; width: number | null; height: number | null }>();
 
       report.forEach((r) => {
         const rec = r as unknown as Record<string, unknown>;
@@ -238,18 +230,25 @@ class MediaStatsPump {
             typeof rec.encoderImplementation === "string" && rec.encoderImplementation
               ? rec.encoderImplementation
               : null;
+          if (typeof rec.powerEfficientEncoder === "boolean") powerEfficient = rec.powerEfficientEncoder;
           encodeTime = (rec.totalEncodeTime as number) ?? 0;
+          qpSum = (rec.qpSum as number) ?? 0;
+          targetBitrate = (rec.targetBitrate as number) ?? 0;
+          codecId = typeof rec.codecId === "string" ? rec.codecId : null;
           mediaSourceId = typeof rec.mediaSourceId === "string" ? rec.mediaSourceId : null;
         } else if (r.type === "media-source" && rec.kind === "video") {
-          if (typeof rec.framesPerSecond === "number") sourceFpsById.set(r.id, rec.framesPerSecond);
+          const count = (value: unknown) => (typeof value === "number" && value > 0 ? value : null);
+          sourceById.set(r.id, {
+            fps: typeof rec.framesPerSecond === "number" ? rec.framesPerSecond : null,
+            width: count(rec.width),
+            height: count(rec.height),
+          });
         } else if (r.type === "candidate-pair" && rec.state === "succeeded") {
-          // In kbps before comparing: the report is in bps and bestAvailable
-          // is not, so comparing the raw value let whichever pair came last
-          // win instead of the best one.
-          const availKbps = ((rec.availableOutgoingBitrate as number) ?? 0) / 1000;
-          if (availKbps > bestAvailable) bestAvailable = availKbps;
+          const kbps = ((rec.availableOutgoingBitrate as number) ?? 0) / 1000;
+          if (kbps > availableKbps) availableKbps = kbps;
         }
       });
+      if (availableKbps > bestAvailable) bestAvailable = availableKbps;
 
       const now = performance.now();
       let outgoingKbps = 0;
@@ -258,30 +257,28 @@ class MediaStatsPump {
       // yet" rather than "not sending".
       let measured = false;
       let encodeMs: number | null = null;
+      let qp: number | null = null;
       if (entry.prev && now > entry.prev.at) {
         const dt = (now - entry.prev.at) / 1000;
         outgoingKbps = ((bytes - entry.prev.bytes) * 8) / 1000 / dt;
-        if (fps === 0) fps = (frames - entry.prev.frames) / dt;
         const encoded = frames - entry.prev.frames;
+        // framesPerSecond is a rolling figure that goes stale on a still
+        // screen; the counters are what this interval actually did.
+        if (fps === 0 || encoded === 0) fps = encoded / dt;
         const spent = encodeTime - entry.prev.encodeTime;
         if (encoded > 0 && spent > 0) encodeMs = (spent / encoded) * 1000;
+        if (encoded > 0 && qpSum > entry.prev.qpSum) qp = (qpSum - entry.prev.qpSum) / encoded;
         measured = true;
       }
-      entry.prev = { bytes, frames, encodeTime, at: now };
-      const sourceFps = mediaSourceId !== null ? (sourceFpsById.get(mediaSourceId) ?? null) : null;
+      entry.prev = { bytes, frames, encodeTime, qpSum, at: now };
+      const source = mediaSourceId !== null ? sourceById.get(mediaSourceId) : undefined;
+      const codecStat = codecId ? (report.get(codecId) as { mimeType?: string } | undefined) : undefined;
 
       // Zero included. A screen share of something still genuinely emits
       // almost nothing, and carrying the last busy reading forward would keep
-      // claiming an uplink is demonstrably carrying traffic it stopped
-      // carrying minutes ago. Where the content is quiet the estimate
-      // correctly falls back to the bandwidth estimator, which keeps itself
-      // alive over an idle link by probing.
+      // claiming an uplink is carrying traffic it stopped carrying minutes ago.
       if (measured) entry.lastKbps = outgoingKbps;
 
-      if (outgoingKbps > 0) {
-        multiplierAccum += measureContentMultiplier(outgoingKbps, entry.tier);
-        multiplierCount += 1;
-      }
       if (reason === "cpu") cpuLimited += 1;
       counted += 1;
 
@@ -295,8 +292,15 @@ class MediaStatsPump {
         frameWidth,
         frameHeight,
         encoderImplementation,
-        sourceFps,
+        powerEfficient,
+        sourceFps: source?.fps ?? null,
+        sourceWidth: source?.width ?? null,
+        sourceHeight: source?.height ?? null,
         encodeMs,
+        qp,
+        codec: codecStat?.mimeType ? codecStat.mimeType.replace(/^video\//i, "") : null,
+        targetKbps: targetBitrate / 1000,
+        availableKbps,
       };
       this.senderListeners.forEach((fn) => {
         try {
@@ -309,36 +313,30 @@ class MediaStatsPump {
 
     if (counted === 0) return;
 
-    // Over every sender, not just the ones this tick visited — see
-    // CapacitySample.usedOutgoingKbps. Each contributes its most recent
-    // reading, which for a steady stream is accurate however long ago the
-    // round-robin last reached it, and zero for anything not connected.
+    // Over every sender, not just the ones this tick visited. Each contributes
+    // its most recent reading, which for a steady stream is accurate however
+    // long ago the round-robin last reached it.
     let totalKbps = 0;
     for (const entry of this.senders.values()) totalKbps += entry.lastKbps;
 
-    // Exponential smoothing. availableOutgoingBitrate in particular ramps as
-    // the bandwidth estimator probes, so an unsmoothed reading taken shortly
-    // after a share starts badly understates the real link.
     if (bestAvailable > 0) {
       this.smoothedAvailable =
         this.smoothedAvailable === 0 ? bestAvailable : this.smoothedAvailable * 0.7 + bestAvailable * 0.3;
     }
-    if (multiplierCount > 0) {
-      const m = multiplierAccum / multiplierCount;
-      this.smoothedMultiplier = this.smoothedMultiplier * 0.8 + m * 0.2;
-    }
 
-    this.lastCapacity = {
+    this.publish({
       availableOutgoingKbps: Math.round(this.smoothedAvailable),
       usedOutgoingKbps: Math.round(totalKbps),
       cpuPressure: cpuLimited / counted,
-      contentMultiplier: Math.round(this.smoothedMultiplier * 100) / 100,
       sampledAt: Date.now(),
-    };
-    const snapshot = this.lastCapacity;
+    });
+  }
+
+  private publish(sample: CapacitySample) {
+    this.lastCapacity = sample;
     this.capacityListeners.forEach((fn) => {
       try {
-        fn(snapshot);
+        fn(sample);
       } catch {
         // as above
       }
@@ -347,88 +345,3 @@ class MediaStatsPump {
 }
 
 export const mediaStats = new MediaStatsPump();
-
-// ---------------------------------------------------------------------------
-// Local encode budget
-// ---------------------------------------------------------------------------
-
-// Starting estimate of how many megapixels/second this device can encode in
-// real time, seeded from core count. This is a *prior*, not a measurement:
-// hardwareConcurrency says nothing about core quality, thermal headroom, or
-// whether a hardware encoder is in play. cpuPressure feedback below corrects
-// it downward in the only way that is actually trustworthy — observing the
-// encoder fail to keep up.
-function seedEncodeBudget(): number {
-  const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
-  // ~124 Mpx/s is one 1080p60 stream. A 4-core machine managing roughly three
-  // of those in software is the calibration point these numbers come from.
-  return Math.max(120, Math.min(2400, cores * 100));
-}
-
-// Fraction of sampled senders that must report a CPU limitation before the
-// budget moves, and how many consecutive observations must say so.
-//
-// qualityLimitationReason is a momentary reading and a sticky one: a single
-// keyframe burst, another tab compiling something, one slow pass over a busy
-// frame all raise it for a sample or two. Treating any one of those as
-// evidence about the machine's ceiling — which the old single-sender, single
-// -sample trigger did — meant a transient hiccup cut the estimate 15%, and
-// then the next hiccup cut the reduced figure again. Nothing in that loop
-// ever needed the device to actually be slow.
-const CPU_PRESSURE_BAD = 0.4;
-const CPU_BAD_STREAK = 2;
-// Never fall below roughly one 1080p60 stream's worth. A budget under that
-// makes the planner conclude it cannot serve even a single fullscreen viewer
-// at full quality, which is a statement about this estimator rather than
-// about any real machine.
-const MIN_ENCODE_MPXS = 150;
-
-class EncodeBudget {
-  private budget = seedEncodeBudget();
-  private lastAdjust = 0;
-  private badStreak = 0;
-
-  /** Current estimate, in megapixels/second. */
-  get(): number {
-    return Math.round(this.budget);
-  }
-
-  /**
-   * Feed observed CPU pressure back in.
-   *
-   * Backing off is deliberately slower to trigger than it used to be, and
-   * recovery deliberately quicker. Being wrong optimistically costs dropped
-   * frames until the next observation four seconds later; being wrong
-   * pessimistically costs the whole room a quality tier for as long as the
-   * share lasts, because nothing else ever pushes the estimate back up.
-   */
-  observe(cpuPressure: number, currentLoadMpxs: number) {
-    const now = Date.now();
-    if (now - this.lastAdjust < 4000) return;
-    this.lastAdjust = now;
-    if (cpuPressure >= CPU_PRESSURE_BAD && currentLoadMpxs > 0) {
-      this.badStreak += 1;
-      if (this.badStreak >= CPU_BAD_STREAK) {
-        // The load we are already carrying is evidently above what this
-        // device sustains, so the real ceiling is below it.
-        this.budget = Math.max(
-          MIN_ENCODE_MPXS,
-          Math.min(this.budget, currentLoadMpxs) * 0.9
-        );
-      }
-    } else {
-      this.badStreak = 0;
-      if (cpuPressure <= 0.1) {
-        this.budget = Math.min(seedEncodeBudget() * 2, this.budget * 1.12);
-      }
-    }
-  }
-
-  reset() {
-    this.budget = seedEncodeBudget();
-    this.lastAdjust = 0;
-    this.badStreak = 0;
-  }
-}
-
-export const encodeBudget = new EncodeBudget();

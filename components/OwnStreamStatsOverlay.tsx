@@ -6,6 +6,8 @@ import { diagnose, isRelayed, type PcSnapshot } from "@/lib/connectionDiagnostic
 import { connectionRegistry, createStatsSampler } from "@/lib/connectionRegistry";
 import { signalingClient } from "@/lib/signalingClient";
 import { turnProvider } from "@/lib/iceConfig";
+import { nativeSinkPaused } from "@/lib/nativeVideoCapture";
+import { senderQualityState } from "@/lib/peerQualityController";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 
 // Same cadence as the remote tile's panel (see ConnectionStatsOverlay).
@@ -15,6 +17,8 @@ interface ViewerRow {
   peerId: string;
   name: string;
   snapshot: PcSnapshot;
+  /** They are not looking at it, so nothing is being sent (see lib/qualityNegotiation). */
+  paused: boolean;
 }
 
 interface Capture {
@@ -89,6 +93,7 @@ export function OwnStreamStatsOverlay({
           peerId: entry.peerId,
           name: names.get(entry.peerId) ?? entry.peerId.slice(0, 6),
           snapshot,
+          paused: senderQualityState(entry.pc)?.paused === true || nativeSinkPaused(entry.pc),
         });
       }
       if (cancelled) return;
@@ -237,7 +242,7 @@ export function OwnStreamStatsOverlay({
           <ul className="mt-1 space-y-1">
             {(rows ?? []).map((row) => {
               const { route, send } = row.snapshot;
-              const worst = diagnose({ route, send, recv: null })[0];
+              const worst = row.paused ? undefined : diagnose({ route, send, recv: null })[0];
               const provider = route.localType === "relay" ? turnProvider(route.relayUrl) : null;
               return (
                 <li key={row.peerId}>
@@ -248,11 +253,15 @@ export function OwnStreamStatsOverlay({
                     {provider &&
                       ` · ${t(provider === "cloudflare" ? "connectionStats.turnCloudflare" : "connectionStats.turnOwn")}`}
                   </span>
-                  {send && (
-                    <span className="block tabular-nums text-zinc-300">
-                      {send.width}×{send.height} · {send.fps} fps · {mbps(send.kbps)} Mbps
-                      {route.rttMs != null && ` · RTT ${route.rttMs} ms`}
-                    </span>
+                  {row.paused ? (
+                    <span className="block font-sans text-zinc-400">{t("connectionStats.viewerNotLooking")}</span>
+                  ) : (
+                    send && (
+                      <span className="block tabular-nums text-zinc-300">
+                        {send.width}×{send.height} · {send.fps} fps · {mbps(send.kbps)} Mbps
+                        {route.rttMs != null && ` · RTT ${route.rttMs} ms`}
+                      </span>
+                    )
                   )}
                   {worst && (
                     <span

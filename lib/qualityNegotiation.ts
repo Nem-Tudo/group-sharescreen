@@ -1,25 +1,32 @@
 // Viewer -> broadcaster quality requests.
 //
-// This is the highest-impact optimisation in the app. In a 30-person room
-// the grid gives each tile roughly 320x216 CSS pixels, so shipping 1080p to
-// it throws away about 95% of the encoded pixels — on the broadcaster's CPU
-// as much as on their uplink. Letting each viewer state the size it actually
-// renders at cuts both: measured against the previous "everyone gets the
-// preset" behaviour, roughly 6x less upload and 7.8x less encode for the
-// same visible result. Encode falls harder than bandwidth because encoder
-// cost tracks pixels-per-second, and that is precisely the wall that made a
-// large mesh room impossible.
+// In a 30-person room the grid gives each tile roughly 320x216 CSS pixels, so
+// shipping 1080p to it throws away about 95% of the encoded pixels, on the
+// broadcaster's CPU as much as on their uplink. Each viewer says what its tile
+// actually needs, and a viewer who is not looking at all says so too, which
+// stops that one encoder entirely.
+//
+// Two rules decide when a request goes out, and they lean the same way: towards
+// the picture being sharp.
+//
+//   - Asking for more is immediate. A tile that grew is showing a stretched
+//     picture right now, every moment of which is visible.
+//   - Asking for less waits (DOWNGRADE_HOLD_MS). A tile that shrank has more
+//     pixels than it needs, which nobody can see, and tiles shrink for a moment
+//     all the time: a panel opening, a window being dragged, a grid reflowing.
+//     Waiting costs a few seconds of a larger encode and saves a pair of
+//     keyframes every time the layout comes back.
 //
 // It rides the existing signalling relay: the server forwards a "signal"
-// message's `data` payload opaquely (see server/signaling.ts's "signal"
-// case, which only ever reads `data.kind` to label a metric), so a new kind
-// travels end to end without a single backend change.
+// message's `data` payload opaquely, so a new field travels end to end without
+// a backend change, and a broadcaster running older code reads the tier and
+// ignores the rest.
 
 import type { ExtraCameraSlot } from "./multiCamera";
 import type { ExtraScreenSlot } from "./multiScreen";
 import { signalingClient } from "./signalingClient";
-import { tierForRenderedSize, MAX_TIER_FPS, WORST_TIER, stepDownUnder, type QualityTier } from "./videoQuality";
-import { isSqRecvDropsEnabled, SQ_EVENTS, SQ_RECV_DROPS_FEATURE, sqTrack } from "./streamQuality";
+import { isStreamRetained, onStreamUseChange } from "./streamUse";
+import { tierForRenderedSize, tierIndex, MAX_TIER_FPS, WORST_TIER, stepDownUnder, type QualityTier } from "./videoQuality";
 
 // The video channels a viewer can ask for a size on. The "fileN" ones are
 // local files being played into the room (see lib/localMediaSource.ts) — a
@@ -39,30 +46,25 @@ export type QualityChannel =
   | ExtraCameraSlot;
 
 interface Entry {
+  channel: QualityChannel;
+  peerId: string;
   width: number;
   height: number;
+  /** What the broadcaster was last told. */
   tier: QualityTier | null;
+  idle: boolean;
   lastSentAt: number;
   timer: ReturnType<typeof setTimeout> | null;
-  /**
-   * Whether this tile is currently off screen — scrolled out of the pane, or
-   * on a page nobody is looking at.
-   *
-   * Kept apart from the measured size rather than folded into it, because
-   * `report` deliberately ignores a 0x0 tile (see its comment) and so cannot
-   * express this. The result was the opposite failure: a hidden tile stayed
-   * pinned at whatever large tier it last asked for, and the periodic
-   * re-announce kept demanding it every twenty seconds for as long as the
-   * room stayed open.
-   */
+  /** Whether this tile is on screen in a page somebody is looking at. */
   hidden: boolean;
-  /**
-   * Experiment sq-recv-drops: tiers below the size-based one this tile asks
-   * for while our decoder cannot keep up, and the bookkeeping that moves it.
-   */
+  /** When the tile went out of sight; null while it is in sight. */
+  hiddenSince: number | null;
+  /** When the size-based answer first came out lower than what is being asked for. */
+  shrunkSince: number | null;
+  /** The stream behind this tile, to ask whether anything else is using it. */
+  stream: MediaStream | null;
+  /** Tiers below the size-based one, while our decoder cannot keep up. */
   dropSteps: number;
-  /** The size-based tier last computed, before any decoder step. */
-  sizedTier: QualityTier | null;
   dropStrikes: number;
   cleanSince: number | null;
   /** How long a clean stretch must last to step back up; doubles on every relapse. */
@@ -71,11 +73,11 @@ interface Entry {
   dropRecovered: boolean;
 }
 
-// Experiment sq-recv-drops. Two telemetry samples in a row (~20 s) dropping a
-// tenth of the frames, with the decoder busy at least DROP_DECODE_LOAD of the
-// time, step a tile down; a clean minute steps it back. Two steps at most:
-// past that the decoder is not the only thing wrong, and the picture would be
-// too small to be worth the trade.
+// Two telemetry samples in a row (~20 s) dropping a tenth of the frames, with
+// the decoder busy at least DROP_DECODE_LOAD of the time, step a tile down; a
+// clean minute steps it back. Two steps at most: past that the decoder is not
+// the only thing wrong, and the picture would be too small to be worth the
+// trade.
 //
 // The load test is what keeps the network out of it: frames lost or late on
 // the way in are dropped too, by a decoder with nothing much to do, and a
@@ -92,10 +94,18 @@ const DROP_RECOVER_MS = 60_000;
 const DROP_RECOVER_MAX_MS = 8 * 60_000;
 const MAX_DROP_STEPS = 2;
 
-// Coalescing window for resize storms. A dragged window or an animated grid
-// transition fires ResizeObserver continuously; without this each frame of
-// that animation would be a signalling message and a remote setParameters.
-const COALESCE_MS = 400;
+// A dragged window or an animated grid transition fires ResizeObserver
+// continuously; this keeps it to one request for the final size.
+const UPGRADE_COALESCE_MS = 120;
+// How long a tile must stay smaller before the broadcaster is told. See the
+// head of the file.
+const DOWNGRADE_HOLD_MS = 6000;
+// How long a tile must stay out of sight before its encoder is stopped. Long
+// enough for an alt-tab and back to cost nothing at all.
+const IDLE_AFTER_MS = 8000;
+// A request to resume is the one message whose loss is visible, and the socket
+// drops what it cannot send while reconnecting: it goes again shortly after.
+const RESUME_RESEND_MS = [1500, 5000];
 // Re-announce periodically even when nothing changed, so a broadcaster that
 // reconnected (new sendPC, fresh default tier) converges without needing a
 // separate handshake.
@@ -103,161 +113,214 @@ const REFRESH_MS = 20_000;
 
 class QualityNegotiator {
   private entries = new Map<string, Entry>();
-  // Whether we forward this stream onward as a relay (see useRoomMedia). A
-  // relay re-encodes what it receives and never above it, so a step down here
-  // would be a step down for every child under us; sq-recv-drops leaves it be.
-  private forwarding: (channel: string, peerId: string) => boolean = () => false;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private watchingUse = false;
 
-  private key(channel: QualityChannel, peerId: string) {
+  private key(channel: string, peerId: string) {
     return `${channel}:${peerId}`;
+  }
+
+  private entryFor(channel: QualityChannel, peerId: string): Entry {
+    const key = this.key(channel, peerId);
+    let entry = this.entries.get(key);
+    if (entry) return entry;
+    entry = {
+      channel,
+      peerId,
+      width: 0,
+      height: 0,
+      tier: null,
+      idle: false,
+      lastSentAt: 0,
+      timer: null,
+      hidden: false,
+      hiddenSince: null,
+      shrunkSince: null,
+      stream: null,
+      dropSteps: 0,
+      dropStrikes: 0,
+      cleanSince: null,
+      dropRecoverMs: DROP_RECOVER_MS,
+      dropRecovered: false,
+    };
+    this.entries.set(key, entry);
+    this.ensureRefresh();
+    if (!this.watchingUse) {
+      this.watchingUse = true;
+      // Something started or stopped using a stream: what a hidden tile should
+      // ask for may have changed.
+      onStreamUseChange(() => {
+        for (const e of this.entries.values()) if (e.hidden) this.evaluate(e);
+      });
+    }
+    return entry;
   }
 
   /**
    * Report the size a peer's video is currently rendered at, in CSS pixels.
-   * Cheap to call on every ResizeObserver tick — sends are coalesced and
-   * only actually go out when the resulting tier changes.
+   * Cheap to call on every ResizeObserver tick.
    */
   report(channel: QualityChannel, peerId: string, width: number, height: number) {
     // A tile that is not laid out yet (0x0, hidden tab, display:none) tells
     // us nothing. Reporting it would pin the peer to the worst tier and it
     // would stay pinned once the tile became visible again.
     if (width <= 0 || height <= 0) return;
-
-    const key = this.key(channel, peerId);
-    const entry =
-      this.entries.get(key) ??
-      {
-        width: 0,
-        height: 0,
-        tier: null,
-        lastSentAt: 0,
-        timer: null,
-        hidden: false,
-        dropSteps: 0,
-        sizedTier: null,
-        dropStrikes: 0,
-        cleanSince: null,
-        dropRecoverMs: DROP_RECOVER_MS,
-        dropRecovered: false,
-      };
+    const entry = this.entryFor(channel, peerId);
     entry.width = width;
     entry.height = height;
-    this.entries.set(key, entry);
-
-    if (entry.timer) return;
-    entry.timer = setTimeout(() => {
-      entry.timer = null;
-      this.flush(channel, peerId);
-    }, COALESCE_MS);
-    this.ensureRefresh();
+    this.evaluate(entry);
   }
 
   /**
-   * Say whether this peer's tile is on screen at all.
-   *
-   * A viewer that cannot see a tile has no use for its pixels, and saying so
-   * is worth far more to the broadcaster than to us: they stop encoding a
-   * large picture for somebody who is not looking at it, on the machine that
-   * is already the bottleneck in a mesh room.
+   * Say whether this peer's tile is on screen at all. A viewer that cannot see
+   * a tile has no use for its frames, and saying so is worth far more to the
+   * broadcaster than to us: one encoder less, on the machine that is already
+   * the bottleneck in a mesh room.
    */
   setHidden(channel: QualityChannel, peerId: string, hidden: boolean) {
-    const key = this.key(channel, peerId);
-    const entry = this.entries.get(key);
+    const entry = this.entries.get(this.key(channel, peerId));
     // Nothing to say about a tile that has never reported a size: there is no
     // standing request to walk back.
     if (!entry || entry.hidden === hidden) return;
     entry.hidden = hidden;
-    // Through the same coalescing window as a resize, so scrolling a long
-    // filmstrip past a dozen tiles is not a dozen signalling messages.
-    if (entry.timer) return;
-    entry.timer = setTimeout(() => {
-      entry.timer = null;
-      this.flush(channel, peerId);
-    }, COALESCE_MS);
-    this.ensureRefresh();
+    entry.hiddenSince = hidden ? Date.now() : null;
+    this.evaluate(entry);
   }
 
-  private flush(channel: QualityChannel, peerId: string, force = false) {
-    const key = this.key(channel, peerId);
-    const entry = this.entries.get(key);
-    if (!entry) return;
+  /** The stream this tile shows, so that other uses of it can keep it coming. */
+  bindStream(channel: QualityChannel, peerId: string, stream: MediaStream | null) {
+    const entry = this.entries.get(this.key(channel, peerId));
+    if (entry) entry.stream = stream;
+    else if (stream) this.entryFor(channel, peerId).stream = stream;
+  }
+
+  private sizedTier(entry: Entry): QualityTier | null {
+    if (entry.width <= 0) return null;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
-    // MAX_TIER_FPS rather than the default 60: tile size decides pixels, never
-    // frames, so the request asks for the fastest rung at that size and the
-    // broadcaster's fps dial caps it (see capTier). Leaving the default here
-    // capped every viewer at 60 and made the 120 fps dial capture-only.
-    // Under sq-recv-drops the hysteresis is seeded with the size-based tier
-    // from before any decoder step, so a step down is never read as "the tile
-    // is already on a small tier" when deciding the next size-based answer.
-    const seed = isSqRecvDropsEnabled() ? entry.sizedTier : entry.tier;
-    const sized = tierForRenderedSize(entry.width, entry.height, dpr, seed ?? undefined, MAX_TIER_FPS);
-    entry.sizedTier = sized;
-    const next = entry.hidden ? WORST_TIER : entry.dropSteps > 0 ? stepDownUnder(sized, entry.dropSteps) : sized;
-    if (!force && next === entry.tier) return;
-    entry.tier = next;
+    // MAX_TIER_FPS: tile size decides pixels, never frames, so the request asks
+    // for the fastest rung at that size and the broadcaster's fps dial caps it.
+    const sized = tierForRenderedSize(entry.width, entry.height, dpr, MAX_TIER_FPS);
+    return entry.dropSteps > 0 ? stepDownUnder(sized, entry.dropSteps) : sized;
+  }
+
+  // What this tile should be asking for right now, and when that next changes.
+  private evaluate(entry: Entry, force = false) {
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
+    const sized = this.sizedTier(entry);
+    if (!sized) return;
+    const now = Date.now();
+    const inUse = isStreamRetained(entry.stream);
+
+    if (entry.hidden && !inUse) {
+      const left = (entry.hiddenSince ?? now) + IDLE_AFTER_MS - now;
+      if (left <= 0) {
+        this.apply(entry, WORST_TIER, true, force);
+        return;
+      }
+      // Out of sight, but not for long enough to give the picture up.
+      entry.timer = setTimeout(() => this.evaluate(entry), left);
+      // Forced inside the wait: repeat what is standing.
+      if (force) this.apply(entry, entry.tier ?? sized, entry.idle, true);
+      return;
+    }
+
+    // In sight, or in use by something that needs the frames just the same.
+    const current = entry.tier;
+    const lower = current !== null && !entry.idle && tierIndex(sized) > tierIndex(current);
+    if (!lower) {
+      entry.shrunkSince = null;
+      const wait = force || entry.idle || current === null ? 0 : tierIndex(sized) < tierIndex(current) ? UPGRADE_COALESCE_MS : 0;
+      if (wait > 0) {
+        entry.timer = setTimeout(() => {
+          entry.timer = null;
+          const latest = this.sizedTier(entry);
+          if (latest) this.apply(entry, latest, false, false);
+        }, wait);
+        return;
+      }
+      this.apply(entry, sized, false, force);
+      return;
+    }
+    // Smaller than what is being asked for. See DOWNGRADE_HOLD_MS.
+    entry.shrunkSince ??= now;
+    const left = entry.shrunkSince + DOWNGRADE_HOLD_MS - now;
+    if (left > 0) {
+      entry.timer = setTimeout(() => this.evaluate(entry), left);
+      // Forced inside the wait: repeat what is standing.
+      if (force) this.apply(entry, current, false, true);
+      return;
+    }
+    entry.shrunkSince = null;
+    this.apply(entry, sized, false, force);
+  }
+
+  private apply(entry: Entry, tier: QualityTier, idle: boolean, force: boolean) {
+    if (!force && tier === entry.tier && idle === entry.idle) return;
+    const resuming = entry.idle && !idle;
+    entry.tier = tier;
+    entry.idle = idle;
+    this.send(entry);
+    if (!resuming) return;
+    for (const delay of RESUME_RESEND_MS) {
+      setTimeout(() => {
+        if (this.entries.get(this.key(entry.channel, entry.peerId)) === entry && !entry.idle) this.send(entry);
+      }, delay);
+    }
+  }
+
+  private send(entry: Entry) {
+    if (!entry.tier) return;
     entry.lastSentAt = Date.now();
-    signalingClient.sendSignal(peerId, {
-      channel,
+    signalingClient.sendSignal(entry.peerId, {
+      channel: entry.channel,
       role: "viewer",
       kind: "quality",
-      tier: next,
+      tier: entry.tier,
+      ...(entry.idle ? { idle: true } : {}),
     });
   }
 
   /**
-   * Force this peer to be told our current tier again — used when a fresh
+   * Force this peer to be told our current request again — used when a fresh
    * stream arrives from them, since that means a brand new sender on their
-   * side that has never heard our request.
+   * side that has never heard it.
    */
   announce(channel: QualityChannel, peerId: string) {
     const entry = this.entries.get(this.key(channel, peerId));
     if (!entry || entry.width <= 0) return;
-    // Hidden tiles still announce — flush reads `hidden` and sends the worst
-    // tier, which is exactly what a fresh sender needs to hear from a viewer
-    // who is not looking.
-    this.flush(channel, peerId, true);
+    this.evaluate(entry, true);
   }
 
   /**
    * Whether this peer's tile is on screen in a page somebody is looking at;
-   * null when the tile has never reported (a relay's re-encode, a channel
-   * without one). For the connection-quality reports — see
-   * connectionTelemetrySummary's MIN_VISIBLE_SHARE.
+   * null when the tile has never reported (a channel without one). For the
+   * connection-quality reports — see connectionTelemetrySummary's
+   * MIN_VISIBLE_SHARE.
    */
   isVisible(channel: string, peerId: string): boolean | null {
-    const entry = this.entries.get(`${channel}:${peerId}`);
-    if (!entry) return null;
+    const entry = this.entries.get(this.key(channel, peerId));
+    if (!entry || entry.width <= 0) return null;
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
     return !entry.hidden;
   }
 
-  /** See `forwarding`. */
-  setForwardingCheck(check: (channel: string, peerId: string) => boolean) {
-    this.forwarding = check;
+  /** Whether we have asked this peer to stop sending for now. */
+  isIdle(channel: string, peerId: string): boolean {
+    return this.entries.get(this.key(channel, peerId))?.idle === true;
   }
 
   /**
    * One telemetry sample of this tile's decoder: the share of received frames
-   * it dropped, and how busy it was (see RecvVideoStats.decodeLoad).
-   * Experiment sq-recv-drops steps the tile's request down while both stay
-   * high, and back up once it has been clean for a while.
+   * it dropped, and how busy it was (see RecvVideoStats.decodeLoad). Steps the
+   * tile's request down while both stay high, and back up once it has been
+   * clean for a while.
    */
   noteDecoderDrops(channel: string, peerId: string, dropShare: number, decodeLoad: number | null) {
-    if (!isSqRecvDropsEnabled()) return;
-    const entry = this.entries.get(`${channel}:${peerId}`);
+    const entry = this.entries.get(this.key(channel, peerId));
     if (!entry || entry.hidden) return;
-    if (this.forwarding(channel, peerId)) {
-      // Became a relay with steps already taken: give them back at once.
-      if (entry.dropSteps > 0 || entry.dropStrikes > 0) {
-        const stepped = entry.dropSteps > 0;
-        entry.dropSteps = 0;
-        entry.dropStrikes = 0;
-        entry.cleanSince = null;
-        if (stepped) this.flush(channel as QualityChannel, peerId, true);
-      }
-      return;
-    }
     const now = Date.now();
     let changed = false;
     if (dropShare >= DROP_STEP_SHARE && decodeLoad !== null && decodeLoad >= DROP_DECODE_LOAD) {
@@ -268,7 +331,6 @@ class QualityNegotiator {
         entry.dropStrikes = 0;
         if (entry.dropRecovered) entry.dropRecoverMs = Math.min(entry.dropRecoverMs * 2, DROP_RECOVER_MAX_MS);
         changed = true;
-        sqTrack(SQ_EVENTS.dropStep, SQ_RECV_DROPS_FEATURE, entry.dropSteps);
       }
     } else {
       entry.dropStrikes = 0;
@@ -282,7 +344,10 @@ class QualityNegotiator {
         }
       }
     }
-    if (changed) this.flush(channel as QualityChannel, peerId, true);
+    if (!changed) return;
+    // The decoder is what is struggling, so this one does not wait.
+    const sized = this.sizedTier(entry);
+    if (sized) this.apply(entry, sized, false, true);
   }
 
   forget(channel: QualityChannel, peerId: string) {
@@ -300,10 +365,9 @@ class QualityNegotiator {
     if (this.refreshTimer) return;
     this.refreshTimer = setInterval(() => {
       const now = Date.now();
-      for (const [key, entry] of this.entries) {
+      for (const entry of this.entries.values()) {
         if (entry.tier === null || now - entry.lastSentAt < REFRESH_MS) continue;
-        const [channel, peerId] = key.split(":") as [QualityChannel, string];
-        this.flush(channel, peerId, true);
+        this.send(entry);
       }
     }, REFRESH_MS);
   }

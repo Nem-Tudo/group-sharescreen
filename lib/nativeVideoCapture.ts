@@ -19,10 +19,12 @@
 // encoded as usual, and whose encoded output is intercepted (encoded
 // insertable streams) and replaced, frame for frame, with the helper's. The
 // peers decode the helper's stream; everything else — signalling, congestion
-// control, retransmission, the relay tree — is the ordinary path.
+// control, retransmission — is the ordinary path.
 //
 // That swap only works if the two streams stay in step, which is what
-// SenderSink is about, and what was worked out by experiment:
+// SenderSink is about (lib/nativeVideoSink.ts, run in a worker so the page's
+// main thread cannot hold the picture still), and what was worked out by
+// experiment:
 //
 //   - One stand-in frame is written per helper frame, and the next only once
 //     the previous has come out of the encoder ("lockstep"). The encoder's
@@ -44,7 +46,7 @@
 
 import { getDesktopBridge } from "./desktop";
 import { noteGpuShareEnded } from "./gpuShareSurvey";
-import { isSqNativeKeyEnabled, SQ_EVENTS, SQ_NATIVE_KEY_FEATURE, sqTrack } from "./streamQuality";
+import type { NativeSinkStats } from "./nativeVideoSink";
 import {
   ParameterSetKeeper,
   codecStringFromSps,
@@ -52,6 +54,8 @@ import {
   nativeTargetKbps,
   type NativeFrameMeta,
 } from "./nativeVideoFrames";
+
+export type { NativeSinkStats } from "./nativeVideoSink";
 
 /** The rollout this path is behind (see lib/features.ts). */
 export const NATIVE_VIDEO_FEATURE = "native-video-capture";
@@ -107,12 +111,8 @@ declare const MediaStreamTrackGenerator: {
 
 // Chromium's legacy encoded insertable streams. Not in the DOM typings either.
 interface EncodedStreams {
-  readable: ReadableStream<EncodedFrame>;
-  writable: WritableStream<EncodedFrame>;
-}
-interface EncodedFrame {
-  type?: "key" | "delta" | "empty";
-  data: ArrayBuffer;
+  readable: ReadableStream<unknown>;
+  writable: WritableStream<unknown>;
 }
 type SenderWithStreams = RTCRtpSender & { createEncodedStreams?: () => EncodedStreams };
 
@@ -121,28 +121,20 @@ interface NativeFrame {
   key: boolean;
 }
 
-const KEY_REQUEST_GAP_MS = 250;
-const HOLD_KEY_TIMEOUT_MS = 1000;
-// Experiment sq-native-key. One helper encoder serves every viewer, so each
-// viewer's keyframe request is an IDR — several times a normal frame, at a
-// constant bitrate — for all of them; with ten viewers the old 250 ms gap let
-// four through a second. On, requests are coalesced to one IDR a second, and
-// a request that lands inside the gap is answered at its end instead of
-// being dropped. The held slot waits long enough for that IDR to arrive.
-const SQ_KEY_REQUEST_GAP_MS = 1000;
-const SQ_HOLD_KEY_TIMEOUT_MS = 2500;
-// A share shorter than this says nothing about its keyframe rate.
-const KEY_RATE_MIN_MS = 20_000;
+// Generated from lib/nativeVideoSink.worker.ts (see lib/nativeVideoSink.build.mjs).
+// Bump the version whenever it changes: a browser goes on using the one it has.
+const SINK_WORKER_VERSION = 1;
+const SINK_WORKER_URL = `/workers/native-video-sink.js?v=${SINK_WORKER_VERSION}`;
 
-/** How one connection's keyframe slots went — see nativeSinkStats. */
-export interface NativeSinkStats {
-  /** Keyframe slots held for a fresh IDR from the helper. */
-  keyHolds: number;
-  /** Held slots that timed out and were filled with the last IDR instead. */
-  keyStale: number;
-  /** Times the frame chain restarted from an IDR (backlog, stall, reconnect). */
-  resyncs: number;
-}
+// Far past any frame rate there is: see MIN_WRITE_GAP_MS in lib/nativeVideoSink.
+const NATIVE_SENDER_MAX_FPS = 1000;
+
+// One helper encoder serves every viewer, so each viewer's keyframe request is
+// an IDR — several times a normal frame, at a constant bitrate — for all of
+// them; with ten viewers a shorter gap would let several through a second.
+// Requests are coalesced to one IDR a second, and one that lands inside the gap
+// is answered at its end instead of being dropped.
+const KEY_REQUEST_GAP_MS = 1000;
 
 const sinkStats = new WeakMap<RTCPeerConnection, NativeSinkStats>();
 
@@ -150,16 +142,19 @@ const sinkStats = new WeakMap<RTCPeerConnection, NativeSinkStats>();
 export function nativeSinkStats(pc: RTCPeerConnection): NativeSinkStats | null {
   return sinkStats.get(pc) ?? null;
 }
-const STALL_TIMEOUT_MS = 300;
+
+const pausedSinks = new WeakSet<RTCPeerConnection>();
+
+/** Whether this connection's viewer is not looking, so no GPU capture is going to them. */
+export function nativeSinkPaused(pc: RTCPeerConnection): boolean {
+  return pausedSinks.has(pc);
+}
 // How often the links are sampled. Deliberately not the 2000 ms of the shared
 // mediaStats pump: two timers on the same period land on the same tick for
-// minutes on end, and their getStats() passes then add up into one stall
-// instead of two smaller ones.
+// minutes on end.
 const BITRATE_INTERVAL_MS = 2500;
-// getStats() calls per pass. All of this runs on the renderer's main thread —
-// the same thread that writes a stand-in frame per encoded frame and decodes
-// the preview — so a pass has to cost the same in a room of thirty as in a
-// room of three. The peers this pass skips are read by the next ones, and
+// getStats() calls per pass. A pass has to cost the same in a room of thirty as
+// in a room of three. The peers this pass skips are read by the next ones, and
 // their previous reading stands in the meantime (see adjustBitrate).
 const STATS_PER_PASS = 3;
 // How much of each new reading goes into the running estimate. The bandwidth
@@ -170,6 +165,7 @@ const BITRATE_SMOOTHING = 0.3;
 function hasPlatformSupport(): boolean {
   return (
     typeof window !== "undefined" &&
+    typeof Worker !== "undefined" &&
     typeof VideoDecoder !== "undefined" &&
     typeof VideoFrame !== "undefined" &&
     "MediaStreamTrackGenerator" in window &&
@@ -242,8 +238,8 @@ export async function startNativeVideo(options: NativeVideoOptions): Promise<Nat
   if (!(await probeNativeVideo())) return { source: null, failure: "unsupported" };
   // Subscribed before asking, so the first frames — which arrive before the
   // answer does — are not lost.
-  const source = new NativeVideoSource(options.bitrateKbps, options.fps);
-  const result = await bridge.start(options).catch(() => null);
+  const source = new NativeVideoSource(options.bitrateKbps);
+  const result = await bridge.start({ ...options, framePort: Boolean(bridge.framePort) }).catch(() => null);
   if (!result || !result.ok) {
     source.stop();
     // Anything but a missing surface is this machine's answer, and asking
@@ -259,17 +255,34 @@ export async function startNativeVideo(options: NativeVideoOptions): Promise<Nat
   return { source, hidden: result.hidden };
 }
 
+/** The connection a stand-in track is on, as the page sees it. */
+interface Sink {
+  id: number;
+  pc: RTCPeerConnection;
+  track: TrackGenerator;
+  /** This link's bandwidth estimate in kbps; null while unknown or not up. */
+  lastAvailableKbps: number | null;
+  /** The viewer is not looking, so nothing is being sent to them. */
+  paused: boolean;
+  onState: () => void;
+}
+
+/** What a shell posts to the page's window with the frame port attached. */
+const NATIVE_FRAME_PORT_MESSAGE = "golive:native-video-frame-port";
+
 export class NativeVideoSource {
   /** The share's video track: a local preview of what is being sent. */
   readonly track: TrackGenerator;
   encoder = "";
 
   private readonly bridge = getDesktopBridge()!.nativeVideo!;
-  private readonly keeper = new ParameterSetKeeper();
-  private readonly sinks = new Set<SenderSink>();
+  private readonly worker: Worker;
+  private readonly sinks = new Map<number, Sink>();
+  private nextSinkId = 1;
   private readonly preview: Preview;
   private readonly unsubscribe: () => void;
   private readonly bitrateTimer: ReturnType<typeof setInterval>;
+  private readonly onPortMessage: ((event: MessageEvent) => void) | null = null;
   private adjusting = false;
   private ceilingKbps: number;
   private currentKbps: number;
@@ -278,21 +291,26 @@ export class NativeVideoSource {
   private statsCursor = 0;
   private lastKeyRequest = 0;
   private keyTimer: ReturnType<typeof setTimeout> | null = null;
-  // For experiment sq-native-key's events: keyframes asked for (by viewers
-  // and by our own preview) and IDRs actually forced on the helper.
-  private keysAsked = 0;
-  private keysForced = 0;
-  private readonly startedAt = performance.now();
   private stopped = false;
-  lastKey: NativeFrame | null = null;
-  readonly fps: number;
 
-  constructor(ceilingKbps: number, fps: number) {
+  constructor(ceilingKbps: number) {
     this.ceilingKbps = ceilingKbps;
     this.currentKbps = ceilingKbps;
-    this.fps = fps;
     this.track = new MediaStreamTrackGenerator({ kind: "video" });
-    this.preview = new Preview(this.track, this.keeper, () => this.requestKeyFrame());
+    this.preview = new Preview(this.track, () => this.requestKeyFrame());
+    this.worker = new Worker(SINK_WORKER_URL);
+    this.worker.onmessage = (event: MessageEvent) => this.onWorkerMessage(event.data);
+    this.worker.postMessage({ type: "preview", active: true });
+    // A shell new enough to hand frames straight to the worker sends this port
+    // when the capture starts (see electron/nativeVideo.ts). Older ones go on
+    // delivering to onFrame below, one hop through this thread.
+    if (this.bridge.framePort) {
+      this.onPortMessage = (event: MessageEvent) => {
+        if (event.source !== window || event.data !== NATIVE_FRAME_PORT_MESSAGE || !event.ports[0]) return;
+        this.worker.postMessage({ type: "port", port: event.ports[0] }, [event.ports[0]]);
+      };
+      window.addEventListener("message", this.onPortMessage);
+    }
     this.unsubscribe = this.bridge.onFrame(
       (meta, data) => this.onFrame(meta, data),
       (reason) => this.onEnded(reason)
@@ -326,17 +344,97 @@ export class NativeVideoSource {
   /**
    * Puts this capture on a peer connection. The connection must have been
    * built with `encodedInsertableStreams: true`, and then every other sender
-   * on it must go through passThroughSender.
+   * on it must go through passThrough.
    */
   attach(pc: RTCPeerConnection, stream: MediaStream): RTCRtpSender {
-    const sink = new SenderSink(this, pc);
-    this.sinks.add(sink);
-    const sender = pc.addTrack(sink.track, stream);
-    sink.attach(sender);
+    const track = new MediaStreamTrackGenerator({ kind: "video" });
+    this.nextSinkId += 1;
+    const id = this.nextSinkId;
+    const sender = pc.addTrack(track, stream);
+    const streams = (sender as SenderWithStreams).createEncodedStreams?.();
+    const writable = track.writable;
+    if (streams) {
+      this.worker.postMessage(
+        { type: "sink", id, writable, encodedReadable: streams.readable, encodedWritable: streams.writable },
+        [writable, streams.readable, streams.writable] as unknown as Transferable[]
+      );
+    }
+    const sink: Sink = {
+      id,
+      pc,
+      track,
+      lastAvailableKbps: null,
+      paused: false,
+      onState: () => this.onConnectionState(sink),
+    };
+    this.sinks.set(id, sink);
+    pc.addEventListener("connectionstatechange", sink.onState);
+    sink.onState();
     const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
     if (transceiver) preferH264(transceiver);
     void configureSender(sender, this.ceilingKbps);
     return sender;
+  }
+
+  /** For every other sender on a connection carrying this capture. */
+  passThrough(sender: RTCRtpSender): void {
+    const streams = (sender as SenderWithStreams).createEncodedStreams?.();
+    if (!streams) return;
+    this.worker.postMessage(
+      { type: "passthrough", readable: streams.readable, writable: streams.writable },
+      [streams.readable, streams.writable] as unknown as Transferable[]
+    );
+  }
+
+  /** A viewer stopped looking, or came back (see qualityNegotiation's idle request). */
+  setViewerPaused(pc: RTCPeerConnection, paused: boolean): void {
+    for (const sink of this.sinks.values()) {
+      if (sink.pc !== pc || sink.paused === paused) continue;
+      sink.paused = paused;
+      if (paused) pausedSinks.add(pc);
+      else pausedSinks.delete(pc);
+      this.worker.postMessage({ type: "paused", id: sink.id, paused });
+    }
+  }
+
+  /** This connection is going away. */
+  detach(pc: RTCPeerConnection): void {
+    for (const sink of [...this.sinks.values()]) if (sink.pc === pc) this.closeSink(sink);
+  }
+
+  private closeSink(sink: Sink) {
+    if (!this.sinks.delete(sink.id)) return;
+    sink.lastAvailableKbps = null;
+    sink.pc.removeEventListener("connectionstatechange", sink.onState);
+    this.worker.postMessage({ type: "close", id: sink.id });
+  }
+
+  private onConnectionState(sink: Sink) {
+    const state = sink.pc.connectionState;
+    if (state === "closed") {
+      this.closeSink(sink);
+      return;
+    }
+    this.worker.postMessage({ type: "state", id: sink.id, connected: state === "connected" });
+  }
+
+  private onWorkerMessage(message: {
+    type: string;
+    key?: boolean;
+    data?: ArrayBuffer;
+    stats?: Array<{ id: number } & NativeSinkStats>;
+  }) {
+    if (this.stopped) return;
+    if (message.type === "need-key") {
+      this.requestKeyFrame();
+    } else if (message.type === "preview-frame" && message.data) {
+      this.preview.push({ key: message.key === true, data: new Uint8Array(message.data) });
+    } else if (message.type === "stats" && message.stats) {
+      for (const { id, ...stats } of message.stats) {
+        const sink = this.sinks.get(id);
+        if (sink) sinkStats.set(sink.pc, stats);
+      }
+    }
   }
 
   /** The share's bitrate dial moved. */
@@ -352,35 +450,18 @@ export class NativeVideoSource {
   }
 
   requestKeyFrame(): void {
-    this.keysAsked += 1;
-    this.forceKeyFrame();
-  }
-
-  private forceKeyFrame(): void {
     if (this.stopped) return;
-    const coalesce = isSqNativeKeyEnabled();
-    const gap = coalesce ? SQ_KEY_REQUEST_GAP_MS : KEY_REQUEST_GAP_MS;
     const now = performance.now();
-    const wait = gap - (now - this.lastKeyRequest);
+    const wait = KEY_REQUEST_GAP_MS - (now - this.lastKeyRequest);
     if (wait > 0) {
-      // Without the experiment a request inside the gap is lost, and a viewer
-      // whose request it was waits for the helper's own GOP (four seconds).
-      if (coalesce && !this.keyTimer) {
-        this.keyTimer = setTimeout(() => {
-          this.keyTimer = null;
-          this.forceKeyFrame();
-        }, wait);
-      }
+      this.keyTimer ??= setTimeout(() => {
+        this.keyTimer = null;
+        this.requestKeyFrame();
+      }, wait);
       return;
     }
     this.lastKeyRequest = now;
-    this.keysForced += 1;
     this.bridge.control({ keyFrame: true });
-  }
-
-  /** How long a held keyframe slot waits for a fresh IDR (longer under sq-native-key). */
-  holdTimeoutMs(): number {
-    return isSqNativeKeyEnabled() ? SQ_HOLD_KEY_TIMEOUT_MS : HOLD_KEY_TIMEOUT_MS;
   }
 
   stop(): void {
@@ -392,37 +473,29 @@ export class NativeVideoSource {
     noteGpuShareEnded();
     if (this.keyTimer) clearTimeout(this.keyTimer);
     this.keyTimer = null;
-    // Per minute, so a long share and a short one weigh the same.
-    const elapsed = performance.now() - this.startedAt;
-    if (elapsed >= KEY_RATE_MIN_MS) {
-      const perMinute = (n: number) => Math.round((n * 60_000) / elapsed);
-      const feature = SQ_NATIVE_KEY_FEATURE;
-      sqTrack(SQ_EVENTS.keyAsked, feature, perMinute(this.keysAsked));
-      sqTrack(SQ_EVENTS.keyForced, feature, perMinute(this.keysForced));
-    }
     clearInterval(this.bitrateTimer);
     this.unsubscribe();
+    if (this.onPortMessage) window.removeEventListener("message", this.onPortMessage);
     this.bridge.stop();
-    for (const sink of this.sinks) sink.close();
+    this.worker.postMessage({ type: "stop" });
+    for (const sink of this.sinks.values()) sink.pc.removeEventListener("connectionstatechange", sink.onState);
     this.sinks.clear();
     this.preview.close();
+    // Past the sinks closing their streams.
+    setTimeout(() => this.worker.terminate(), 1000);
   }
 
   /** Whether our own preview of this share is on screen. See Preview.setActive. */
   setPreviewActive(active: boolean) {
     this.preview.setActive(active);
+    this.worker.postMessage({ type: "preview", active });
   }
 
-  private onFrame(_meta: NativeFrameMeta, raw: Uint8Array) {
+  private onFrame(meta: NativeFrameMeta, raw: Uint8Array) {
     if (this.stopped) return;
-    const { data, idr } = this.keeper.process(raw);
-    const frame: NativeFrame = { data, key: idr };
-    if (idr) this.lastKey = frame;
-    for (const sink of this.sinks) {
-      if (sink.closed) this.sinks.delete(sink);
-      else sink.onNative(frame);
-    }
-    this.preview.push(frame);
+    const whole = raw.byteOffset === 0 && raw.byteLength === raw.buffer.byteLength;
+    const buffer = (whole ? raw.buffer : raw.slice().buffer) as ArrayBuffer;
+    this.worker.postMessage({ type: "frame", data: buffer, timeMs: meta.timeMs }, [buffer]);
   }
 
   private onEnded(reason: "target-gone" | "failed") {
@@ -438,16 +511,16 @@ export class NativeVideoSource {
 
   private async adjustBitrate() {
     if (this.stopped) return;
-    const sinks = [...this.sinks];
-    // A few links per pass, one at a time, going round. The previous version
-    // fired a pc.getStats() at every peer at once, every two seconds — the
-    // very pattern the shared mediaStats pump exists to get rid of (see its
-    // header). On a machine that is also writing one stand-in frame per
-    // encoded frame and decoding the preview, that burst is a main-thread
-    // stall, and the picture froze on the beat of the timer.
+    // pc.close() fires no event; this is the backstop for one nobody reported.
+    for (const sink of [...this.sinks.values()]) {
+      if (sink.pc.connectionState === "closed") this.closeSink(sink);
+    }
+    // Whoever is not being sent anything says nothing about the rate.
+    const sinks = [...this.sinks.values()].filter((sink) => !sink.paused);
+    // A few links per pass, one at a time, going round.
     const visits = Math.min(STATS_PER_PASS, sinks.length);
     for (let i = 0; i < visits; i += 1) {
-      await sinks[(this.statsCursor + i) % sinks.length].sample();
+      await this.sample(sinks[(this.statsCursor + i) % sinks.length]);
       if (this.stopped) return;
     }
     if (sinks.length > 0) this.statsCursor = (this.statsCursor + visits) % sinks.length;
@@ -470,16 +543,29 @@ export class NativeVideoSource {
     this.currentKbps = command;
     this.bridge.control({ bitrateKbps: command });
   }
-}
 
-/**
- * For every sender on a connection built with encodedInsertableStreams that
- * is *not* the native video: Chromium sends nothing on such a connection for
- * a sender whose streams were never piped.
- */
-export function passThroughSender(sender: RTCRtpSender): void {
-  const streams = (sender as SenderWithStreams).createEncodedStreams?.();
-  if (streams) void streams.readable.pipeTo(streams.writable).catch(() => {});
+  // Reads one link's bandwidth estimate into lastAvailableKbps. Held there
+  // rather than fetched on demand so that the bitrate pass can read every link
+  // while only asking a few of them.
+  private async sample(sink: Sink): Promise<void> {
+    if (sink.pc.connectionState !== "connected") {
+      sink.lastAvailableKbps = null;
+      return;
+    }
+    try {
+      const stats = await sink.pc.getStats();
+      let best: number | null = null;
+      stats.forEach((report) => {
+        if (report.type !== "candidate-pair") return;
+        const pair = report as RTCIceCandidatePairStats;
+        if (!pair.nominated || pair.state !== "succeeded") return;
+        if (typeof pair.availableOutgoingBitrate === "number") best = pair.availableOutgoingBitrate / 1000;
+      });
+      sink.lastAvailableKbps = best;
+    } catch {
+      // Left at the last reading: one failed pass says nothing about the link.
+    }
+  }
 }
 
 /** The RTCPeerConnection options a connection carrying native video needs. */
@@ -519,7 +605,7 @@ async function configureSender(sender: RTCRtpSender, ceilingKbps: number) {
     const params = sender.getParameters();
     if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
     params.encodings[0].maxBitrate = ceilingKbps * 1000;
-    params.encodings[0].maxFramerate = 240;
+    params.encodings[0].maxFramerate = NATIVE_SENDER_MAX_FPS;
     params.encodings[0].scaleResolutionDownBy = 1;
     params.encodings[0].priority = "high";
     params.encodings[0].networkPriority = "high";
@@ -533,238 +619,10 @@ async function configureSender(sender: RTCRtpSender, ceilingKbps: number) {
 
 // ---------------------------------------------------------------------------
 
-/** One peer connection's stand-in track, and the swap behind it. */
-class SenderSink {
-  readonly track: TrackGenerator;
-  private readonly writer: WritableStreamDefaultWriter<VideoFrame>;
-  private readonly source: NativeVideoSource;
-  private readonly pc: RTCPeerConnection;
-  private queue: NativeFrame[] = [];
-  private inflight: NativeFrame | null = null;
-  private held: { frame: EncodedFrame; controller: TransformStreamDefaultController<EncodedFrame>; resolve: () => void } | null = null;
-  private needKey = true;
-  closed = false;
-  private timestamp = 0;
-  private stallTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly blank: Uint8Array;
-  private readonly onState = () => this.onConnectionState();
-  private readonly stats: NativeSinkStats = { keyHolds: 0, keyStale: 0, resyncs: 0 };
-
-  constructor(source: NativeVideoSource, pc: RTCPeerConnection) {
-    this.source = source;
-    this.pc = pc;
-    sinkStats.set(pc, this.stats);
-    this.track = new MediaStreamTrackGenerator({ kind: "video" });
-    this.writer = this.track.writable.getWriter();
-    // A black 16x16 I420 frame: Y at 16, chroma at 128.
-    this.blank = new Uint8Array(16 * 16 + 2 * 8 * 8);
-    this.blank.fill(16, 0, 16 * 16);
-    this.blank.fill(128, 16 * 16);
-    pc.addEventListener("connectionstatechange", this.onState);
-  }
-
-  attach(sender: RTCRtpSender) {
-    const streams = (sender as SenderWithStreams).createEncodedStreams?.();
-    if (!streams) return;
-    const transform = new TransformStream<EncodedFrame, EncodedFrame>({
-      transform: (frame, controller) => this.onEncoded(frame, controller),
-    });
-    void streams.readable.pipeThrough(transform).pipeTo(streams.writable).catch(() => {});
-  }
-
-  /**
-   * This link's bandwidth estimate in kbps, as of the last time sample() was
-   * called on it, or null while it is unknown or the link is not up. Held
-   * here rather than fetched on demand so that the bitrate pass can read
-   * every link while only asking a few of them (see adjustBitrate).
-   */
-  lastAvailableKbps: number | null = null;
-
-  /** Reads this link's bandwidth estimate into lastAvailableKbps. */
-  async sample(): Promise<void> {
-    if (this.closed || this.pc.connectionState !== "connected") {
-      this.lastAvailableKbps = null;
-      return;
-    }
-    try {
-      const stats = await this.pc.getStats();
-      let best: number | null = null;
-      stats.forEach((report) => {
-        if (report.type !== "candidate-pair") return;
-        const pair = report as RTCIceCandidatePairStats;
-        if (!pair.nominated || pair.state !== "succeeded") return;
-        if (typeof pair.availableOutgoingBitrate === "number") best = pair.availableOutgoingBitrate / 1000;
-      });
-      if (!this.closed) this.lastAvailableKbps = best;
-    } catch {
-      // Left at the last reading: one failed pass says nothing about the link.
-    }
-  }
-
-  onNative(frame: NativeFrame) {
-    if (this.closed) return;
-    // pc.close() fires no connectionstatechange, so a closed link is only seen here.
-    const state = this.pc.connectionState;
-    if (state === "closed") {
-      this.close();
-      return;
-    }
-    // Nothing goes out until the link is up, and onConnectionState restarts
-    // from an IDR when it is, so frames held meanwhile are only memory.
-    if (state !== "connected") {
-      this.queue = [];
-      return;
-    }
-    if (this.held) {
-      if (!frame.key) return;
-      this.release(frame);
-      return;
-    }
-    if (this.needKey) {
-      if (!frame.key) return;
-      this.needKey = false;
-    }
-    this.queue.push(frame);
-    this.pump();
-  }
-
-  close() {
-    if (this.closed) return;
-    this.closed = true;
-    // A link that is gone must stop being the weakest one the rate is held
-    // down to, whether or not it is still in the set.
-    this.lastAvailableKbps = null;
-    this.pc.removeEventListener("connectionstatechange", this.onState);
-    if (this.stallTimer) clearTimeout(this.stallTimer);
-    if (this.held) {
-      const { resolve } = this.held;
-      this.held = null;
-      resolve();
-    }
-    this.queue = [];
-    void this.writer.close().catch(() => {});
-  }
-
-  private onConnectionState() {
-    if (this.pc.connectionState === "connected") {
-      // Frames written before the link was up were thrown away by the
-      // encoder; start over from an IDR.
-      this.resync();
-    }
-  }
-
-  private resync() {
-    this.stats.resyncs += 1;
-    sqTrack(SQ_EVENTS.keyResync, SQ_NATIVE_KEY_FEATURE);
-    this.inflight = null;
-    this.queue = [];
-    this.needKey = true;
-    this.source.requestKeyFrame();
-  }
-
-  private pump() {
-    if (this.closed || this.inflight || this.held || this.queue.length === 0) return;
-    // Anything written before the link is up is discarded by the encoder,
-    // and would only leave this sink waiting on output that never comes.
-    if (this.pc.connectionState !== "connected") return;
-    // A backlog means the stand-in encoder is slower than the helper. The
-    // chain cannot skip frames, so it restarts at the next IDR instead of
-    // falling further behind.
-    if (this.queue.length > 30) {
-      this.resync();
-      return;
-    }
-    this.inflight = this.queue.shift()!;
-    this.timestamp += Math.round(1_000_000 / this.source.fps);
-    const frame = new VideoFrame(this.blank, {
-      format: "I420",
-      codedWidth: 16,
-      codedHeight: 16,
-      timestamp: this.timestamp,
-    });
-    void this.writer.write(frame).then(() => frame.close(), () => frame.close());
-    if (this.stallTimer) clearTimeout(this.stallTimer);
-    this.stallTimer = setTimeout(() => {
-      // The encoder dropped what it was given; whatever was in flight is lost.
-      if (this.inflight) this.resync();
-    }, STALL_TIMEOUT_MS);
-  }
-
-  private fill(frame: EncodedFrame, controller: TransformStreamDefaultController<EncodedFrame>, native: NativeFrame) {
-    const copy = new Uint8Array(native.data.byteLength);
-    copy.set(native.data);
-    frame.data = copy.buffer;
-    controller.enqueue(frame);
-  }
-
-  private release(native: NativeFrame) {
-    const held = this.held;
-    if (!held) return;
-    this.held = null;
-    this.needKey = false;
-    this.fill(held.frame, held.controller, native);
-    held.resolve();
-  }
-
-  private onEncoded(frame: EncodedFrame, controller: TransformStreamDefaultController<EncodedFrame>): void | Promise<void> {
-    if (this.stallTimer) {
-      clearTimeout(this.stallTimer);
-      this.stallTimer = null;
-    }
-    const native = this.inflight;
-    this.inflight = null;
-    if (this.closed) return;
-
-    if (frame.type === "key" && !(native && native.key)) {
-      // A receiver needs a picture to start from, and will only take it in
-      // this slot. Held until the helper makes one.
-      this.queue = [];
-      this.needKey = true;
-      this.stats.keyHolds += 1;
-      this.source.requestKeyFrame();
-      return new Promise<void>((resolve) => {
-        this.held = { frame, controller, resolve };
-        setTimeout(() => {
-          if (this.held?.frame !== frame) return;
-          const fallback = this.source.lastKey;
-          if (fallback) {
-            this.stats.keyStale += 1;
-            sqTrack(SQ_EVENTS.keyStale, SQ_NATIVE_KEY_FEATURE);
-            this.release(fallback);
-            // An old IDR in the slot is only a picture to start from: the
-            // helper's next frames reference frames in between that this
-            // viewer never got, and decoding them corrupts the picture —
-            // which asks for a keyframe again, and around it goes. Under
-            // sq-native-key nothing more goes out until a fresh IDR does.
-            if (isSqNativeKeyEnabled()) {
-              this.needKey = true;
-              this.source.requestKeyFrame();
-            }
-          } else {
-            this.held = null;
-            resolve();
-          }
-        }, this.source.holdTimeoutMs());
-      }).then(() => queueMicrotask(() => this.pump()));
-    }
-
-    if (!native) {
-      // Out of step: something came out that nothing is waiting for. Sending
-      // it would put the stand-in's own picture on the wire.
-      this.resync();
-      return;
-    }
-    this.fill(frame, controller, native);
-    queueMicrotask(() => this.pump());
-  }
-}
-
-// ---------------------------------------------------------------------------
-
 /** Decodes the helper's stream into the share's own video track. */
 class Preview {
   private readonly writer: WritableStreamDefaultWriter<VideoFrame>;
-  private readonly keeper: ParameterSetKeeper;
+  private readonly keeper = new ParameterSetKeeper();
   private readonly requestKey: () => void;
   private decoder: VideoDecoder | null = null;
   private waitingForKey = true;
@@ -772,9 +630,8 @@ class Preview {
   private ended = false;
   private active = true;
 
-  constructor(track: TrackGenerator, keeper: ParameterSetKeeper, requestKey: () => void) {
+  constructor(track: TrackGenerator, requestKey: () => void) {
     this.writer = track.writable.getWriter();
-    this.keeper = keeper;
     this.requestKey = requestKey;
   }
 
@@ -800,6 +657,7 @@ class Preview {
 
   push(frame: NativeFrame) {
     if (this.ended || !this.active) return;
+    if (frame.key) this.keeper.process(frame.data);
     if (this.waitingForKey) {
       if (!frame.key) return;
       if (!this.configure()) return;

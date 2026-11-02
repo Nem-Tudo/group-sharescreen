@@ -39,6 +39,7 @@
 
 import type { AudioCodec, AudioSampleSource, CanvasSource, Output, StreamTargetChunk, VideoCodec } from "mediabunny";
 import { ensureSharedAudioContextRunning, getSharedAudioContext } from "./audioContext";
+import { retainStream } from "./streamUse";
 
 type Mediabunny = typeof import("mediabunny");
 
@@ -439,6 +440,9 @@ class VideoFeed {
   readonly video: HTMLVideoElement;
   stream: MediaStream | null = null;
   present = false;
+  // A recording is drawn from this element whether or not the room's tile is in
+  // sight, so the sender has to keep encoding for us (see lib/streamUse).
+  private release: (() => void) | null = null;
 
   constructor(host: HTMLElement) {
     this.video = document.createElement("video");
@@ -450,14 +454,20 @@ class VideoFeed {
 
   attach(stream: MediaStream) {
     this.present = true;
-    if (this.stream === stream) return;
-    this.stream = stream;
-    this.video.srcObject = stream;
-    void this.video.play().catch(() => {});
+    if (this.stream !== stream) {
+      this.release?.();
+      this.release = null;
+      this.stream = stream;
+      this.video.srcObject = stream;
+      void this.video.play().catch(() => {});
+    }
+    this.release ??= retainStream(stream);
   }
 
   detach() {
     this.present = false;
+    this.release?.();
+    this.release = null;
   }
 
   drawable(): boolean {
@@ -470,6 +480,8 @@ class VideoFeed {
   }
 
   dispose() {
+    this.release?.();
+    this.release = null;
     this.video.srcObject = null;
     this.video.remove();
   }

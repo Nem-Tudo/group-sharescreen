@@ -417,7 +417,6 @@ export function ConnectionQualityPanel() {
                       <td className="py-2 max-w-[10rem] truncate">{s.roomId}</td>
                       <td className="py-2 whitespace-nowrap">
                         {directionLabel(s.direction)} · {s.channel}
-                        {s.viaRelay && ` · ${t("admin.connectionQualityPanel.cascade")}`}
                       </td>
                       <td className="py-2 whitespace-nowrap">
                         {routeLabel(s.routeKind)}

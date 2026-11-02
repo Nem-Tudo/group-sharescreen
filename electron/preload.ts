@@ -401,17 +401,6 @@ contextBridge.exposeInMainWorld("golive", {
       }
     : undefined,
 
-  // The WebRTC field trials this process started with, and the site's
-  // decision for the next start (see electron/webrtcTrials.ts).
-  webrtcTrials: {
-    state(): Promise<{ known: boolean; h264Qp: boolean }> {
-      return ipcRenderer.invoke(IPC.webrtcTrialsState);
-    },
-    setH264Qp(on: unknown): void {
-      if (typeof on === "boolean") ipcRenderer.send(IPC.webrtcTrialsSetH264Qp, on);
-    },
-  },
-
   // The GPU screen capture (see electron/nativeVideo.ts and
   // lib/nativeVideoCapture.ts). Absent unless the helper shipped with this
   // build; whether the machine can run it is what probe() answers.
@@ -446,6 +435,9 @@ contextBridge.exposeInMainWorld("golive", {
           ipcRenderer.send(IPC.nativeVideoStop);
         },
 
+        // See IPC.nativeVideoFramePort.
+        framePort: true,
+
         onFrame(onFrame: unknown, onEnded: unknown): () => void {
           if (typeof onFrame !== "function") return () => {};
           const frame = (_event: unknown, meta: unknown, data: unknown) => {
@@ -467,11 +459,17 @@ contextBridge.exposeInMainWorld("golive", {
               (onEnded as (reason: string) => void)(reason === "target-gone" ? "target-gone" : "failed");
             }
           };
+          // A port cannot cross contextBridge; a window message can carry it.
+          const port = (event: { ports: readonly MessagePort[] }) => {
+            window.postMessage("golive:native-video-frame-port", window.location.origin, [...event.ports]);
+          };
           ipcRenderer.on(IPC.nativeVideoFrame, frame);
           ipcRenderer.on(IPC.nativeVideoEnded, ended);
+          ipcRenderer.on(IPC.nativeVideoFramePort, port);
           return () => {
             ipcRenderer.off(IPC.nativeVideoFrame, frame);
             ipcRenderer.off(IPC.nativeVideoEnded, ended);
+            ipcRenderer.off(IPC.nativeVideoFramePort, port);
           };
         },
       }

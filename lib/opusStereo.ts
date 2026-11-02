@@ -93,15 +93,3 @@ export function answerMirroringStereo(
   return { type: answer.type, sdp: withStereoOpus(answer.sdp) };
 }
 
-/**
- * A relay's offer to its children: stereo when the offer it is being fed
- * by asked for it — the sharer's choice, carried down the tree, not the
- * relay's own side of the experiment.
- */
-export function relayOfferToSend(
-  description: RTCSessionDescription | null,
-  upstream: RTCSessionDescription | null
-): RTCSessionDescriptionInit | null {
-  if (!description?.sdp || !upstream?.sdp || !asksForStereo(upstream.sdp)) return description;
-  return { type: description.type, sdp: withStereoOpus(description.sdp) };
-}

@@ -647,7 +647,6 @@ function QualityControls({
   features,
   isSharing,
   meshCapacity,
-  meshTopology,
 }: Pick<
   RoomMedia,
   | "smartQualityEnabled"
@@ -668,7 +667,6 @@ function QualityControls({
   | "setShareBitrate"
   | "isSharing"
   | "meshCapacity"
-  | "meshTopology"
 > & { features: readonly string[] }) {
   const t = useT();
   return (
@@ -792,7 +790,7 @@ function QualityControls({
               SHARE_FPS_OPTIONS) triggered nothing, silently leaving anyone
               who bumped fps without also switching profile to sit through
               exactly the slideshow degradationPreference's own comment
-              warns about (see peerQualityController.ts). setShareProfile
+              warns about (see lib/sendAdaptation). setShareProfile
               clamps fps back to 30 when switching *into* "text" for the
               same reason — this is the mirror case, raising fps while
               already there, and needs the same threshold. */}
@@ -850,9 +848,6 @@ function QualityControls({
               <p className="mt-1 text-amber-600 dark:text-amber-500">
                 {t("watch.watchRoom.yourProcessorIsAtItsLimit")}
               </p>
-            )}
-            {meshTopology.reason && (
-              <p className="mt-1 text-zinc-700 dark:text-zinc-300">{meshTopology.reason}</p>
             )}
             <ViewerConnectionList />
           </div>
@@ -1013,7 +1008,6 @@ function ShareControls({
     | "setShareBitrate"
     | "isSharing"
     | "meshCapacity"
-    | "meshTopology"
   > & { hasAccount: boolean; features: readonly string[] };
   onOpenShortcutQuick?: (action: ShortcutAction) => void;
   quickShortcutAction?: ShortcutAction | null;
@@ -2089,7 +2083,6 @@ function WatchRoomView({
     shareProfile,
     setShareProfile,
     meshCapacity,
-    meshTopology,
     setSmartQualityEnabled,
     nativeVideoOption,
     setNativeVideoOption,
@@ -4456,7 +4449,7 @@ function WatchRoomView({
         if (source.self && source.id === `camera:${SELF_TILE_OWNER}`) return [];
         const track = source.stream.getVideoTracks()[0];
         if (!track) return [];
-        return [{ id: source.id, kind: source.kind, name: source.name, self: source.self, track }];
+        return [{ id: source.id, kind: source.kind, name: source.name, self: source.self, stream: source.stream, track }];
       })
     );
   }, [callSources]);
@@ -7219,7 +7212,6 @@ function WatchRoomView({
     features: account?.features ?? GUEST_FEATURES,
     isSharing,
     meshCapacity,
-    meshTopology,
   };
 
   // The body of the header's "Mais opções" panel. Extracted because it is

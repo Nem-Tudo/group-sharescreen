@@ -12,7 +12,7 @@
 // is on for this person, and every way this can fail sends the share back to
 // Chromium's capture rather than ending it.
 
-import { app, screen, type DesktopCapturerSource, type WebContents } from "electron";
+import { app, MessageChannelMain, screen, type DesktopCapturerSource, type MessagePortMain, type WebContents } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -171,6 +171,8 @@ interface Capture {
   target: WebContents;
   stopping: boolean;
   detach: () => void;
+  /** Where the frames go when the page asked for a port (see IPC.nativeVideoFramePort). */
+  framePort: MessagePortMain | null;
 }
 
 let capture: Capture | null = null;
@@ -218,8 +220,14 @@ export async function startNativeVideo(
     return { ok: false, reason: "failed" };
   }
 
-  const active: Capture = { child, target, stopping: false, detach: () => {} };
+  const active: Capture = { child, target, stopping: false, detach: () => {}, framePort: null };
   capture = active;
+  if (options.framePort) {
+    const { port1, port2 } = new MessageChannelMain();
+    active.framePort = port1;
+    port1.start();
+    target.postMessage(IPC.nativeVideoFramePort, null, [port2]);
+  }
   const reader = new NativeFrameReader();
 
   return new Promise<NativeVideoStartResult>((resolve) => {
@@ -279,7 +287,8 @@ export async function startNativeVideo(
       if (frames.length > 0 && ready && !settled) settle({ ok: true, ...ready, hidden });
       for (const frame of frames) {
         const { data: payload, ...meta } = frame;
-        target.send(IPC.nativeVideoFrame, meta, payload);
+        if (active.framePort) active.framePort.postMessage({ data: payload, timeMs: meta.timeMs });
+        else target.send(IPC.nativeVideoFrame, meta, payload);
       }
     });
 
@@ -324,6 +333,8 @@ export function stopNativeVideo(): void {
   capture = null;
   active.stopping = true;
   active.detach();
+  active.framePort?.close();
+  active.framePort = null;
   const { child } = active;
   // Closing stdin is the helper's shutdown signal; kill() is the backstop for
   // one that is wedged in a driver.

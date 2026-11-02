@@ -3,7 +3,7 @@
 // Worth being precise about what this does and does not cover, because the
 // wrapper architecture splits it in two:
 //
-//   - The website — every screen, all the WebRTC, the mesh/cascade — is
+//   - The website — every screen, all the WebRTC, the mesh — is
 //     loaded live from golive.nemtudo.me, so a deploy reaches users on their
 //     next launch with nothing to install and nothing here involved.
 //   - This file covers the other half: main.ts, the preloads, the picker.

@@ -7,6 +7,7 @@ import {
   setCameraEffect,
   trackStreamBackground,
 } from "./cameraEffects";
+import { retainStream } from "./streamUse";
 
 // Which transmission is the camera's background ("camera-stream-bg", see
 // setCameraBackgroundTrack in lib/cameraEffects.ts). The room publishes what
@@ -22,6 +23,7 @@ export interface StreamBackgroundSource {
   kind: "screen" | "camera" | "file";
   name: string;
   self: boolean;
+  stream: MediaStream;
   track: MediaStreamTrack;
 }
 
@@ -31,6 +33,9 @@ let selectedId: string | null = null;
 // this person's own choice while it is on.
 let receivedId: string | null = null;
 let selected: StreamBackgroundSource | null = null;
+// The picked one is drawn behind the camera whether or not its tile is in
+// sight, so its sender has to keep encoding for us (see lib/streamUse).
+let releaseSelected: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 function sameSource(a: StreamBackgroundSource, b: StreamBackgroundSource): boolean {
@@ -47,6 +52,8 @@ function update() {
   const next = found && selected && sameSource(found, selected) ? selected : found;
   if (next !== selected) {
     selected = next;
+    releaseSelected?.();
+    releaseSelected = next ? retainStream(next.stream) : null;
     setCameraBackgroundTrack(next ? next.track : null);
   }
   listeners.forEach((listener) => listener());

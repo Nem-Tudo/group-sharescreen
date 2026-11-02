@@ -23,6 +23,7 @@ import { connectionRegistry, createStatsSampler, type RegisteredConnection } fro
 import {
   addSnapshot,
   createAccumulator,
+  noteIceAttempt,
   QUALITY_SAMPLE_RATE,
   summarize,
   type SessionAccumulator,
@@ -42,36 +43,39 @@ import {
 } from "./mediaPreferences";
 import { turnProvider } from "./iceConfig";
 import { trackFeatureEvent } from "./features";
-import { defaultShareProfile, getScreenCodecVariant, isH264Hardware, SCREEN_CODEC_FEATURE } from "./screenCodec";
-import { getOwnTurnVariant, OWN_TURN_EVENTS, OWN_TURN_FEATURE } from "./ownTurn";
-import { isMemoryGuardEnabled, MEMORY_GUARD_FEATURE } from "./memoryGuard";
-import { CONGESTION_RECOVER_FEATURE, isCongestionRecoverEnabled } from "./congestionRecover";
-import {
-  countReceiveCodecSession,
-  isReceiveCodecEligible,
-  isReceiveCodecEnabled,
-  RECEIVE_CODEC_FEATURE,
-} from "./receiveCodec";
-import { senderQualityState, senderStruggleState } from "./peerQualityController";
+import { CLASSIC_SEND_FEATURE, isClassicSend } from "./classicSend";
+import { senderQualityState } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
-import { nativeSinkStats } from "./nativeVideoCapture";
-import {
-  motionHoldEligible,
-  SQ_EVENTS,
-  SQ_H264_QP_FEATURE,
-  SQ_MOTION_HOLD_FEATURE,
-  SQ_NATIVE_KEY_FEATURE,
-  SQ_RECV_DROPS_FEATURE,
-  SQ_WEAK_SENDER_FEATURE,
-  streamQualityTagParts,
-  weakSenderEligible,
-} from "./streamQuality";
+import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
+
+// One of each per session of our own screen, at its end, from both groups of
+// experiment sq-classic-send (see lib/classicSend), so the admin compares like
+// with like. The GPU capture, which neither group changes, is left out.
+//   send_session            a connection carrying our screen
+//   send_session_fps        ...its average fps (value)
+//   send_session_height     ...its average height (value)
+//   send_session_slideshow  ...averaged under 10 fps while carrying real bitrate
+//   send_link_held          ...spent over a tenth of its time held down by its link
+//   send_machine_held       ...spent over a tenth of its time held down by the machine
+//   send_paused             ...spent over a tenth of its time with nobody looking
+export const SEND_SESSION_EVENTS = {
+  session: "send_session",
+  fps: "send_session_fps",
+  height: "send_session_height",
+  slideshow: "send_session_slideshow",
+  linkHeld: "send_link_held",
+  machineHeld: "send_machine_held",
+  paused: "send_paused",
+} as const;
 
 const ENABLED = process.env.NEXT_PUBLIC_QUALITY_TELEMETRY_ENABLED !== "false";
 
 const POLL_MS = 10_000;
 const MAX_PER_PASS = 8;
 const MIN_SESSION_S = 20;
+// Connections per pass to look at while they have not come up. They live for 20 or
+// 30 seconds at a time, so a pass every 10 seconds finds each one at least once.
+const MAX_STUCK_PER_PASS = 4;
 // Reports are batched rather than sent the moment a session ends: a share
 // stopping ends every viewer's session at once, and that should be one request.
 const FLUSH_DELAY_MS = 5000;
@@ -95,16 +99,13 @@ export interface ConnectionQualityReport extends SessionSummary {
    */
   peerUserId: string | null;
   originId: string | null;
-  viaRelay: boolean;
   startedAt: number;
   endedBy: "close" | "pagehide";
   forceRelay: boolean;
   /** Whose TURN server our end relayed through, when it did. */
   turnProvider: "own" | "cloudflare" | null;
-  /** Our side of the transport experiments, "screen-codec=auto;own-turn=tcp", or null for control in both. */
+  /** Our side of the transport experiments, "sq-classic-send=on", or null for control. */
   experiments: string | null;
-  /** Whether this browser encodes H264 in hardware, when it has said (see lib/screenCodec). */
-  h264Hardware: boolean | null;
   /**
    * Send only, the desktop app's GPU capture (native-video-capture): how its
    * keyframe slots went on this connection — held for a fresh IDR, filled
@@ -143,16 +144,7 @@ export function setTelemetryShareSettings(settings: ShareSettings | null) {
 }
 
 function experimentsTag(): string | null {
-  const parts: string[] = [];
-  const codec = getScreenCodecVariant();
-  if (codec) parts.push(`${SCREEN_CODEC_FEATURE}=${codec}`);
-  const turn = getOwnTurnVariant();
-  if (turn) parts.push(`${OWN_TURN_FEATURE}=${turn}`);
-  if (isMemoryGuardEnabled()) parts.push(`${MEMORY_GUARD_FEATURE}=on`);
-  if (isCongestionRecoverEnabled()) parts.push(`${CONGESTION_RECOVER_FEATURE}=on`);
-  if (isReceiveCodecEnabled() && isReceiveCodecEligible()) parts.push(`${RECEIVE_CODEC_FEATURE}=on`);
-  parts.push(...streamQualityTagParts());
-  return parts.length > 0 ? parts.join(";") : null;
+  return isClassicSend() ? `${CLASSIC_SEND_FEATURE}=on` : null;
 }
 
 interface Session {
@@ -243,6 +235,14 @@ class ConnectionTelemetry {
     for (const [pc] of [...this.sessions]) {
       if (pc.connectionState === "closed") this.close(pc, "close");
     }
+    const stuck = [...this.sessions.values()].filter(
+      (s) => s.acc.connectedAt === null && s.connection.pc.connectionState !== "connected"
+    );
+    for (const session of stuck.slice(0, MAX_STUCK_PER_PASS)) {
+      const { pc } = session.connection;
+      const report = await pc.getStats().catch(() => null);
+      if (report && this.sessions.has(pc)) noteIceAttempt(session.acc, report.values() as Iterable<Record<string, unknown>>);
+    }
     const live = [...this.sessions.values()].filter((s) => s.connection.pc.connectionState === "connected");
     if (live.length === 0) return;
     let visit = live;
@@ -259,15 +259,18 @@ class ConnectionTelemetry {
       // encoder's own numbers (see SenderControlSample).
       const { connection } = session;
       const control = connection.direction === "send" ? senderQualityState(connection.pc) : null;
-      // Recv: the tile is the picture's owner's, which a relay is not.
-      const tilePeer = connection.originId ?? connection.peerId;
-      const visible = connection.direction === "recv" ? qualityNegotiator.isVisible(connection.channel, tilePeer) : null;
-      addSnapshot(session.acc, snapshot, control, visible);
-      // Experiment sq-recv-drops reads our decoder from the same samples.
-      if (snapshot.recv && snapshot.intervalSeconds > 0) {
+      const visible =
+        connection.direction === "recv" ? qualityNegotiator.isVisible(connection.channel, connection.peerId) : null;
+      const paused =
+        connection.direction === "send"
+          ? control?.paused === true || nativeSinkPaused(connection.pc)
+          : qualityNegotiator.isIdle(connection.channel, connection.peerId);
+      addSnapshot(session.acc, snapshot, control, visible, paused);
+      // Our decoder falling behind steps this tile's request down.
+      if (snapshot.recv && snapshot.intervalSeconds > 0 && !paused) {
         qualityNegotiator.noteDecoderDrops(
           connection.channel,
-          tilePeer,
+          connection.peerId,
           snapshot.recv.dropShare,
           snapshot.recv.decodeLoad ?? null
         );
@@ -298,19 +301,12 @@ class ConnectionTelemetry {
     const noVideo = summary.causes.includes("no-video");
     if (summary.durationS < MIN_SESSION_S || (summary.kbpsAvg === null && !noVideo)) return null;
     const provider = acc.relayUrl ? turnProvider(acc.relayUrl) : null;
-    // Counted before the sampling below, since every relayed session matters
-    // to experiment "own-turn" and not only the ones that get reported.
-    this.countOwnTurn(summary, provider);
-    // Likewise experiment "recv-codec": every received video session of an
-    // eligible viewer, on both of its sides.
-    if (connection.direction === "recv" && (connection.channel.startsWith("screen") || connection.channel.startsWith("camera"))) {
-      countReceiveCodecSession(summary);
-    }
-    this.countStreamQuality(summary, connection);
+    // Before the sampling below: the experiment counts every session.
+    this.countSendSession(summary, connection);
     if (!summary.bad && Math.random() >= QUALITY_SAMPLE_RATE) return null;
     const native = connection.direction === "send" ? nativeSinkStats(connection.pc) : null;
 
-    const ownShare = connection.direction === "send" && !connection.viaRelay;
+    const ownShare = connection.direction === "send";
     const nav = typeof navigator !== "undefined" ? navigator : undefined;
     return {
       ...summary,
@@ -322,13 +318,11 @@ class ConnectionTelemetry {
       peerId: connection.peerId,
       peerUserId: session.peerUserId,
       originId: connection.originId,
-      viaRelay: connection.viaRelay,
       startedAt: acc.startedAt,
       endedBy,
       forceRelay: getEffectiveForceRelayIce(),
       turnProvider: provider,
       experiments: experimentsTag(),
-      h264Hardware: isH264Hardware(),
       nativeKeyHolds: native?.keyHolds ?? null,
       nativeKeyStale: native?.keyStale ?? null,
       nativeResyncs: native?.resyncs ?? null,
@@ -340,7 +334,7 @@ class ConnectionTelemetry {
             resolution: getStoredShareResolution() ?? "1080p",
             fps: getStoredShareFps() ?? 30,
             bitrate: getStoredShareBitrate() ?? "high",
-            profile: getStoredShareProfile() ?? defaultShareProfile(),
+            profile: getStoredShareProfile() ?? "balanced",
           })
         : null,
       device: {
@@ -352,76 +346,22 @@ class ConnectionTelemetry {
     };
   }
 
-  // Experiment "own-turn" (see lib/ownTurn): one set of events per video
-  // session whose own end relayed through the VPS. Relayed on the other end
-  // only is not counted — nothing this side's variant does reaches it.
-  private countOwnTurn(summary: SessionSummary, provider: "own" | "cloudflare" | null) {
-    const ours = summary.routeKind === "relay-local" || summary.routeKind === "relay-both";
-    if (!ours || provider === "cloudflare") return;
-    const feature = OWN_TURN_FEATURE;
-    trackFeatureEvent(OWN_TURN_EVENTS.session, { feature, value: 1 });
-    if (summary.fpsAvg !== null) trackFeatureEvent(OWN_TURN_EVENTS.fps, { feature, value: Math.round(summary.fpsAvg) });
-    if (summary.kbpsAvg !== null) trackFeatureEvent(OWN_TURN_EVENTS.kbps, { feature, value: summary.kbpsAvg });
-    if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) {
-      trackFeatureEvent(OWN_TURN_EVENTS.lowFps, { feature });
-    }
-    if (summary.lossMax >= 0.15) trackFeatureEvent(OWN_TURN_EVENTS.loss, { feature });
-  }
-
-  // The "sq" experiments (see lib/streamQuality): one set of events per
-  // session each one is about, from both groups, so the admin compares like
-  // with like. Before the sampling below, like countOwnTurn.
-  private countStreamQuality(summary: SessionSummary, connection: RegisteredConnection) {
-    const video = /^(screen|camera|file)/.test(connection.channel);
-    if (!video) return;
-    const fps = summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg);
+  // See SEND_SESSION_EVENTS.
+  private countSendSession(summary: SessionSummary, connection: RegisteredConnection) {
+    if (connection.direction !== "send" || !connection.channel.startsWith("screen")) return;
     const height = summary.heightAvg ?? 0;
-    const slideshow = summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300;
-    if (connection.direction === "recv") {
-      const feature = SQ_RECV_DROPS_FEATURE;
-      trackFeatureEvent(SQ_EVENTS.dropSession, { feature });
-      if ((summary.dropShare ?? 0) >= 0.1) trackFeatureEvent(SQ_EVENTS.dropBad, { feature });
-      trackFeatureEvent(SQ_EVENTS.dropFps, { feature, value: fps });
-      return;
-    }
-    // Our own screen share only: a relay re-encodes someone else's.
-    if (connection.viaRelay || connection.originId || !connection.channel.startsWith("screen")) return;
-    const profile = liveShareSettings?.profile ?? null;
-    const encoder = summary.implementation;
     // The GPU capture's stand-in track measures 16 px tall; nothing else does.
-    const nativeShare = height > 0 && height < 40;
-    if (nativeShare) {
-      trackFeatureEvent(SQ_EVENTS.keySession, { feature: SQ_NATIVE_KEY_FEATURE });
-      return;
+    if (height > 0 && height < 40) return;
+    const feature = CLASSIC_SEND_FEATURE;
+    trackFeatureEvent(SEND_SESSION_EVENTS.session, { feature });
+    trackFeatureEvent(SEND_SESSION_EVENTS.fps, { feature, value: summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg) });
+    trackFeatureEvent(SEND_SESSION_EVENTS.height, { feature, value: height });
+    if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) {
+      trackFeatureEvent(SEND_SESSION_EVENTS.slideshow, { feature });
     }
-    // sq-weak-sender touches only a connection seen falling behind on its
-    // encoder (see lib/streamQuality's SenderStruggle) — watched in both
-    // groups, so its sessions here are the same population on each side.
-    if (weakSenderEligible(profile, encoder) && senderStruggleState(connection.pc).weakStruggled) {
-      const feature = SQ_WEAK_SENDER_FEATURE;
-      trackFeatureEvent(SQ_EVENTS.weakSession, { feature });
-      if (slideshow) trackFeatureEvent(SQ_EVENTS.weakLowFps, { feature });
-      trackFeatureEvent(SQ_EVENTS.weakFps, { feature, value: fps });
-      trackFeatureEvent(SQ_EVENTS.weakHeight, { feature, value: height });
-    }
-    if (motionHoldEligible(profile, encoder)) {
-      const feature = SQ_MOTION_HOLD_FEATURE;
-      trackFeatureEvent(SQ_EVENTS.holdSession, { feature });
-      if (slideshow) trackFeatureEvent(SQ_EVENTS.holdLowFps, { feature });
-      trackFeatureEvent(SQ_EVENTS.holdFps, { feature, value: fps });
-      trackFeatureEvent(SQ_EVENTS.holdHeight, { feature, value: height });
-    }
-    if (isDesktopApp() && summary.codec === "H264") {
-      const feature = SQ_H264_QP_FEATURE;
-      trackFeatureEvent(SQ_EVENTS.qpSession, { feature });
-      // Squeezed by the quality scaler rather than by a small ask: under
-      // 600 lines while the encoder had a 1080p-sized budget.
-      if (height > 0 && height < 600 && (summary.targetKbpsAvg ?? 0) >= 2000) {
-        trackFeatureEvent(SQ_EVENTS.qpLowRes, { feature });
-      }
-      trackFeatureEvent(SQ_EVENTS.qpFps, { feature, value: fps });
-      trackFeatureEvent(SQ_EVENTS.qpHeight, { feature, value: height });
-    }
+    if ((summary.linkCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.linkHeld, { feature });
+    if ((summary.machineCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.machineHeld, { feature });
+    if ((summary.pausedShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.paused, { feature });
   }
 
   private scheduleFlush() {

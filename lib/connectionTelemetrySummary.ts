@@ -82,9 +82,10 @@ export interface SessionAccumulator {
   qpCount: number;
   resolutionChanges: number;
   /** What our quality controller did to this viewer — send only, see SenderControlSample. */
-  ratioSum: number;
-  ratioCount: number;
-  ratioMin: number | null;
+  linkCapSeconds: number;
+  machineCapSeconds: number;
+  /** Seconds nobody was looking, so nothing was going over this connection on purpose. */
+  pausedSeconds: number;
   ceilingKbpsSum: number;
   ceilingKbpsCount: number;
   tier: string | null;
@@ -97,7 +98,7 @@ export interface SessionAccumulator {
   /**
    * Recv only: seconds of the measured ones during which the tile was on
    * screen in a visible page. Null-counted (visibilityKnownSeconds 0) where
-   * nobody said — a relay's re-encode, an older caller.
+   * nobody said.
    */
   visibleSeconds: number;
   visibilityKnownSeconds: number;
@@ -107,19 +108,26 @@ export interface SessionAccumulator {
   firstFrameAt: number | null;
   /** When the pc first reached "connected", or null if it never did. Set by connectionTelemetry. */
   connectedAt: number | null;
+  /** What ICE had to work with while it had not connected, see noteIceAttempt. */
+  iceLocal: Set<string>;
+  iceRemote: Set<string>;
+  icePairs: number;
+  iceResponses: number;
 }
 
 /**
  * The sender's quality controller for this connection, read beside each
  * snapshot (see lib/peerQualityController's senderQualityState). Without it a
- * low bitrate cannot be pinned on the viewer's small tile, on our congestion
- * layer or on the encoder not using what it was given.
+ * low bitrate cannot be pinned on the viewer's small tile, on our adaptation or
+ * on the encoder not using what it was given.
  */
 export interface SenderControlSample {
   tier: string;
   ceilingKbps: number;
-  ratio: number;
   degradationPreference: string;
+  linkCapHeight: number | null;
+  machineLevel: number;
+  paused: boolean;
 }
 
 // A session at 10-second sampling for three hours is ~1000 samples; the fps
@@ -162,9 +170,9 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     qpSum: 0,
     qpCount: 0,
     resolutionChanges: 0,
-    ratioSum: 0,
-    ratioCount: 0,
-    ratioMin: null,
+    linkCapSeconds: 0,
+    machineCapSeconds: 0,
+    pausedSeconds: 0,
     ceilingKbpsSum: 0,
     ceilingKbpsCount: 0,
     tier: null,
@@ -178,7 +186,35 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     framesDecodedMax: 0,
     firstFrameAt: null,
     connectedAt: null,
+    iceLocal: new Set(),
+    iceRemote: new Set(),
+    icePairs: 0,
+    iceResponses: 0,
   };
+}
+
+/**
+ * One getStats of a connection that has not come up. A pair that never connects is
+ * the commonest way to get no picture at all (97% of them, in the reports), and
+ * the report had nothing to say about why: no candidates of our own means STUN is
+ * blocked, none from them means the signalling lost them, and both with no answer
+ * to a single check means the two NATs will not let each other through, which only
+ * a relay can fix. Candidate types only, never an address.
+ */
+export function noteIceAttempt(acc: SessionAccumulator, records: Iterable<Record<string, unknown>>) {
+  let pairs = 0;
+  let responses = 0;
+  for (const record of records) {
+    const type = typeof record.candidateType === "string" ? record.candidateType : null;
+    if (record.type === "local-candidate" && type) acc.iceLocal.add(type);
+    else if (record.type === "remote-candidate" && type) acc.iceRemote.add(type);
+    else if (record.type === "candidate-pair") {
+      pairs += 1;
+      if (typeof record.responsesReceived === "number") responses += record.responsesReceived;
+    }
+  }
+  acc.icePairs = Math.max(acc.icePairs, pairs);
+  acc.iceResponses = Math.max(acc.iceResponses, responses);
 }
 
 /** Adds one snapshot. Mutates and returns `acc`. */
@@ -187,9 +223,20 @@ export function addSnapshot(
   snapshot: PcSnapshot,
   control: SenderControlSample | null = null,
   /** Recv only: whether the tile was on screen in a visible page; null when unknown. */
-  visible: boolean | null = null
+  visible: boolean | null = null,
+  /**
+   * Nobody is looking, so the encoder for this connection is stopped on purpose
+   * (see qualityNegotiation). Such a stretch says nothing about the stream: its
+   * frame rate of zero and its freezes are what was asked for.
+   */
+  paused = false
 ): SessionAccumulator {
   const { route, send, recv, intervalSeconds } = snapshot;
+  if (paused) {
+    if (intervalSeconds > 0) acc.pausedSeconds += intervalSeconds;
+    acc.samples += 1;
+    return acc;
+  }
   // A picture arrived: frames decoded, or a frame rate where a browser does
   // not report the counter.
   if (recv && ((recv.framesDecodedTotal ?? 0) > 0 || recv.fps > 0)) {
@@ -258,9 +305,8 @@ export function addSnapshot(
         acc.encodeMsCount += 1;
       }
       if (control) {
-        acc.ratioSum += control.ratio;
-        acc.ratioCount += 1;
-        acc.ratioMin = acc.ratioMin === null ? control.ratio : Math.min(acc.ratioMin, control.ratio);
+        if (control.linkCapHeight !== null) acc.linkCapSeconds += intervalSeconds;
+        if (control.machineLevel > 0) acc.machineCapSeconds += intervalSeconds;
         acc.ceilingKbpsSum += control.ceilingKbps;
         acc.ceilingKbpsCount += 1;
       }
@@ -316,11 +362,14 @@ export interface SessionSummary {
   resolutionChanges: number | null;
   /** Send only: the tier actually sent, last seen. */
   tier: string | null;
-  /** Send only: the ceiling our controller handed the encoder before the congestion ratio, average kbps. */
+  /** Send only: the ceiling our controller handed the encoder, average kbps. */
   ceilingKbpsAvg: number | null;
-  /** Send only: our congestion ratio, average and lowest (see lib/congestionControl). */
-  congestionRatioAvg: number | null;
-  congestionRatioMin: number | null;
+  /** Send only: share of the measured time this viewer's link was holding them under the tier, 0..1. */
+  linkCapShare: number | null;
+  /** Send only: share of the measured time the machine was holding everyone back, 0..1. */
+  machineCapShare: number | null;
+  /** Share of the session nobody was looking and nothing was being sent on purpose, 0..1. */
+  pausedShare: number | null;
   /** Send only: the degradation preference the encoder ran under, last seen. */
   degradationPreference: string | null;
   /** Send only: the capture's average frame rate (see SendVideoStats.sourceFps). */
@@ -334,6 +383,12 @@ export interface SessionSummary {
    * frame, at the sampler's 10 s grain; null when it never got one.
    */
   firstFrameS: number | null;
+  /** A connection that never came up: the candidate types seen on each end, comma-separated. */
+  iceLocal: string | null;
+  iceRemote: string | null;
+  /** ...how many candidate pairs it tried, and the answers those checks got. */
+  icePairs: number | null;
+  iceResponses: number | null;
   /**
    * Causes present in at least CAUSE_PRESENCE of the measured samples, plus
    * the session-level "low-source-fps".
@@ -397,10 +452,9 @@ const BAD_DROP_SHARE = 0.1;
 const SLIDESHOW_FPS = 10;
 const SLIDESHOW_MIN_KBPS = 300;
 // A received picture only counts against the stream while somebody can see
-// it. A tile scrolled away or a page in the background asks the broadcaster
-// for the worst tier on purpose (576p15, see qualityNegotiation), and the
-// browser may stop rendering it — its slideshow and freezes are what was
-// asked for, not a fault.
+// it. A tile scrolled away or a page in the background has the broadcaster stop
+// encoding for it on purpose (see qualityNegotiation), and the browser may stop
+// rendering it — its slideshow and freezes are what was asked for, not a fault.
 const MIN_VISIBLE_SHARE = 0.5;
 // Measured seconds a connected receiver needs before "never a frame" is a
 // verdict and not a sampler that has not looked yet.
@@ -408,8 +462,8 @@ const NO_VIDEO_MIN_MEASURED_S = 15;
 
 // "turn-tcp" is not here although the live panel calls it high: on its own it
 // is a route, not a symptom. In the reports it flagged every TCP-relayed
-// session bad — ~95% of experiment own-turn's tcp group — while those same
-// viewers had the best frame rates of any group. A TCP relay that actually
+// session bad, ~95% of them, while those same viewers had the best frame rates
+// of any relayed group. A TCP relay that actually
 // hurts shows up as loss, freezes or a slideshow, which are judged below.
 const HIGH_CAUSES: ReadonlySet<CauseId> = new Set([
   "sender-cpu",
@@ -521,8 +575,9 @@ export function summarize(
     tier: direction === "send" ? acc.tier : null,
     ceilingKbpsAvg:
       direction === "send" && acc.ceilingKbpsCount ? Math.round(acc.ceilingKbpsSum / acc.ceilingKbpsCount) : null,
-    congestionRatioAvg: direction === "send" && acc.ratioCount ? round(acc.ratioSum / acc.ratioCount, 2) : null,
-    congestionRatioMin: direction === "send" && acc.ratioMin !== null ? round(acc.ratioMin, 2) : null,
+    linkCapShare: direction === "send" && seconds > 0 ? round(acc.linkCapSeconds / seconds, 2) : null,
+    machineCapShare: direction === "send" && seconds > 0 ? round(acc.machineCapSeconds / seconds, 2) : null,
+    pausedShare: seconds + acc.pausedSeconds > 0 ? round(acc.pausedSeconds / (seconds + acc.pausedSeconds), 2) : null,
     degradationPreference: direction === "send" ? acc.degradationPreference : null,
     sourceFpsAvg: direction === "send" && acc.sourceFpsCount ? round(acc.sourceFpsSum / acc.sourceFpsCount, 1) : null,
     encodeMsAvg: direction === "send" && acc.encodeMsCount ? round(acc.encodeMsSum / acc.encodeMsCount, 1) : null,
@@ -531,6 +586,14 @@ export function summarize(
       direction === "recv" && acc.firstFrameAt !== null
         ? Math.max(0, Math.round((acc.firstFrameAt - acc.startedAt) / 1000))
         : null,
+    ...(acc.connectedAt === null
+      ? {
+          iceLocal: [...acc.iceLocal].sort().join(","),
+          iceRemote: [...acc.iceRemote].sort().join(","),
+          icePairs: acc.icePairs,
+          iceResponses: acc.iceResponses,
+        }
+      : { iceLocal: null, iceRemote: null, icePairs: null, iceResponses: null }),
     causes,
     bad,
     blame,

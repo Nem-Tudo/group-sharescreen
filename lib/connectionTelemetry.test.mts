@@ -11,6 +11,7 @@ import {
   createAccumulator,
   estimateBadRate,
   estimateSessions,
+  noteIceAttempt,
   summarize,
   type SenderControlSample,
 } from "./connectionTelemetrySummary";
@@ -227,28 +228,90 @@ assert.equal(blameFor("recv", ["freezes", "receiver-drops"], true), "receiver");
 // What the encoder and our controller did, averaged over a send session.
 {
   const acc = createAccumulator(0);
-  const control = (ratio: number): SenderControlSample => ({
+  const control = (linkCapHeight: number | null, machineLevel = 0): SenderControlSample => ({
     tier: "1080p30",
     ceilingKbps: 4000,
-    ratio,
     degradationPreference: "balanced",
+    linkCapHeight,
+    machineLevel,
+    paused: false,
   });
-  addSnapshot(acc, snap({ send: send(), intervalSeconds: 0 }, 0), control(1));
+  addSnapshot(acc, snap({ send: send(), intervalSeconds: 0 }, 0), control(null));
   for (let i = 1; i <= 4; i += 1) {
-    addSnapshot(acc, snap({ send: send({ qp: 30 + i * 2, resolutionChanges: 1 }) }, i * 10_000), control(i % 2 ? 0.5 : 1));
+    addSnapshot(acc, snap({ send: send({ qp: 30 + i * 2, resolutionChanges: 1 }) }, i * 10_000), control(i % 2 ? 720 : null, i === 1 ? 1 : 0));
   }
   const s = summarize(acc, 50_000, "send", "screen");
   assert.equal(s.qpAvg, 35);
   assert.equal(s.resolutionChanges, 4);
   assert.equal(s.tier, "1080p30");
   assert.equal(s.ceilingKbpsAvg, 4000);
-  assert.equal(s.congestionRatioAvg, 0.75);
-  assert.equal(s.congestionRatioMin, 0.5);
+  assert.equal(s.linkCapShare, 0.5);
+  assert.equal(s.machineCapShare, 0.25);
   assert.equal(s.degradationPreference, "balanced");
   // None of it belongs on a recv report.
   const r = session("recv", 4, () => ({ recv: recv() }));
   assert.equal(r.qpAvg, null);
-  assert.equal(r.congestionRatioAvg, null);
+  assert.equal(r.linkCapShare, null);
+}
+
+// A connection that never came up says what ICE had to work with, and nothing else:
+// no addresses. One that did come up has nothing to say about it.
+{
+  const acc = createAccumulator(0);
+  noteIceAttempt(acc, [
+    { type: "local-candidate", candidateType: "host", address: "192.0.2.1" },
+    { type: "local-candidate", candidateType: "srflx", address: "198.51.100.7" },
+    { type: "remote-candidate", candidateType: "srflx", address: "203.0.113.9" },
+    { type: "candidate-pair", responsesReceived: 0, requestsSent: 12 },
+    { type: "candidate-pair", responsesReceived: 2, requestsSent: 12 },
+    { type: "transport" },
+  ]);
+  noteIceAttempt(acc, [{ type: "candidate-pair", responsesReceived: 1 }]);
+  const s = summarize(acc, 25_000, "recv", "screen");
+  assert.equal(s.iceLocal, "host,srflx");
+  assert.equal(s.iceRemote, "srflx");
+  assert.equal(s.icePairs, 2);
+  assert.equal(s.iceResponses, 2);
+  assert.ok(!JSON.stringify(s).includes("192.0.2.1"), "nenhum endereço no relatório");
+  const empty = summarize(createAccumulator(0), 25_000, "recv", "screen");
+  assert.equal(empty.iceRemote, "", "nenhum candidato deles: a sinalização perdeu");
+  const connected = createAccumulator(0);
+  connected.connectedAt = 100;
+  noteIceAttempt(connected, [{ type: "local-candidate", candidateType: "host" }]);
+  assert.equal(summarize(connected, 25_000, "recv", "screen").iceLocal, null);
+}
+
+// A stretch nobody was looking at says nothing about the stream: a viewer who
+// came back after an hour away was not watching an hour of zero frames.
+{
+  const acc = createAccumulator(0);
+  for (let i = 1; i <= 4; i += 1) addSnapshot(acc, snap({ recv: recv({ fps: 30 }) }, i * 10_000), null, true);
+  for (let i = 5; i <= 12; i += 1) {
+    addSnapshot(acc, snap({ recv: recv({ fps: 0, freezes: 3, freezeSeconds: 9 }) }, i * 10_000), null, false, true);
+  }
+  const s = summarize(acc, 130_000, "recv", "screen");
+  assert.equal(s.fpsAvg, 30);
+  assert.equal(s.freezes, 0);
+  assert.equal(s.pausedShare, 0.67);
+  assert.equal(s.bad, false);
+}
+
+// Nor does a sender's: its zeroes are what the viewer asked for.
+{
+  const acc = createAccumulator(0);
+  const paused: SenderControlSample = {
+    tier: "576p15",
+    ceilingKbps: 900,
+    degradationPreference: "maintain-resolution",
+    linkCapHeight: null,
+    machineLevel: 0,
+    paused: true,
+  };
+  for (let i = 1; i <= 4; i += 1) addSnapshot(acc, snap({ send: send({ fps: 30 }) }, i * 10_000));
+  for (let i = 5; i <= 8; i += 1) addSnapshot(acc, snap({ send: send({ fps: 0, kbps: 0 }) }, i * 10_000), paused, null, true);
+  const s = summarize(acc, 90_000, "send", "screen");
+  assert.equal(s.fpsAvg, 30);
+  assert.equal(s.pausedShare, 0.5);
 }
 
 // The capture's rate and the encoder's time per frame, averaged on a send report.

@@ -1,27 +1,25 @@
 // node --experimental-strip-types lib/meshQuality.test.mts
 //
-// Pins the two pure pieces the whole mesh strategy rests on: how a rendered
-// tile size becomes a quality tier, and how the topology planner decides
-// between plain mesh and a cascade. Both are pure functions, so they are
-// testable without a browser, a peer connection, or a room.
+// Pins the pure piece the whole mesh strategy rests on: how a rendered tile size
+// becomes a quality tier, and what that tier may spend. Testable without a
+// browser, a peer connection, or a room.
 
 import assert from "node:assert/strict";
 import {
   capTier,
-  congestedBitrateKbps,
-  encodeMpxs,
   encoderCeilingKbps,
-  measureContentMultiplier,
-  scaleFactorFor,
-  stepDown,
+  scaleForHeight,
   stepDownUnder,
   tierForRenderedSize,
   MAX_TIER_FPS,
   tierSpec,
-  uploadKbps,
   TIERS,
 } from "./videoQuality";
-import { fitsDirectMesh, parentsOf, planTopology, type PlannerViewer } from "./topologyPlanner";
+
+const encodeMpxs = (tier: Parameters<typeof tierSpec>[0]) => {
+  const s = tierSpec(tier);
+  return (s.width * s.height * s.frameRate) / 1e6;
+};
 
 // --- tier selection -------------------------------------------------------
 
@@ -40,10 +38,6 @@ assert.equal(tierForRenderedSize(640, 360, 1), "576p30");
 assert.equal(tierForRenderedSize(640, 360, 2), "720p60");
 // Someone watching fullscreen gets the top tier.
 assert.equal(tierForRenderedSize(1920, 1080, 1), "1080p60");
-// A tile that isn't laid out yet must not be read as "needs nothing",
-// otherwise it stays pinned at the worst tier once it becomes visible.
-assert.equal(tierForRenderedSize(0, 0, 1, "720p30"), "720p30");
-
 // Making a window small must never be read as "this person wants 15fps".
 // Frame rate is a response to pressure, not to tile size — so no size, however
 // tiny, selects a reduced-fps tier on its own.
@@ -52,50 +46,41 @@ for (const w of [40, 120, 320, 640]) {
   assert.ok(!t.endsWith("15"), `${w}px não deveria escolher um tier de 15fps (veio ${t})`);
 }
 
-// Hysteresis guards upgrades only. Current tier 720p30 is 1280 wide, so a tile
-// must clear 1280 * 1.25 = 1600 device px before it renegotiates upward.
-assert.equal(tierForRenderedSize(1500, 844, 1, "720p30"), "720p30", "não deve subir dentro da margem");
-assert.equal(tierForRenderedSize(1700, 956, 1, "720p30"), "1080p60", "deve subir quando cresce de verdade");
-// Downgrades are never damped — they always save resources immediately.
-assert.equal(tierForRenderedSize(320, 216, 1, "1080p60"), "576p30", "descida é imediata");
-
 // maxFps caps the pool: a 30fps share can never be assigned a 60fps tier.
-assert.equal(tierForRenderedSize(1920, 1080, 1, undefined, 30), "1080p30");
+assert.equal(tierForRenderedSize(1920, 1080, 1, 30), "1080p30");
 
 // The ladder must offer 60fps at every resolution someone can actually pick,
 // not only at 1080p. It used not to, and the consequence was silent: a
 // broadcaster who chose 720p60 was served 720p30 because that was the only
 // 720p tier in existence.
-assert.equal(tierForRenderedSize(1280, 720, 1, undefined, 60), "720p60");
-assert.equal(tierForRenderedSize(2560, 1440, 1, undefined, 60), "1440p60");
-assert.equal(tierForRenderedSize(2560, 1440, 1, undefined, 30), "1440p30");
+assert.equal(tierForRenderedSize(1280, 720, 1, 60), "720p60");
+assert.equal(tierForRenderedSize(2560, 1440, 1, 60), "1440p60");
+assert.equal(tierForRenderedSize(2560, 1440, 1, 30), "1440p30");
 // There is deliberately no 576p60: the floor is where every small tile lands,
 // and the resolution tie-break prefers the higher frame rate, so a 60fps rung
 // there would hand 60fps to a whole grid of thumbnails at once. Asking for
 // 576p at 60fps gets the resolution, at the frame rate the floor offers.
-assert.equal(tierForRenderedSize(1024, 576, 1, undefined, 60), "576p30");
+assert.equal(tierForRenderedSize(1024, 576, 1, 60), "576p30");
 
 // The paid dials are real rungs, not capture-only settings. The ladder used to
 // stop at 1440p60, so a 4K or 120 fps share was scaled and frame-dropped down to
 // it for every viewer.
-assert.equal(tierForRenderedSize(3840, 2160, 1, undefined, 60), "2160p60");
-assert.equal(tierForRenderedSize(3840, 2160, 1, undefined, 30), "2160p30");
-assert.equal(tierForRenderedSize(3840, 2160, 1, undefined, 120), "2160p120");
-assert.equal(tierForRenderedSize(2560, 1440, 1, undefined, 120), "1440p120");
-assert.equal(tierForRenderedSize(1920, 1080, 1, undefined, 120), "1080p120");
+assert.equal(tierForRenderedSize(3840, 2160, 1, 60), "2160p60");
+assert.equal(tierForRenderedSize(3840, 2160, 1, 30), "2160p30");
+assert.equal(tierForRenderedSize(3840, 2160, 1, 120), "2160p120");
+assert.equal(tierForRenderedSize(2560, 1440, 1, 120), "1440p120");
+assert.equal(tierForRenderedSize(1920, 1080, 1, 120), "1080p120");
 // A 240 fps dial is sent at the fastest rung there is.
-assert.equal(tierForRenderedSize(1920, 1080, 1, undefined, 240), "1080p120");
+assert.equal(tierForRenderedSize(1920, 1080, 1, 240), "1080p120");
 // No 720p120, for the same reason as no 576p60: medium tiles all land here.
-assert.equal(tierForRenderedSize(1280, 720, 1, undefined, MAX_TIER_FPS), "720p60");
+assert.equal(tierForRenderedSize(1280, 720, 1, MAX_TIER_FPS), "720p60");
 // And the grid floor stays at 30 even when viewers ask at the ladder's top fps.
-assert.equal(tierForRenderedSize(320, 216, 1, undefined, MAX_TIER_FPS), "576p30");
+assert.equal(tierForRenderedSize(320, 216, 1, MAX_TIER_FPS), "576p30");
 
 // --- ladder invariants ----------------------------------------------------
 
-// Both cost columns must fall monotonically down the ladder. Every "step down
-// one tier" in the app is an index walk, and the planner's "retry a tier
-// lower until the room fits" loop is only correct if a step down always frees
-// both bandwidth and CPU.
+// Both cost columns must fall monotonically down the ladder: a step down always
+// frees both bandwidth and CPU.
 //
 // One tie is allowed on the CPU column: 2160p30 and 1080p120 are exactly the
 // same pixels per second, so that one step frees bandwidth only. Bandwidth
@@ -114,16 +99,9 @@ for (let i = 1; i < TIERS.length; i += 1) {
 }
 
 // That ordering is by *cost*, and cost alone — 1440p30 sits below 1080p60 on
-// purpose. So walking the ladder down can walk resolution *up*, and anywhere
-// a step down is applied to a tier somebody actually asked for, the result
-// has to be clamped back under it (see planTopology's depth penalty). Without
-// the clamp, one depth penalty turned a 1080p60 viewer into "1440p30" — a
-// 2560-wide tier nobody can produce or receive — and the planner then charged
-// their relay 4500 kbps and 111 Mpx/s for a stream really costing 3000 and 62.
-// Step-then-clamp itself stopped being enough once the 4K/120 rungs arrived
-// (2160p60 stepped twice came out dearer than stepped once), so the planner
-// walks only the rungs under the request — stepDownUnder — and that is what
-// is pinned here.
+// purpose. So walking the ladder down can walk resolution *up*, and anywhere a
+// step down is applied to a tier somebody actually asked for it has to stay
+// under it: stepDownUnder walks only the rungs under the request.
 for (const start of TIERS) {
   let prevKbps = Infinity;
   let prevMpxs = Infinity;
@@ -196,214 +174,29 @@ assert.equal(
   Math.round(Math.min(4000, tierSpec("1080p30").baseKbps * 1.5))
 );
 
-// --- cost model -----------------------------------------------------------
-
-// Encode cost must fall much faster than bitrate as tiers drop - that gap is
-// why per-viewer tiering relieves the CPU wall harder than the link.
-const bitrateRatio = uploadKbps("1080p60", 1) / uploadKbps("576p15", 1);
-const encodeRatio = encodeMpxs("1080p60") / encodeMpxs("576p15");
-assert.ok(encodeRatio > bitrateRatio * 1.5, `encode ${encodeRatio} deveria cair muito mais que bitrate ${bitrateRatio}`);
-
-// Content multiplier is clamped: a momentarily static screen must not
-// convince the planner that capacity is unlimited.
-assert.ok(measureContentMultiplier(1, "1080p60") >= 0.1);
-assert.ok(measureContentMultiplier(999999, "576p15") <= 1.5);
+// --- scale ------------------------------------------------------------------
 
 // Downscaling never upscales a capture that is already small.
-assert.equal(scaleFactorFor("1080p60", 720), 1);
-assert.equal(scaleFactorFor("576p30", 1080), 1.88);
+assert.equal(scaleForHeight(1080, 1280, 720), 1);
+assert.equal(scaleForHeight(720, 1920, 0), 1, "captura de altura desconhecida");
+assert.equal(scaleForHeight(720, 1920, 1080), 1.5);
+// The exact size, and not 1.88, which makes 1021x574.
+assert.equal(scaleForHeight(576, 1920, 1080), 1.875);
 
-// --- topology planning ----------------------------------------------------
-
-const strongViewer = (id: string, wantTier: PlannerViewer["wantTier"]): PlannerViewer => ({
-  id,
-  uploadKbps: 25_000,
-  encodeMpxs: 400,
-  stableSeconds: 300,
-  eligibleRelay: true,
-  measured: true,
-  wantTier,
-});
-
-// A realistic 30-person room: 2 fullscreen, 5 medium, 22 grid tiles.
-const realisticRoom = (): PlannerViewer[] => [
-  ...Array.from({ length: 2 }, (_, i) => strongViewer(`fs${i}`, "1080p60")),
-  ...Array.from({ length: 5 }, (_, i) => strongViewer(`md${i}`, "720p30")),
-  ...Array.from({ length: 22 }, (_, i) => strongViewer(`gr${i}`, "576p30")),
-];
-
-// ~12 cores' worth of encode budget (see seedEncodeBudget). This used to be
-// 900 and no longer suffices for the room above: with the ladder's floor
-// raised to 576p, a grid thumbnail costs ~2.6x the encode it used to, and 22
-// of them is most of the bill.
-const desktop = {
-  id: "host",
-  uploadKbps: 100_000,
-  encodeMpxs: 1200,
-  stableSeconds: 999,
-  eligibleRelay: true,
-  measured: true,
-};
-
-// The headline claim: an ordinary desktop serves 30 people with NO cascade.
-assert.ok(fitsDirectMesh(desktop, realisticRoom(), 1.0), "desktop deveria caber em malha direta");
-const direct = planTopology(desktop, realisticRoom(), 1.0);
-assert.equal(direct.depth, 1, "sem cascata esperada");
-assert.deepEqual(direct.relays, [], "ninguém deveria retransmitir");
-assert.deepEqual(direct.unserved, []);
-
-// Everyone fullscreen is the case that genuinely needs help.
-const allFullscreen = Array.from({ length: 29 }, (_, i) => strongViewer(`v${i}`, "1080p60"));
-assert.ok(!fitsDirectMesh(desktop, allFullscreen, 1.0));
-const cascaded = planTopology(desktop, allFullscreen, 1.0);
-assert.ok(cascaded.depth > 1, "deveria escalar para cascata");
-assert.ok(cascaded.relays.length > 0);
-assert.deepEqual(cascaded.unserved, [], "ninguém pode ficar sem stream");
-
-// And nobody deeper in that tree is planned above what they asked for. Every
-// viewer here wants 1080p60, so no edge may carry a wider or faster tier —
-// the depth penalty is only ever allowed to take quality away.
-for (const edge of cascaded.edges) {
-  const spec = tierSpec(edge.tier);
-  assert.ok(
-    spec.width <= 1920 && spec.frameRate <= 60,
-    `aresta em profundidade ${edge.depth} recebeu ${edge.tier}, acima do que o viewer pediu`
-  );
-}
-
-// The bug that the first draft of this planner had: a host too weak to encode
-// the requested tier for ANYONE gave up and served nobody. The correct
-// behaviour is to drop the whole room a tier until it fits.
-const weakHost = {
-  id: "host",
-  uploadKbps: 20_000,
-  encodeMpxs: 150,
-  stableSeconds: 999,
-  eligibleRelay: false,
-  measured: true,
-};
-const degraded = planTopology(weakHost, realisticRoom(), 1.2);
-assert.deepEqual(degraded.unserved, [], "host fraco deve rebaixar a qualidade, não deixar ninguém sem stream");
-assert.ok(degraded.edges.length === 29, "todos os 29 espectadores precisam de uma aresta");
-
-// Static content is far cheaper, so the same weak host needs less help.
-const cheap = planTopology(weakHost, realisticRoom(), 0.12);
-const expensive = planTopology(weakHost, realisticRoom(), 1.2);
-assert.ok(
-  cheap.rootUploadKbps <= expensive.rootUploadKbps,
-  "conteúdo estático não pode custar mais que jogo"
-);
-
-// Ineligible relays (phones, on battery, never heard from) are never promoted.
-const phones: PlannerViewer[] = Array.from({ length: 29 }, (_, i) => ({
-  ...strongViewer(`p${i}`, "1080p60"),
-  eligibleRelay: false,
-}));
-const noRelayPlan = planTopology(desktop, phones, 1.0);
-assert.deepEqual(noRelayPlan.relays, [], "celular nunca deve virar relay");
-assert.deepEqual(noRelayPlan.unserved, [], "sem relays elegíveis, rebaixa em vez de falhar");
-
-// No relay may be handed an unbounded subtree. Cheap content used to make the
-// arithmetic conclude a single viewer could carry twenty-odd re-encodes, which
-// no browser survives — and when it stops surviving, every child goes black at
-// once. The root is deliberately exempt: it is the one node that chose to be
-// here and whose budget is genuinely measured.
-const cheapBigRoom = Array.from({ length: 40 }, (_, i) => strongViewer(`c${i}`, "576p30"));
-const capped = planTopology(
-  { ...desktop, uploadKbps: 6000, encodeMpxs: 200 },
-  cheapBigRoom,
-  0.12
-);
-const childCounts = new Map<string, number>();
-for (const edge of capped.edges) {
-  if (edge.depth <= 1) continue;
-  childCounts.set(edge.from, (childCounts.get(edge.from) ?? 0) + 1);
-}
-assert.ok(childCounts.size > 0, "o cenário precisa de fato promover relays");
-for (const [relayId, count] of childCounts) {
-  assert.ok(count <= 4, `relay ${relayId} recebeu ${count} filhos, acima do teto`);
-}
-assert.deepEqual(capped.unserved, [], "o teto não pode deixar ninguém sem stream");
-
-// An unmeasured node's self-reported budget is a default, not an observation,
-// so it must buy strictly less than the same numbers backed by evidence.
-const unmeasuredRoom = Array.from({ length: 29 }, (_, i) => ({
-  ...strongViewer(`u${i}`, "1080p60"),
-  measured: false,
-}));
-const measuredRoom = Array.from({ length: 29 }, (_, i) => strongViewer(`m${i}`, "1080p60"));
-const weakRoot = { ...desktop, uploadKbps: 30_000, encodeMpxs: 300 };
-const unmeasuredPlan = planTopology(weakRoot, unmeasuredRoom, 1.0);
-const measuredPlan = planTopology(weakRoot, measuredRoom, 1.0);
-assert.ok(
-  unmeasuredPlan.globalDowngrade >= measuredPlan.globalDowngrade,
-  "capacidade presumida não pode render um plano melhor que capacidade medida"
-);
-assert.deepEqual(unmeasuredPlan.unserved, [], "mesmo descontado, ninguém pode ficar sem stream");
-
-// Re-planning with the current shape fed back must not shuffle people between
-// parents for no reason. Without this the tree was redrawn every six seconds —
-// each move costing the viewer a torn-down connection and a blank tile — on
-// nothing more than a jitter in someone's reported capacity.
-const churnRoom = Array.from({ length: 25 }, (_, i) => strongViewer(`k${i}`, "1080p60"));
-const first = planTopology(desktop, churnRoom, 1.0);
-assert.ok(first.depth > 1, "o cenário precisa de fato produzir uma cascata");
-const before = parentsOf(first);
-
-// The jitter a real room produces between passes: capacity reports land every
-// few seconds and never repeat a number exactly. Re-planning on identical
-// input would be stable by accident, so the input has to move for this to test
-// anything.
-const jittered = churnRoom.map((v, i) => ({
-  ...v,
-  uploadKbps: v.uploadKbps + ((i % 5) - 2) * 500,
-  encodeMpxs: v.encodeMpxs + ((i % 3) - 1) * 10,
-}));
-
-// Without the hint, that jitter is free to reshuffle the tree.
-const blind = parentsOf(planTopology(desktop, jittered, 1.0));
-const blindMoves = [...blind].filter(([child, parent]) => before.get(child) !== parent).length;
-
-// With it, nobody moves who did not have to.
-const sticky = parentsOf(planTopology(desktop, jittered, 1.0, before));
-const stickyMoves = [...sticky].filter(([child, parent]) => before.get(child) !== parent).length;
-
-assert.ok(
-  blindMoves > 0,
-  "o cenário precisa de fato provocar reparentamento quando não há histerese"
-);
-assert.ok(
-  stickyMoves < blindMoves,
-  `histerese deveria reduzir reparentamentos (${stickyMoves} vs ${blindMoves})`
-);
-
-// Depth is capped: quality is sacrificed before latency is.
-assert.ok(cascaded.depth <= 3, "profundidade não pode passar de 3");
-
-// A deeper hop must be served at a lower tier than a direct one.
-for (const edge of cascaded.edges) {
-  if (edge.depth > 1) {
-    const directEdge = cascaded.edges.find((e) => e.depth === 1);
-    if (directEdge) {
-      assert.ok(
-        stepDown(directEdge.tier, edge.depth - 1) === edge.tier || edge.tier !== directEdge.tier,
-        "saltos profundos devem entregar tier menor"
-      );
-    }
+// A hardware H264 encoder refuses odd sides, so the picture always comes out even,
+// on every screen there is and on whatever size a window happens to be.
+for (const [width, height] of [
+  [1920, 1080], [2560, 1440], [3840, 2160], [1366, 768], [1536, 864], [1600, 900], [1920, 1200],
+  [1280, 720], [1280, 800], [1440, 900], [1680, 1050], [2560, 1080], [3440, 1440], [1920, 1024],
+  [1904, 1048], [1357, 763], [801, 1203],
+]) {
+  for (const target of [2160, 1440, 1080, 720, 576, 432, 360]) {
+    const scale = scaleForHeight(target, width, height);
+    const out = [Math.round(width / scale), Math.round(height / scale)];
+    if (scale === 1) continue;
+    assert.ok(out[0] % 2 === 0 && out[1] % 2 === 0, `${width}x${height} para ${target}: ${out} com ${scale}`);
+    assert.ok(out[1] <= target && out[1] >= target - 24, `${width}x${height} para ${target}: ${out}`);
   }
 }
-
-// --- congestion clamp -----------------------------------------------------
-
-// A healthy link gets exactly what the tier costs — no headroom tax.
-assert.equal(congestedBitrateKbps(5600, 1), 5600);
-// A congested link is cut, but never below the point where the picture stops
-// being video at all.
-assert.equal(congestedBitrateKbps(5600, 0.5), 2800);
-assert.equal(congestedBitrateKbps(5600, 0.02), 500, "congestionamento pesado para no piso");
-// And the floor must not become a *ceiling lift*: a tier that deliberately
-// costs less than the floor is never pushed above its own budget.
-assert.equal(congestedBitrateKbps(150, 0.1), 150, "tier barato nunca sobe por causa do piso");
-assert.equal(congestedBitrateKbps(150, 1), 150);
 
 console.log("meshQuality: ok");

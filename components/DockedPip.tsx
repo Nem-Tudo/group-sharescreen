@@ -12,6 +12,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { callPathFor, useCallSession } from "@/lib/callSession";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { qualityNegotiator, type QualityChannel } from "@/lib/qualityNegotiation";
+import { retainStream } from "@/lib/streamUse";
 import { speakingDetector } from "@/lib/speakingDetector";
 import { useT } from "@/lib/useI18n";
 
@@ -357,27 +358,15 @@ export function DockedPip({
   }, [stream]);
 
   // The room's tile for this transmission is in the parked room and so reports
-  // itself hidden, which asks the sender for their smallest picture. This box
-  // is on screen, so it asks for its own size instead — and gives the request
-  // back when it stops showing that transmission.
+  // itself hidden, which would stop the sender encoding for us. This box is on
+  // screen, so it keeps the frames coming (see lib/streamUse) and asks for its
+  // own size instead.
   const channel = source?.channel;
   const peerId = source?.peerId ?? null;
-  // Set by the first cleanup to run on unmount (cleanups run in declaration
-  // order), for the one below: unmounting means the room is back on screen,
-  // and its tiles say for themselves whether they are seen — walking the
-  // request back here could leave a visible tile asking for the smallest
-  // picture.
-  const unmountingRef = useRef(false);
-  useEffect(() => {
-    unmountingRef.current = false;
-    return () => {
-      unmountingRef.current = true;
-    };
-  }, []);
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !channel || !peerId) return;
-    qualityNegotiator.setHidden(channel, peerId, false);
+    if (!video || !channel || !peerId || !stream) return;
+    const release = retainStream(stream);
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
       if (box) qualityNegotiator.report(channel, peerId, Math.round(box.width), Math.round(box.height));
@@ -385,9 +374,9 @@ export function DockedPip({
     observer.observe(video);
     return () => {
       observer.disconnect();
-      if (!unmountingRef.current) qualityNegotiator.setHidden(channel, peerId, true);
+      release();
     };
-  }, [channel, peerId, nativePip]);
+  }, [channel, peerId, stream, nativePip]);
 
   useEffect(() => {
     const video = videoRef.current;

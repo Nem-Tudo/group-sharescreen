@@ -12,11 +12,8 @@
 // Cost: up to MAX_AGE_MS / STAGGER_MS encoders per buffered stream, so the
 // bitrate is capped to keep that affordable.
 
-import { isMemoryGuardEnabled, noteClipBufferTrimmed } from "./memoryGuard";
-
 export const CLIP_MS = 30_000;
-const DEFAULT_STAGGER_MS = 10_000;
-const GUARD_STAGGER_MS = 15_000;
+const STAGGER_MS = 10_000;
 const VIDEO_BITS_PER_SECOND = 2_500_000;
 
 type Segment = {
@@ -64,10 +61,8 @@ export class ClipBuffer {
   private readonly maxAgeMs: number;
 
   constructor(private readonly stream: MediaStream) {
-    const guard = isMemoryGuardEnabled();
-    this.staggerMs = guard ? GUARD_STAGGER_MS : DEFAULT_STAGGER_MS;
+    this.staggerMs = STAGGER_MS;
     this.maxAgeMs = CLIP_MS + this.staggerMs;
-    if (guard) noteClipBufferTrimmed();
     this.mimeType = pickMimeType(stream.getAudioTracks().length > 0);
     this.startSegment();
     this.timer = setInterval(() => {

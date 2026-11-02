@@ -93,24 +93,23 @@ const minted = {
   credential: "x",
 };
 withOwn.setOwnIceServers([minted]);
-assert.deepEqual(withOwn.iceConfigFor(false).iceServers.slice(1), [minted]);
+assert.deepEqual(withOwn.iceConfigFor(false).iceServers.slice(1), [
+  { ...minted, urls: ["turn:vps.example.com:3478?transport=tcp"] },
+]);
 assert.equal(withOwn.turnProvider("turn:vps.example.com:3478?transport=tcp"), "own");
 
-// Experiment "own-turn"'s TCP variants keep only TCP/TLS URLs of the VPS, and
-// leave an entry that has none as it was rather than dropping the relay.
+// Only TCP/TLS URLs of the VPS are used, and an entry that has none is left as
+// it was rather than dropping the relay.
 assert.deepEqual(withOwn.tcpOnlyServers([minted])[0].urls, ["turn:vps.example.com:3478?transport=tcp"]);
 assert.deepEqual(
   withOwn.tcpOnlyServers([{ urls: ["turn:a:3478?transport=udp", "turns:a:443?transport=tcp"] }])[0].urls,
   ["turns:a:443?transport=tcp"]
 );
 assert.deepEqual(withOwn.tcpOnlyServers([{ urls: "turn:a:3478" }])[0].urls, "turn:a:3478");
-const { setOwnTurnVariant } = await import("./ownTurn.ts");
-setOwnTurnVariant("tcp");
 assert.deepEqual(allUrls(withOwn.iceConfigFor(false)), [
   "stun:stun.l.google.com:19302",
   "turn:vps.example.com:3478?transport=tcp",
 ]);
-setOwnTurnVariant(null);
 
 // Without Pro: STUN only, whatever is loaded, and relay can never be forced.
 const locked = await loadModule("turn:vps.example.com:3478", "locked");

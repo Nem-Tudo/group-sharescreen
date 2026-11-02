@@ -1,19 +1,7 @@
 // Shared video-quality model: the single source of truth for what a given
-// quality tier costs, used by three separate consumers that must agree or
-// the topology planner's arithmetic silently drifts from what the encoder
-// actually does:
-//   - useRoomMedia's per-peer sender configuration (what we actually encode)
-//   - capacity.ts (how much of a node's budget a stream consumes)
-//   - topologyPlanner.ts (whether a node can afford one more child)
-//
-// Two independent costs are tracked per tier, because in a mesh they run out
-// at different times and for different reasons:
-//   - upload, in kbps — the link
-//   - encode, in megapixels/second — the CPU
-// A 2-core laptop hits the encode wall long before its fibre link fills up;
-// a desktop on ADSL hits the opposite. Modelling only bandwidth (as the old
-// BITRATE_KBPS/THROTTLE_* tables did) is what let the app promise 1080p60 to
-// a room it could never encode for.
+// quality tier is and what it may spend, used by what we actually encode
+// (lib/peerQualityController) and by what a viewer asks for
+// (lib/qualityNegotiation).
 
 export type QualityTier =
   | "2160p120"
@@ -35,9 +23,7 @@ export interface TierSpec {
   width: number;
   height: number;
   frameRate: number;
-  // What this tier costs *on average* for motion-heavy content (video/game),
-  // which is what the topology planner budgets against — real cost is this
-  // times the measured content multiplier (see contentMultiplier below).
+  // What this tier costs *on average* for motion-heavy content (video/game).
   //
   // It is deliberately NOT what the encoder is capped at. An average makes a
   // terrible ceiling: every busy moment (a scroll, a scene cut, a camera pan)
@@ -47,11 +33,9 @@ export interface TierSpec {
   baseKbps: number;
 }
 
-// Ordered best-to-worst by *cost*, and both cost columns below fall
-// monotonically down the list. Every "step down one tier" in this app is an
-// index walk over this array, so that ordering is load-bearing: a step down
-// must always free both bandwidth and CPU, or the planner's "retry a tier
-// lower until it fits" loop would sometimes make things worse.
+// Ordered best-to-worst by *cost*, and both bitrate and pixels per second fall
+// monotonically down the list, so a step down always frees both bandwidth and
+// CPU.
 //
 // That is why 1440p30 sits *below* 1080p60 rather than next to 1440p60. The
 // two are genuinely incomparable as quality — 2K30 is better for text, 1080p60
@@ -88,12 +72,6 @@ export const TIERS: readonly TierSpec[] = [
 // wasted one. So the ladder bottoms out at 1024x576 and gives up frames
 // (576p15) rather than pixels once there is nowhere else to go.
 //
-// Note the cost of that floor. A grid thumbnail now lands on 576p30 instead
-// of the much cheaper rungs the ladder used to end with: ~2x the bitrate and
-// ~2.6x the encode for the same tile. It is a real bill, paid on purpose, and
-// it moves the point at which a big room needs a cascade or a global
-// downgrade down to a stronger machine than before.
-//
 // There is deliberately no 576p60. Every other resolution on the ladder has a
 // 60fps rung, but this one is where *every* small tile lands, and
 // tierForRenderedSize breaks resolution ties by preferring the higher frame
@@ -118,12 +96,6 @@ export const WORST_TIER = TIERS[TIERS.length - 1].tier;
 /** The highest frame rate any rung sends — what a viewer's request allows at most. */
 export const MAX_TIER_FPS = Math.max(...TIERS.map((t) => t.frameRate));
 
-/** Steps `tier` down by `steps` places, clamped at the worst tier. */
-export function stepDown(tier: QualityTier, steps: number): QualityTier {
-  if (steps <= 0) return tier;
-  return TIERS[Math.min(tierIndex(tier) + steps, TIERS.length - 1)].tier;
-}
-
 /**
  * Steps `tier` down by `steps` places among only the rungs that fit under it —
  * no wider and no faster. This is what "serve this viewer N steps worse" has
@@ -141,76 +113,9 @@ export function stepDownUnder(tier: QualityTier, steps: number): QualityTier {
   return pool[Math.min(Math.max(start, 0) + Math.max(steps, 0), pool.length - 1)].tier;
 }
 
-/** Steps `tier` up by `steps` places, clamped at the best tier. */
-export function stepUp(tier: QualityTier, steps: number): QualityTier {
-  if (steps <= 0) return tier;
-  return TIERS[Math.max(tierIndex(tier) - steps, 0)].tier;
-}
-
-/** The lower (worse) of two tiers — used when several constraints each cap quality. */
-export function minTier(a: QualityTier, b: QualityTier): QualityTier {
-  return tierIndex(a) >= tierIndex(b) ? a : b;
-}
-
-// Encode cost proxy: pixels per second. Encoder CPU tracks this far better
-// than it tracks bitrate — the bottom of the ladder is ~25x cheaper to encode
-// than the top even though it is only ~15x cheaper in bits. That gap is
-// exactly why per-viewer tiering relieves the CPU wall harder than it
-// relieves the link.
-export function encodeMpxs(tier: QualityTier): number {
-  const s = tierSpec(tier);
-  return (s.width * s.height * s.frameRate) / 1e6;
-}
-
-// How expensive the *content* is, relative to motion-heavy video. The old
-// preset system assumed every "1080p60" costs the same 5 Mbps; in reality a
-// static IDE costs about an eighth of a 60fps game at the identical tier.
-// Encoding a still screen is nearly free because the encoder simply emits
-// almost nothing when nothing changes.
-export type ContentProfile = "static" | "slides" | "browsing" | "video" | "game";
-
-const CONTENT_MULTIPLIER: Record<ContentProfile, number> = {
-  static: 0.12,
-  slides: 0.25,
-  browsing: 0.5,
-  video: 1.0,
-  game: 1.2,
-};
-
-export function contentMultiplier(profile: ContentProfile): number {
-  return CONTENT_MULTIPLIER[profile];
-}
-
-/**
- * Upload cost of serving one viewer at `tier`, in kbps.
- *
- * `measuredMultiplier` should come from real encoder output when available
- * (see measureContentMultiplier) rather than the ContentProfile guess — the
- * guess exists only to seed the very first seconds of a share, before any
- * outbound-rtp stats have accumulated.
- */
-export function uploadKbps(tier: QualityTier, measuredMultiplier: number): number {
-  return tierSpec(tier).baseKbps * measuredMultiplier;
-}
-
-/**
- * Derives the content multiplier from what the encoder actually produced:
- * observed bitrate over the bitrate this tier would cost for motion content.
- * Clamped because a momentarily-idle screen would otherwise drive this to ~0
- * and make the planner believe a node can serve unlimited children, right up
- * until the content moves again and everything collapses at once.
- */
-export function measureContentMultiplier(observedKbps: number, tier: QualityTier): number {
-  const base = tierSpec(tier).baseKbps;
-  if (base <= 0 || observedKbps <= 0) return 1;
-  return Math.min(1.5, Math.max(0.1, observedKbps / base));
-}
-
-// Hysteresis band for tile-size-driven tier selection. Without it a tile
-// sitting exactly on a tier boundary (a resizing grid, a CSS transition)
-// renegotiates every few frames, and each renegotiation is a setParameters
-// call plus a signalling round trip.
-const UPGRADE_MARGIN = 1.25;
+// A tile sitting exactly on a boundary (a resizing grid, a CSS transition)
+// would otherwise renegotiate every few frames; qualityNegotiation's timers
+// are what stop that, so that this can stay a plain answer to a plain question.
 
 /**
  * Picks the tier for a stream rendered into `renderedWidth` x `renderedHeight`
@@ -221,26 +126,20 @@ const UPGRADE_MARGIN = 1.25;
  * `devicePixelRatio` matters: a 320px tile on a 2x display genuinely needs
  * 640 device pixels to avoid looking soft, so ignoring DPR would make every
  * retina viewer's video visibly blurry.
- *
- * `currentTier`, when supplied, applies hysteresis: we drop to a lower tier
- * as soon as it suffices, but only climb when the tile is comfortably past
- * the next tier's width, never on a one-pixel wobble.
  */
 export function tierForRenderedSize(
   renderedWidth: number,
   renderedHeight: number,
   devicePixelRatio: number,
-  currentTier?: QualityTier,
   maxFps = 60
 ): QualityTier {
   const dpr = Math.max(1, Math.min(3, devicePixelRatio || 1));
   const needW = renderedWidth * dpr;
   const needH = renderedHeight * dpr;
 
-  // A tile that isn't laid out yet (0x0, display:none, off-screen) must not
-  // be read as "needs nothing" — that would pin it to the worst tier and it
-  // would stay there after becoming visible. Callers skip reporting instead.
-  if (needW <= 0 || needH <= 0) return currentTier ?? WORST_TIER;
+  // A tile that isn't laid out yet (0x0, display:none, off-screen) tells us
+  // nothing; callers skip reporting instead of asking this.
+  if (needW <= 0 || needH <= 0) return WORST_TIER;
 
   const eligible = TIERS.filter((t) => t.frameRate <= maxFps);
   const pool = eligible.length > 0 ? eligible : TIERS;
@@ -252,9 +151,8 @@ export function tierForRenderedSize(
   // hand a small tile the reduced-fps floor, because 15fps sorts below 30fps at identical
   // resolution. Nobody asked for choppy video by making their window small:
   // tile size is evidence about how many *pixels* are useful and says nothing
-  // about frame rate. Dropping frames is a response to pressure — congestion
-  // (peerQualityController) or a depth penalty (topologyPlanner) — and those
-  // reach the lower-fps tiers by stepping down explicitly.
+  // about frame rate. Dropping frames is a response to pressure, and pressure
+  // has its own answers (see lib/sendAdaptation).
   const covering = pool.filter((t) => t.width >= needW && t.height >= needH);
   let chosen = pool[0].tier;
   if (covering.length > 0) {
@@ -267,20 +165,6 @@ export function tierForRenderedSize(
     chosen = best.tier;
   }
 
-  if (!currentTier) return chosen;
-
-  // Hysteresis only guards *upgrades*. Downgrading immediately is always
-  // safe and always saves resources, so it is deliberately not damped.
-  //
-  // The comparison is against the tier we are already on, not the one being
-  // proposed: the question is "has this tile outgrown what it currently
-  // gets?", and requiring it to exceed the current tier's own width by a
-  // clear margin is what stops a slowly-dragged window from renegotiating at
-  // every boundary crossing.
-  if (tierIndex(chosen) < tierIndex(currentTier)) {
-    const current = tierSpec(currentTier);
-    if (needW <= current.width * UPGRADE_MARGIN) return currentTier;
-  }
   return chosen;
 }
 
@@ -310,7 +194,7 @@ export function capTier(requested: QualityTier, ceiling: QualityTier): QualityTi
 // scroll and scene change is clipped — and under "maintain-resolution" (text
 // mode) that clipping comes out as dropped frames, i.e. a share that looks
 // frozen rather than merely soft.
-const CEILING_HEADROOM = 1.5;
+const CEILING_HEADROOM = 2;
 
 // The rung the bitrate dial is scaled against: a tier costing this much gets
 // the whole dial, cheaper ones a proportional share. Pinned to 1440p60, the
@@ -340,40 +224,28 @@ export function encoderCeilingKbps(tier: QualityTier, dialCeilingKbps: number): 
   return Math.round(Math.min(dialCeilingKbps, generous));
 }
 
-/**
- * scaleResolutionDownBy needed to get from the captured track's height down
- * to `tier`'s height. WebRTC expresses per-sender downscaling as a divisor,
- * not a target size, so this is what actually applies a tier to one peer.
- */
-export function scaleFactorFor(tier: QualityTier, captureHeight: number): number {
-  const target = tierSpec(tier).height;
-  if (!captureHeight || captureHeight <= target) return 1;
-  // Clamped to 1 so a capture smaller than the tier never *upscales*, and
-  // rounded to 2dp because browsers reject absurdly precise divisors.
-  return Math.max(1, Math.round((captureHeight / target) * 100) / 100);
-}
-
-// Absolute bitrate floor for a congested link, on top of the proportional
-// MIN_RATIO in peerQualityController. A ratio alone is not enough of a
-// guard: a share of a cheap tier can still be a genuinely unusable picture —
-// a few hundred kbps at the floor resolution is not video, it is a slideshow
-// of artefacts, and under "maintain-resolution" (text mode) that shortfall
-// comes out as dropped frames rather than blur, i.e. a frozen-looking share.
-// Below this there is nothing worth sending, so stop backing off and let
-// frames drop instead. Raised alongside the 576p floor: the number has to
-// mean "enough bits for the smallest picture we are willing to send", and
-// that picture got bigger.
-const MIN_KBPS = 500;
+// How far below the asked-for height to look for a size that comes out even.
+const EVEN_SEARCH_STEPS = 12;
 
 /**
- * The bitrate to actually request for one peer, given what its tier costs and
- * how much of that its link is currently carrying.
+ * scaleResolutionDownBy needed to get from the capture down to `height`. WebRTC
+ * expresses per-sender downscaling as a divisor, not a target size, so this is what
+ * actually applies a tier to one peer.
  *
- * The clamp is two-sided on purpose: the floor stops a congested peer from
- * being driven down to unusable video, but must never *raise* a cheap tier
- * above its own budget — a stream asked for more kbps than its tier costs in
- * the first place would spend bits the tier deliberately does not want.
+ * The picture has to come out with even sides. A hardware H264 encoder refuses
+ * anything else ("Hardware encoder initialization failed"), and the connection falls
+ * to software without a word: 1.88, as this used to round to, makes 1021x574 out of
+ * a 1080p screen, so every small tile of every share on a machine with a GPU was
+ * paying for a software encode of its own. 1.875 makes 1024x576.
  */
-export function congestedBitrateKbps(tierKbps: number, ratio: number): number {
-  return Math.round(Math.max(Math.min(MIN_KBPS, tierKbps), tierKbps * ratio));
+export function scaleForHeight(height: number, captureWidth: number, captureHeight: number): number {
+  // Clamped to 1 so a capture smaller than the tier never *upscales*.
+  if (!captureHeight || captureHeight <= height) return 1;
+  const asked = height - (height % 2);
+  for (let step = 0; step < EVEN_SEARCH_STEPS; step += 1) {
+    const scale = Math.round((captureHeight / (asked - step * 2)) * 1e6) / 1e6;
+    const even = (side: number) => Math.round(side / scale) % 2 === 0;
+    if (even(captureWidth) && even(captureHeight)) return Math.max(1, scale);
+  }
+  return Math.max(1, Math.round((captureHeight / asked) * 1e6) / 1e6);
 }

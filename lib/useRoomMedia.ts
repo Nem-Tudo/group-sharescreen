@@ -60,7 +60,6 @@ import {
 import {
   BEST_TIER,
   MAX_TIER_FPS,
-  WORST_TIER,
   capTier,
   tierForRenderedSize,
   type QualityTier,
@@ -101,22 +100,16 @@ import {
   onExtraPhonePaired,
   releaseExtraPhoneCamera,
 } from "./extraPhoneCameras";
-import {
-  PeerQualityRegistry,
-  contentHintForDegradation,
-  refreshRelayCaps,
-  setRelayCapExempt,
-  type DegradationMode,
-} from "./peerQualityController";
+import { PeerQualityRegistry, setRelayCapExempt, type DegradationMode } from "./peerQualityController";
 import { qualityNegotiator, type QualityChannel } from "./qualityNegotiation";
 import { connectionRegistry } from "./connectionRegistry";
 import { connectionDiagLink } from "./connectionDiagLink";
 import { setTelemetryShareSettings, startConnectionTelemetry } from "./connectionTelemetry";
-import { OWN_TURN_FEATURE, setOwnTurnVariant } from "./ownTurn";
-import { useMeshCapacity, useMeshTopology, type PeerCapacity } from "./useMeshTopology";
-import { RelayManager, RELAY_ENABLED, type RelayChild } from "./relayLink";
+import { mediaStats, type CapacitySample } from "./mediaStats";
 import {
   applyVideoCodecPreferences,
+  contentHintForShare,
+  stillScreenFloor,
   videoCodecOrder,
   type VideoCodecOrder,
 } from "./videoCodecPreferences";
@@ -129,40 +122,11 @@ import {
 } from "./androidScreenCapture";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
-import { getDesktopBridge, isDesktopApp } from "./desktop";
+import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
-import { setStreamPerfEnabled, STREAM_PERF_EVENTS, STREAM_PERF_FEATURE } from "./streamPerf";
-import {
-  hasWeakStruggle,
-  isWeakMachine,
-  onWeakStruggle,
-  setSqH264QpApplied,
-  setSqMotionHoldEnabled,
-  setSqNativeKeyEnabled,
-  setSqRecvDropsEnabled,
-  setSqTracker,
-  setSqWeakSenderEnabled,
-  SQ_H264_QP_FEATURE,
-  SQ_MOTION_HOLD_FEATURE,
-  SQ_NATIVE_KEY_FEATURE,
-  SQ_RECV_DROPS_FEATURE,
-  SQ_WEAK_SENDER_FEATURE,
-} from "./streamQuality";
-import {
-  MEMORY_GUARD_FEATURE,
-  releasePeerConnection,
-  sampleHeapMemory,
-  setMemoryGuardEnabled,
-} from "./memoryGuard";
-import { isH264Hardware, SCREEN_CODEC_EVENTS, SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
-import { CONGESTION_RECOVER_FEATURE, setCongestionRecoverEnabled } from "./congestionRecover";
-import {
-  applyReceiveCodecPreferences,
-  isReceiveCodecEligible,
-  RECEIVE_CODEC_FEATURE,
-  setReceiveCodecEnabled,
-} from "./receiveCodec";
+import { CLASSIC_SEND_FEATURE, isClassicSend, setClassicSend } from "./classicSend";
+import { releasePeerConnection } from "./peerConnectionRelease";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
   acquirePhoneCamera,
@@ -223,7 +187,6 @@ import {
   hasNativeVideoBridge,
   nativeVideoPeerConfig,
   nativeVideoSourceFor,
-  passThroughSender,
   probeNativeVideo,
   startNativeVideo,
   type NativeVideoMethod,
@@ -257,12 +220,6 @@ type SignalData = {
   // from the size it renders our video at (see qualityNegotiation.ts). The
   // signalling server relays `data` opaquely, so this kind needed no backend
   // change to exist.
-  // "capacity" is a peer advertising what it could carry if it were asked to
-  // relay. Collected continuously so that, on the rare occasion the room
-  // stops fitting in a direct mesh, the plan is built from measurements that
-  // already exist rather than from a scramble of probes at the worst moment.
-  // "relay-assign" is the broadcaster telling us to forward what we are
-  // receiving from them on to a list of other viewers (see relayLink.ts).
   // "reconnect-request" is a viewer telling us our sendPC to them is dead on
   // their end, even if it looks fine on ours — see requestReconnect's doc
   // comment.
@@ -279,9 +236,6 @@ type SignalData = {
     | "resume"
     | "peer-left"
     | "quality"
-    | "capacity"
-    | "relay-assign"
-    | "relay-nack"
     | "reconnect-request"
     | "diag-request"
     | "diag"
@@ -291,9 +245,6 @@ type SignalData = {
   // Present only on "route".
   // Named for when only Cloudflare's relay was capped; now means any TURN relay.
   cloudflare?: boolean;
-  // Present only on "route": whose TURN server that relay is, where known —
-  // experiment "own-turn" caps the VPS alone (see lib/ownTurn).
-  turnProvider?: "cloudflare" | "own" | null;
   sdp?: RTCSessionDescriptionInit;
   // Set on an offer that renegotiates an *existing* connection with fresh ICE
   // credentials rather than opening a new session (see openSendPC's
@@ -305,38 +256,13 @@ type SignalData = {
   iceRestart?: boolean;
   candidate?: RTCIceCandidateInit;
   tier?: QualityTier;
-  uploadKbps?: number;
-  encodeMpxs?: number;
-  eligibleRelay?: boolean;
-  // Whether uploadKbps/encodeMpxs above were observed or assumed — see
-  // PlannerNode.measured in topologyPlanner. Absent from an older client's
-  // report and read as "assumed", which is both conservative and accurate.
-  measured?: boolean;
-  // Set on a "stop" that is a change of route rather than the end of a
-  // transmission: the sender is handing this viewer to someone else and
-  // another offer is already on its way. The viewer keeps the tile as a
-  // reconnecting placeholder instead of clearing it, which is the difference
-  // between a brief flicker and the stream appearing to have ended.
-  reparenting?: boolean;
-  // Set on a "resume" that is a repair rather than a request: the viewer's
-  // stream never arrived and its watchdog is asking to be served directly (see
-  // RESUME_WATCHDOG_MS). The broadcaster answers it the same way either way,
-  // and additionally stops routing that viewer through a relay for a while —
-  // see relayOptOut, and why a person merely clicking "Retomar transmissão"
-  // must *not* trigger that. Absent from an older client's resume and from a
-  // deliberate one, both of which are exactly the "not a repair" case.
-  recovery?: boolean;
-  // Present only on relayed traffic: who originally produced this stream, as
-  // opposed to who forwarded it. The receiving side files the stream under
-  // this so a relayed viewer still sees the real broadcaster's name on the
-  // tile rather than whoever happened to relay it.
+  // Present only on "quality": this viewer is not looking at us, so nothing
+  // needs encoding for them until they say otherwise (see
+  // qualityNegotiation). A broadcaster that does not know it reads the tier
+  // alone, which is the smallest there is.
+  idle?: boolean;
+  // Only on "diag" and "diag-request" nowadays: whose picture they are about.
   originId?: string;
-  children?: RelayChild[];
-  // Present only on "relay-assign" — the origin's own content-type pick
-  // (see QualityPreset.degradation), so the relay re-encodes with the same
-  // codec/degradationPreference choice the origin made instead of always
-  // falling back to RelayLink's own "text" default.
-  degradation?: DegradationMode;
 };
 
 // Mesh P2P means whoever shares their screen uploads one full encode per
@@ -370,10 +296,9 @@ type QualityPreset = {
   // A viewer asking for more than this is capped; a viewer asking for less
   // gets less. Nobody is served above it, so the dials still mean something.
   ceilingTier: QualityTier;
-  // "text" biases the encoder towards a sharp picture and lets frame rate
-  // fall; "motion" does the reverse. Getting this backwards is what turns a
-  // 60fps share into a slideshow — see degradationPreference in
-  // peerQualityController.
+  // What to give up first when something runs short: "text" keeps the picture
+  // sharp and lets frame rate fall; "motion" does the reverse. See
+  // lib/sendAdaptation.
   degradation: DegradationMode;
   // When false ("smart quality" off) every viewer is pinned to ceilingTier
   // and their size-based requests are ignored — the broadcaster's pick wins
@@ -409,10 +334,14 @@ const RESOLUTION_DIMENSIONS: Record<ShareResolution, { width: number; height: nu
 //
 // "ultra" and "máximo" also used to be the identical tier, i.e. the same
 // setting listed twice under two different promises.
+//
+// "alto", the default, is 6 Mbps because H264 needs it: a 1080p video goes from 39.3 dB
+// at 4 Mbps to 42.6 at 6, for 7% more CPU, and the estimator holds it to what the link
+// carries either way.
 const BITRATE_CEILING_KBPS: Record<ShareBitrate, number> = {
   low: 700,
   medium: 2000,
-  high: 4000,
+  high: 6000,
   ultra: 8000,
   maximo: 16000,
   extremo: 32000,
@@ -432,7 +361,7 @@ const BITRATE_CEILING_KBPS: Record<ShareBitrate, number> = {
 // its source hands it.
 export function ceilingTierFor(resolution: ShareResolution, fps: number): QualityTier {
   const dims = RESOLUTION_DIMENSIONS[resolution];
-  return tierForRenderedSize(dims.width, dims.height, 1, undefined, Math.max(30, fps));
+  return tierForRenderedSize(dims.width, dims.height, 1, Math.max(30, fps));
 }
 
 // What a capture asks for: the picked resolution and fps, the fps held to the
@@ -466,8 +395,7 @@ export function captureConstraints(
 // viewer renders the video, and how expensive the content really is. They
 // also forced a 1080p share down to the bottom of the ladder at 14+ peers,
 // which made the stated goal of 1080p in a large room unreachable by
-// construction. Both inputs are now measured — see videoQuality, mediaStats
-// and topologyPlanner.
+// construction. Both inputs are now measured — see videoQuality and mediaStats.
 
 function getPeerCount() {
   return signalingClient.state.peers.length;
@@ -531,7 +459,7 @@ export const SHARE_PROFILE_OPTIONS: {
 export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; feature?: Feature }[] = [
   { value: "low", get label() { return translate("useRoomMedia.lowBitrate700Kbps"); } },
   { value: "medium", get label() { return translate("useRoomMedia.mediumBitrate2Mbps"); } },
-  { value: "high", get label() { return translate("useRoomMedia.highBitrate4Mbps"); } },
+  { value: "high", get label() { return translate("useRoomMedia.highBitrate6Mbps"); } },
   { value: "ultra", get label() { return translate("useRoomMedia.ultraBitrate8Mbps"); } },
   { value: "maximo", get label() { return translate("useRoomMedia.maximumBitrate16Mbps"); }, feature: "bitrate_maximo" },
   // Same key as "máximo" above, for the same reason 240 fps shares fps_120:
@@ -629,28 +557,14 @@ const RECV_RECOVERY_TIMEOUT_MS = 9000;
 // with the person watching it unable to do a single thing about it. The
 // signalling socket drops outright while reconnecting (see signalingClient's
 // rawSend), the server drops over its rate limit and when a target's pending
-// queue overflows, and a relay's offer that never arrives leaves a pc that
-// never even starts ICE and so never reaches "failed" — there are a lot of
-// ways for the promise not to be kept.
+// queue overflows, and an offer that never arrives leaves a pc that never even
+// starts ICE and so never reaches "failed" — there are a lot of ways for the
+// promise not to be kept.
 //
 // Generous enough to cover a slow ICE/TURN negotiation on a bad link (the
 // same budget CONNECT_TIMEOUT_MS gives the direct path) so a connection that
 // is merely taking its time is never given up on.
 const RESUME_WATCHDOG_MS = 15_000;
-
-// The "sq" experiments' events from deep in the media path (see
-// lib/streamQuality's setSqTracker).
-setSqTracker(trackFeatureEvent);
-
-// How long a viewer stays pinned to a direct connection after the cascade
-// visibly failed them — see relayOptOut.
-//
-// Long relative to REPLAN_COOLDOWN_MS (6s) on purpose: the point is to
-// outlast several planning passes. The plan is deliberately sticky (see
-// planTopology's currentParents), so without this a viewer we had just
-// rescued was handed straight back to the relay that failed them on the very
-// next pass, and flapped between the two every six seconds indefinitely.
-const RELAY_OPT_OUT_MS = 45_000;
 
 // Shared connection-management for a single media channel (screen share or
 // mic), broadcast from this client to every peer in the room. Each channel
@@ -829,14 +743,6 @@ function useExtraCameraChannel(
 // of inline in start(): the mid-share profile switch has to be able to
 // recompute it, and the two must not be able to disagree about what a given
 // profile means.
-//
-// The previous code hardcoded "detail" for every screen share. That is
-// correct for code and documents, but for a 60fps game or video it is
-// actively harmful: combined with maintain-resolution it tells the encoder to
-// protect sharpness and throw away frames, so a share advertised as 60fps
-// degrades into a slideshow under any load. Worse, "detail" is reported to
-// interact badly with VP9 specifically (see analise/codec-diagnostico.html,
-// which measures this on real content).
 function contentHintFor(
   channel: Channel,
   source: ShareSource | undefined,
@@ -844,21 +750,15 @@ function contentHintFor(
 ): "motion" | "detail" | "text" {
   // Camera is always motion. The "screen" channel is not always a screen: on
   // a phone, which has no getDisplayMedia, "compartilhar tela" captures the
-  // camera instead (see getScreenShareMode). Hinting "text" at a webcam tells
-  // the encoder to protect sharpness and throw frames away, which is exactly
-  // backwards for a moving picture — so the source, not the channel name,
-  // decides.
+  // camera instead (see getScreenShareMode), so the source, not the channel
+  // name, decides.
   // A file is moving pictures too, whatever the "compartilhar tela" dial is
   // set to — same reasoning — and so is everything else that is not a real
   // screen share.
   if (!channel.startsWith("screen") || source === "camera") return "motion";
-  // On a real screen share the profile chooses the hint. The table lives in
-  // peerQualityController next to DEGRADATION_PREFERENCE, because a relay
-  // needs exactly the same answer for the track it re-encodes and two copies
-  // of it would drift. The VP9-vs-"detail" caveat above does not reach
-  // balanced — it encodes with H264 (see videoCodecPreferences), where
-  // "detail" behaves.
-  return contentHintForDegradation(mode);
+  // On a real screen share the profile chooses the hint, and what it chooses
+  // depends on the codec it comes with (see lib/videoCodecPreferences).
+  return contentHintForShare(mode);
 }
 
 // ---------------------------------------------------------------------------
@@ -889,7 +789,8 @@ function contentHintFor(
 //                                a software H264 is mostly its own quality
 //                                scaler cutting frames, not the link
 //   screen_codec_*               on stop, the codec it ran on and whether the
-//                                encoder was hardware (see lib/screenCodec)
+//                                encoder was hardware
+//   screen_share_height          on stop; value = the height last being sent
 //   screen_share_peer_failures   on stop; value = viewer connections that failed
 //   screen_share_quality_change  on stop; value = dials moved mid-share
 //   native_video_start           the helper took over
@@ -921,6 +822,12 @@ export const SCREEN_SHARE_STATS = {
   nativeMethodDuplication: "native_video_method_dupl",
   nativeMethodWgc: "native_video_method_wgc",
   manualRestart: "screen_share_apply_restart",
+  height: "screen_share_height",
+  codecH264: "screen_codec_h264",
+  codecVp8: "screen_codec_vp8",
+  codecVp9: "screen_codec_vp9",
+  codecOther: "screen_codec_other",
+  codecHardware: "screen_codec_hardware",
 } as const;
 
 const RESTART_WINDOW_MS = 60_000;
@@ -951,9 +858,10 @@ interface ShareStats {
   samples: number;
   cpuSamples: number;
   bandwidthSamples: number;
-  /** The codec and encoder of the last sample, for the end-of-share events. */
+  /** The codec, encoder and height of the last sample, for the end-of-share events. */
   codec: string | null;
   hardware: boolean | null;
+  height: number;
   sampling: boolean;
   timer: ReturnType<typeof setInterval>;
   last: { framesSent: number; at: number } | null;
@@ -988,6 +896,7 @@ function startShareStats(quality: QualityPreset | null, surface: ShareSurface): 
     bandwidthSamples: 0,
     codec: null,
     hardware: null,
+    height: 0,
     last: null,
     sampling: false,
     timer: setInterval(() => {
@@ -1006,11 +915,7 @@ function startShareStats(quality: QualityPreset | null, surface: ShareSurface): 
 // One viewer connection is enough: the encoder is shared (and the helper's
 // stream is one stream), so what one sender sends is what the share makes.
 async function sampleShare(stats: ShareStats) {
-  // Our own share only: a relay's forwarding connections are registered as
-  // sends too, carrying somebody else's stream.
-  const video = connectionRegistry.list().find(
-    (entry) => entry.channel === "screen" && entry.direction === "send" && entry.originId === null
-  );
+  const video = connectionRegistry.list().find((entry) => entry.channel === "screen" && entry.direction === "send");
   if (!video) {
     stats.last = null;
     return;
@@ -1022,6 +927,7 @@ async function sampleShare(stats: ShareStats) {
     let codecId: string | null = null;
     let encoder: string | null = null;
     let powerEfficient: boolean | null = null;
+    let height = 0;
     report.forEach((entry) => {
       if (entry.type !== "outbound-rtp" || (entry as RTCOutboundRtpStreamStats).kind !== "video") return;
       const outbound = entry as RTCOutboundRtpStreamStats & {
@@ -1034,11 +940,13 @@ async function sampleShare(stats: ShareStats) {
       codecId = outbound.codecId ?? null;
       encoder = outbound.encoderImplementation ?? null;
       powerEfficient = typeof outbound.powerEfficientEncoder === "boolean" ? outbound.powerEfficientEncoder : null;
+      height = outbound.frameHeight ?? 0;
     });
     if (framesSent === null) return;
     const mime = codecId ? (report.get(codecId) as { mimeType?: string } | undefined)?.mimeType : undefined;
     if (mime) stats.codec = mime.replace(/^video\//i, "");
     if (encoder || powerEfficient !== null) stats.hardware = isHardwareImplementation(encoder, powerEfficient);
+    if (height > 0) stats.height = height;
     const at = performance.now();
     const previous = stats.last;
     stats.last = { framesSent, at };
@@ -1075,11 +983,18 @@ function reportShareEnd(stats: ShareStats) {
     if (fps < stats.targetFps * 0.6) trackFeatureEvent(SCREEN_SHARE_STATS.lowFps, { value: Math.round(fps) });
     if (stats.cpuSamples / stats.samples > 0.2) trackFeatureEvent(SCREEN_SHARE_STATS.cpuLimited);
     if (stats.bandwidthSamples / stats.samples > 0.2) trackFeatureEvent(SCREEN_SHARE_STATS.bandwidthLimited);
+    if (stats.height > 0) trackFeatureEvent(SCREEN_SHARE_STATS.height, { value: stats.height });
     const codec = stats.codec?.toUpperCase();
     trackFeatureEvent(
-      codec === "VP9" ? SCREEN_CODEC_EVENTS.vp9 : codec === "H264" ? SCREEN_CODEC_EVENTS.h264 : SCREEN_CODEC_EVENTS.other
+      codec === "H264"
+        ? SCREEN_SHARE_STATS.codecH264
+        : codec === "VP8"
+          ? SCREEN_SHARE_STATS.codecVp8
+          : codec === "VP9"
+            ? SCREEN_SHARE_STATS.codecVp9
+            : SCREEN_SHARE_STATS.codecOther
     );
-    if (stats.hardware) trackFeatureEvent(SCREEN_CODEC_EVENTS.hardware);
+    if (stats.hardware) trackFeatureEvent(SCREEN_SHARE_STATS.codecHardware);
   }
 }
 
@@ -1200,73 +1115,15 @@ function useBroadcastChannel(
   // Cleared when the peer's share actually ends (closeRecvPCFully) so the
   // *next* share they start is judged fresh.
   const autoJoinDecidedRef = useRef<Set<string>>(new Set());
-  // Owns one PeerQualityController per sendPC: assigned tier plus learned
-  // congestion state. Replaces the old map of per-peer setInterval monitors —
-  // telemetry now comes from the single shared mediaStats pump instead of one
-  // timer and one getStats() pass per peer, which in a 30-person room was 29
-  // uncoordinated polls competing with the encoding those same 29 peers need.
-  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`, channel.startsWith("screen")));
+  // Owns one PeerQualityController per sendPC. Telemetry comes from the single
+  // shared mediaStats pump instead of one timer and one getStats() pass per
+  // peer, which in a 30-person room was 29 uncoordinated polls competing with
+  // the encoding those same 29 peers need.
+  const qualityRegistry = useRef(new PeerQualityRegistry(`channel:${channel}`));
   // Tier each viewer has asked us for, from the size they render us at (see
   // qualityNegotiation). Kept outside the controllers because a request can
   // arrive before that peer's sendPC exists, and must survive a reconnect.
   const requestedTiers = useRef<Map<string, QualityTier>>(new Map());
-  // What each peer says it could carry if promoted to relay. Only ever read
-  // when a direct mesh stops fitting — see useMeshTopology.
-  const peerCapacities = useRef<Map<string, PeerCapacity>>(new Map());
-  // Which peer's stream arrived over which connection. Equal to the sender
-  // for everything except relayed traffic — see openRecvPC.
-  const recvOrigins = useRef<Map<string, string>>(new Map());
-  // Source material for anything we are relaying: the pc it arrives on (so a
-  // stall can be detected) and the stream itself (so it can be forwarded).
-  const relaySources = useRef<Map<string, { pc: RTCPeerConnection; stream: MediaStream }>>(new Map());
-  const relays = useRef(new RelayManager());
-  // Experiment sq-recv-drops never shrinks a stream we forward (see
-  // qualityNegotiator's `forwarding`). Relays only ever carry "screen".
-  useEffect(() => {
-    if (channel !== "screen") return;
-    qualityNegotiator.setForwardingCheck(
-      (ch, peerId) => ch === "screen" && relays.current.get(peerId)?.hasChildren() === true
-    );
-    return () => qualityNegotiator.setForwardingCheck(() => false);
-  }, [channel]);
-  // Peers that a relay is serving on our behalf. We must NOT also open a
-  // direct sendPC to them: doing so would double-encode and double-send the
-  // very stream the cascade exists to avoid sending twice.
-  const relayedAway = useRef<Set<string>>(new Set());
-  // Relays we told to serve somebody on the last planning pass.
-  //
-  // A relay that drops out of the plan entirely does not appear in the new
-  // assignment map at all, so nothing in applyRelayPlan used to say a word to
-  // it — and nothing else ever would. It went on re-encoding and sending to
-  // children the root had already taken back and was serving directly: the
-  // same stream reaching the same viewer twice, out of two machines, for as
-  // long as that relay stayed in the room. Remembering who we last spoke to is
-  // what lets applyRelayPlan tell them it is over.
-  const activeRelays = useRef<Set<string>>(new Set());
-  // The assignment each of those relays was last given, kept so it can be
-  // re-sent without a fresh planning pass — see resendRelayProfile.
-  const servingRelayChildren = useRef<Map<string, RelayChild[]>>(new Map());
-  // Viewers to keep serving directly for a while, whatever the plan says —
-  // see RELAY_OPT_OUT_MS. Written when the cascade visibly fails somebody: a
-  // relay-nack, or a "resume" from a viewer's own stuck-tile watchdog.
-  const relayOptOut = useRef<Map<string, number>>(new Map());
-  const optOutOfRelaying = useCallback((peerId: string) => {
-    relayOptOut.current.set(peerId, Date.now() + RELAY_OPT_OUT_MS);
-  }, []);
-  const isRelayOptedOut = useCallback((peerId: string) => {
-    const until = relayOptOut.current.get(peerId);
-    if (until === undefined) return false;
-    if (Date.now() < until) return true;
-    relayOptOut.current.delete(peerId);
-    return false;
-  }, []);
-
-  // Stable getter identities so consumers' effects don't re-run every render.
-  // useCallback rather than a ref holding a closure: reading .current during
-  // render is exactly what the react-hooks/refs rule forbids, and these are
-  // handed out from the render path. (getRequestedTiers is defined below,
-  // next to the tierForPeer it depends on.)
-  const getPeerCapacities = useCallback(() => peerCapacities.current, []);
   // Pending timers scheduled by openSendPCsStaggered — cleared in stop() so
   // a share that already ended never opens a late connection.
   const staggerTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -1329,10 +1186,9 @@ function useBroadcastChannel(
         // Resolved the ordinary way while we waited — the stream arrived (see
         // openRecvPC's ontrack), or something took this peer out of the set.
         if (!resumingPeersRef.current.has(peerId)) return;
-        // Or it was already here and the placeholder is merely stale: a lost
-        // "stop" can leave a second connection delivering this origin while a
-        // handover marks it resuming, and asking for a repair to something
-        // that is playing would tear down a working stream to rebuild it.
+        // Or it was already here and the placeholder is merely stale: asking
+        // for a repair to something that is playing would tear down a working
+        // stream to rebuild it.
         if (remoteStreamsRef.current[peerId]) {
           setResumingPeers((prev) => {
             if (!prev.has(peerId)) return prev;
@@ -1344,22 +1200,10 @@ function useBroadcastChannel(
         }
         if (attempt === 0) {
           // Ask once, as loudly as the protocol allows, before giving up.
-          // "resume" is the strongest thing a viewer can say and it repairs
-          // every way this can be stuck at once: the broadcaster's handler
-          // forgets any relay arrangement for us and force-rebuilds a direct
-          // connection regardless of what its own side believes is true.
-          //
-          // Sent to the *origin* deliberately. A relay that never managed to
-          // open our connection is not the party who can fix it, and after a
-          // handover there may be no relay in the picture at all.
-          signalingClient.sendSignal(peerId, {
-            channel,
-            role: "viewer",
-            kind: "resume",
-            // Distinguishes this from a person clicking "Retomar
-            // transmissão" — see SignalData.recovery.
-            recovery: true,
-          });
+          // "resume" is the strongest thing a viewer can say: the broadcaster
+          // force-rebuilds the connection regardless of what its own side
+          // believes is true.
+          signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "resume" });
           armResumeWatchdogRef.current(peerId, 1);
           return;
         }
@@ -1401,12 +1245,9 @@ function useBroadcastChannel(
     [clearResumeWatchdog]
   );
   const markResuming = useCallback((peerId: string) => {
-    // The mirror of stopWatchingPeer's clearResuming, and it was missing.
-    // The two sets are read as alternatives everywhere, and a peer in both
-    // renders two tiles under one id — WatchRoom keys both placeholders by
-    // tileId(kind, peer.id). Only one direction enforced it, so a reparenting
-    // "stop" for someone we had already stopped watching produced exactly the
-    // duplicate the other direction exists to prevent.
+    // The mirror of stopWatchingPeer's clearResuming. The two sets are read as
+    // alternatives everywhere, and a peer in both renders two tiles under one
+    // id — WatchRoom keys both placeholders by tileId(kind, peer.id).
     clearStopped(peerId);
     armResumeWatchdog(peerId, 0);
     setResumingPeers((prev) => {
@@ -1420,18 +1261,13 @@ function useBroadcastChannel(
   // What was last actually asked of the capture, so the mid-share effect
   // below can tell a resolution/fps change from a change to some other part
   // of the preset. Null while nothing is being captured.
-  const appliedConstraints = useRef<{ width: number; height: number; frameRate: number } | null>(
+  const appliedConstraints = useRef<{ width: number; height: number; frameRate: number; floor: number } | null>(
     null
   );
-  // Which of the two codec orderings the currently-open senders were
-  // negotiated with, and the source this share is capturing — both read by
-  // that same effect, which runs outside start()'s closure. Null while
-  // inactive.
+  // Which of the codec orderings the currently-open senders were negotiated
+  // with, and the source this share is capturing — both read by that same
+  // effect, which runs outside start()'s closure. Null while inactive.
   const codecOrderRef = useRef<VideoCodecOrder | null>(null);
-  // The profile the senders and relays below were last told about. Seeded
-  // from the preset so that the effect's first run, which happens before
-  // anything is being shared, is not mistaken for a switch.
-  const lastDegradationRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
   const sourceRef = useRef<ShareSource | undefined>(undefined);
   const qualityCeilingRef = useRef<QualityTier>(videoQuality?.ceilingTier ?? BEST_TIER);
   const degradationModeRef = useRef<DegradationMode>(videoQuality?.degradation ?? "text");
@@ -1443,101 +1279,28 @@ function useBroadcastChannel(
     honorRequestsRef.current = videoQuality?.honorViewerRequests ?? true;
   }, [videoQuality]);
 
+  // See stillScreenFloor; 0 for none. Only a real screen capture: a camera delivers
+  // frames on its own, and asking one to reconfigure is not free. The GPU capture's
+  // track is not a capture at all.
+  const screenFloorFor = useCallback(
+    (track: MediaStreamTrack | undefined, requestedSource?: ShareSource): number => {
+      const preset = videoQualityRef.current;
+      if (!track || !preset || !channel.startsWith("screen") || requestedSource === "camera") return 0;
+      if (nativeVideoSourceFor(track)) return 0;
+      return Math.min(stillScreenFloor(preset.maxBitrateKbps)?.min ?? 0, preset.frameRate);
+    },
+    [channel]
+  );
+
   // The tier one peer should actually be served at: their size-based request
   // capped by our ceiling, or the ceiling flat out when the broadcaster has
   // turned per-viewer sizing off.
-  //
-  // Then capped once more by the topology planner's tier for them, when it
-  // has one (see applyDirectCaps): the planner is the part that knows the
-  // whole room does not fit our uplink or our encoder.
-  //
-  // The planner itself is fed wantedTierForPeer, without its own cap: fed
-  // the capped tiers, it would see a room that now fits, lift the caps, see
-  // it overflow again, and flap every planning pass.
-  const directTierCaps = useRef<Map<string, QualityTier>>(new Map());
-  const wantedTierForPeer = useCallback((peerId: string): QualityTier => {
+  const tierForPeer = useCallback((peerId: string): QualityTier => {
     const ceiling = qualityCeilingRef.current;
     if (!honorRequestsRef.current) return ceiling;
     const requested = requestedTiers.current.get(peerId);
     return requested ? capTier(requested, ceiling) : ceiling;
   }, []);
-  const tierForPeer = useCallback(
-    (peerId: string): QualityTier => {
-      const tier = wantedTierForPeer(peerId);
-      const planned = directTierCaps.current.get(peerId);
-      return planned ? capTier(tier, planned) : tier;
-    },
-    [wantedTierForPeer]
-  );
-
-  // The planner's tiers for the viewers we serve ourselves (experiment
-  // "stream-perf", see lib/streamPerf). An empty map lifts every cap — which
-  // is also what happens whenever the room fits and there is no plan at all.
-  // Re-tiers only the controllers whose answer actually moved; setTier is a
-  // no-op for the rest.
-  const applyDirectCaps = useCallback(
-    (caps: Map<string, QualityTier>) => {
-      const previous = directTierCaps.current;
-      if (caps.size === 0 && previous.size === 0) return;
-      directTierCaps.current = caps;
-      for (const peerId of sendPCs.current.keys()) {
-        if (previous.get(peerId) === caps.get(peerId)) continue;
-        qualityRegistry.current.get(peerId)?.setTier(tierForPeer(peerId));
-      }
-    },
-    [tierForPeer]
-  );
-
-  // Who this share actually has to serve, and at what tier — each one's
-  // request already capped by our ceiling, and every peer who is watching,
-  // not only the ones who have reported a size yet.
-  //
-  // Both consumers need it in that form. The topology planner budgets the
-  // room against these numbers, and budgeting against the raw request means
-  // reserving link and CPU for quality the ceiling forbids anyone from ever
-  // receiving — capacity that is reserved but unusable is exactly what tips a
-  // room into a global downgrade it did not need. The encode-load estimate
-  // has the same problem in the same direction.
-  //
-  // Which is the same argument that says a viewer who has asked us to stop
-  // does not belong here at all, and they used to. Nothing is encoded or sent
-  // for them, so every kbps and megapixel budgeted on their behalf is
-  // reserved against a stream that will never exist — and the sum is not
-  // small: a paused viewer has no tile, so they never report a size, so
-  // tierForPeer falls all the way back to the ceiling. Every person in the
-  // room with "entrar em transmissões automaticamente" off, and *everyone
-  // else* the moment somebody uses hyperfocus, was charged up to a full
-  // 1080p60 each. Ten of them is 50 Mbps and 1240 Mpx/s of demand that does
-  // not exist, which is enough on its own to push a room into a cascade and a
-  // global downgrade it had no need of.
-  //
-  // Leaving them out also takes them out of the planner's pool of candidate
-  // relays, which is right for the same reason: forwarding a stream requires
-  // receiving it, and they are not.
-  const getRequestedTiers = useCallback(() => {
-    const served = new Map<string, QualityTier>();
-    for (const peer of signalingClient.state.peers) {
-      if (peer.role === "moderator") continue;
-      if (viewerPausedPeers.current.has(peer.id)) continue;
-      served.set(peer.id, wantedTierForPeer(peer.id));
-    }
-    return served;
-  }, [wantedTierForPeer]);
-
-  // The same people at what is actually encoded for them — the planner's caps
-  // applied. For the encode-load estimate, which calibrates the encode budget
-  // against observed CPU pressure: charged the uncapped demand, a capped share
-  // running comfortably would read as "this much load, no pressure", inflate
-  // the budget, and talk the planner out of the very caps that made it fit.
-  const getServedTiers = useCallback(() => {
-    const served = new Map<string, QualityTier>();
-    for (const peer of signalingClient.state.peers) {
-      if (peer.role === "moderator") continue;
-      if (viewerPausedPeers.current.has(peer.id)) continue;
-      served.set(peer.id, tierForPeer(peer.id));
-    }
-    return served;
-  }, [tierForPeer]);
 
   const removeRemoteStream = useCallback((peerId: string) => {
     setRemoteStreams((prev) => {
@@ -1551,6 +1314,7 @@ function useBroadcastChannel(
   const closeSendPC = useCallback((peerId: string) => {
     const pc = sendPCs.current.get(peerId);
     if (pc) {
+      nativeVideoSourceFor(localStreamRef.current?.getVideoTracks()[0])?.detach(pc);
       releasePeerConnection(pc);
       sendPCs.current.delete(peerId);
       if (channel !== "mic") connectionRegistry.unregister(pc);
@@ -1569,12 +1333,7 @@ function useBroadcastChannel(
 
 
   const closeRecvPC = useCallback(
-    // `reparenting` says this connection is being replaced rather than ending
-    // — the same distinction the "stop" signal carries, and it matters here
-    // for one reason: if we are relaying this stream onward, our whole subtree
-    // has to be told which of the two just happened to us. Defaulted to the
-    // ending case, which is what every other caller means.
-    (peerId: string, reparenting = false) => {
+    (peerId: string) => {
       const turnCleanup = recvTurnCleanups.current.get(peerId);
       recvTurnCleanups.current.delete(peerId);
       const pc = recvPCs.current.get(peerId);
@@ -1589,37 +1348,11 @@ function useBroadcastChannel(
       const recovery = recvRecoveryTimers.current.get(peerId);
       if (recovery) clearTimeout(recovery);
       recvRecoveryTimers.current.delete(peerId);
-      // The tile is filed under the origin, not the sender, so a relayed
-      // stream must be removed by origin or it would linger forever.
-      const origin = recvOrigins.current.get(peerId) ?? peerId;
-      recvOrigins.current.delete(peerId);
-      // Our children were being served this stream by us. Releasing the link
-      // tells them, and until now it always told them the stream had *ended* —
-      // even when we were merely being handed a new parent for it a second
-      // later. Every reparenting of a mid-tree relay therefore blanked every
-      // tile in the subtree below it, rather than leaving them a placeholder
-      // for the moment the next relay-assign rebuilds them.
-      //
-      // Unconditional even when another connection still delivers this origin
-      // (below): a relay whose source pc has closed cannot forward anything,
-      // and the next relay-assign rebuilds it from whichever source survived.
-      relays.current.release(origin, reparenting ? "reparent" : "ended");
-      // Everything the *tile* is keyed by, on the other hand, is only ours to
-      // tear down if nothing else is still feeding it. Connections are keyed
-      // by sender and tiles by origin, so a handover legitimately has two
-      // connections for one origin for a moment — and a lost "stop" can leave
-      // the old one lingering well past that. Whichever of the two closes
-      // first used to wipe the entry the other had just filled, which blanks
-      // a tile whose stream is arriving perfectly well and leaves nothing to
-      // ever fill it again: ontrack has already fired and will not fire twice.
-      const stillDelivered = [...recvOrigins.current.values()].some((id) => id === origin);
-      if (stillDelivered) return;
-      relaySources.current.delete(origin);
-      removeRemoteStream(origin);
+      removeRemoteStream(peerId);
       setRecvConnectionStates((prev) => {
-        if (!(origin in prev)) return prev;
+        if (!(peerId in prev)) return prev;
         const next = { ...prev };
-        delete next[origin];
+        delete next[peerId];
         return next;
       });
     },
@@ -1665,26 +1398,6 @@ function useBroadcastChannel(
     [channel]
   );
 
-  // Maps a tile back to the connection carrying it.
-  //
-  // Everything the UI holds is keyed by *origin* — the person whose screen this
-  // is — because that is what the tile shows and what survives the stream being
-  // rerouted. Connections are keyed by *sender*, which for a relayed stream is
-  // somebody else entirely. The two are the same for a direct connection, which
-  // is why this went unnoticed: stopping a relayed stream looked up a recvPC
-  // under the origin's id, found nothing, closed nothing, and sent the request
-  // to a broadcaster with no connection to us. The tile said "you left this
-  // transmission" while the relay went on sending it, and hyperfocus — whose
-  // entire purpose is to free bandwidth in exactly the large rooms where relays
-  // exist — freed none of it.
-  const senderForOrigin = useCallback((originOrPeerId: string): string => {
-    if (recvPCs.current.has(originOrPeerId)) return originOrPeerId;
-    for (const [sender, origin] of recvOrigins.current) {
-      if (origin === originOrPeerId) return sender;
-    }
-    return originOrPeerId;
-  }, []);
-
   // Lets a viewer stop receiving one specific peer's stream without touching
   // anyone else's — closes our recvPC for it (freeing decode/network
   // resources on our end) and tells that peer to close their matching sendPC
@@ -1692,9 +1405,8 @@ function useBroadcastChannel(
   // locally while the connection keeps running in the background.
   const stopWatchingPeer = useCallback(
     (peerId: string) => {
-      const senderId = senderForOrigin(peerId);
-      closeRecvPC(senderId);
-      signalingClient.sendSignal(senderId, { channel, role: "viewer", kind: "stop" });
+      closeRecvPC(peerId);
+      signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "stop" });
       // Stopping someone we were part-way through resuming (hyperfocus does
       // exactly this to everyone else in the room) has to take them out of
       // `resumingPeers` too — the recvPC that resume was waiting on is the one
@@ -1708,9 +1420,7 @@ function useBroadcastChannel(
       // on almost everybody at once. After a hyperfocus in a room of eighty,
       // seventy-nine entries went on re-announcing every twenty seconds for
       // the life of the room, roughly four messages a second describing tiles
-      // nobody is rendering. Worse than the traffic: each one refreshes that
-      // broadcaster's record of what we want, so we were actively keeping
-      // alive the phantom demand getRequestedTiers now declines to budget.
+      // nobody is rendering.
       if (channel !== "mic") qualityNegotiator.forget(channel as QualityChannel, peerId);
       setStoppedPeers((prev) => {
         if (prev.has(peerId)) return prev;
@@ -1719,7 +1429,7 @@ function useBroadcastChannel(
         return next;
       });
     },
-    [channel, closeRecvPC, clearResuming, senderForOrigin]
+    [channel, closeRecvPC, clearResuming]
   );
 
   const resumeWatchingPeer = useCallback(
@@ -1778,14 +1488,7 @@ function useBroadcastChannel(
       const pc = new RTCPeerConnection(nativeVideo ? nativeVideoPeerConfig(iceConfig) : iceConfig);
       sendPCs.current.set(peerId, pc);
       if (channel !== "mic") {
-        connectionRegistry.register({
-          channel,
-          direction: "send",
-          peerId,
-          originId: null,
-          viaRelay: false,
-          pc,
-        });
+        connectionRegistry.register({ channel, direction: "send", peerId, originId: null, pc });
       }
       stream.getTracks().forEach((track) => {
         if (nativeVideo && track === nativeVideo.track) {
@@ -1796,14 +1499,14 @@ function useBroadcastChannel(
         }
         const sender = pc.addTrack(track, stream);
         if (nativeVideo) {
-          passThroughSender(sender);
+          nativeVideo.passThrough(sender);
           return;
         }
         if (track.kind === "video") {
           const transceivers = pc.getTransceivers();
           const transceiver = transceivers.find((t) => t.sender === sender);
           const mode = degradationModeRef.current;
-          if (transceiver) applyVideoCodecPreferences(transceiver, mode, true);
+          if (transceiver) applyVideoCodecPreferences(transceiver, mode);
 
           // Serve this peer at the lower of what they asked for and the
           // ceiling we picked. Before their first request arrives we assume
@@ -1811,12 +1514,13 @@ function useBroadcastChannel(
           // second or two is far less noticeable than starting everyone at
           // thumbnail resolution and visibly ramping up.
           const tier = tierForPeer(peerId);
-          const captureHeight =
-            track.getSettings().height ?? videoQualityRef.current?.height ?? 1080;
+          const settings = track.getSettings();
+          const captureWidth = settings.width ?? videoQualityRef.current?.width ?? 1920;
+          const captureHeight = settings.height ?? videoQualityRef.current?.height ?? 1080;
           qualityRegistry.current.setDegradation(mode);
           const ceilingKbps = videoQualityRef.current?.maxBitrateKbps;
           if (ceilingKbps) qualityRegistry.current.setBitrateCeiling(ceilingKbps);
-          qualityRegistry.current.add(peerId, pc, sender, tier, captureHeight);
+          qualityRegistry.current.add(peerId, pc, sender, tier, captureWidth, captureHeight);
         }
       });
       pc.onicecandidate = (e) => {
@@ -1861,15 +1565,12 @@ function useBroadcastChannel(
       // Renegotiates this same connection with fresh ICE credentials instead
       // of throwing it away and building another.
       //
-      // Worth the extra code because a rebuild is far from free. It discards
-      // this viewer's PeerQualityController along with the congestion ratio it
-      // spent minutes learning about their link (see peerQualityController's
-      // header), and every replacement addTrack forces a keyframe out of an
-      // encoder shared with the whole room — so recovering one viewer visibly
-      // costs all the others. An ICE restart keeps the sender, the encoder,
-      // the learned state and the DTLS association; only the candidate pair is
-      // renegotiated, which is exactly what changed when someone's wifi handed
-      // over to cellular or their NAT binding moved.
+      // Worth the extra code because a rebuild is far from free: it discards
+      // this viewer's PeerQualityController along with what it learned about
+      // their link, and starts a new encoder. An ICE restart keeps the sender,
+      // the encoder, the learned state and the DTLS association; only the
+      // candidate pair is renegotiated, which is exactly what changed when
+      // someone's wifi handed over to cellular or their NAT binding moved.
       //
       // Returns false when this pc is in no state to be restarted, in which
       // case the caller falls back to the rebuild.
@@ -2033,132 +1734,6 @@ function useBroadcastChannel(
     [openSendPC]
   );
 
-  // Pushes a topology plan out to the room: tells each relay who to serve,
-  // and stops serving those people directly ourselves.
-  //
-  // Idempotent by design — it runs on every planning pass, and the common
-  // outcome is an empty relay list, in which case it must cost nothing and
-  // change nothing.
-  const applyRelayPlan = useCallback(
-    (relayAssignments: Map<string, RelayChild[]>) => {
-      if (!RELAY_ENABLED) return;
-      // Anyone the cascade has already failed is dropped from the plan here
-      // rather than in the planner: the planner reasons about capacity, and
-      // "this route was tried and did not work" is not a capacity fact. They
-      // stay out of both the children list their relay is told about and
-      // nowRelayed, so the peer-list loop goes on serving them directly.
-      const serving = new Map<string, RelayChild[]>();
-      for (const [relayId, children] of relayAssignments) {
-        const kept = children.filter((child) => !isRelayOptedOut(child.id));
-        if (kept.length > 0) serving.set(relayId, kept);
-      }
-      const nowRelayed = new Set<string>();
-      for (const children of serving.values()) {
-        for (const child of children) nowRelayed.add(child.id);
-      }
-
-      for (const [relayId, children] of serving) {
-        signalingClient.sendSignal(relayId, {
-          channel,
-          role: "broadcaster",
-          kind: "relay-assign",
-          originId: signalingClient.state.selfId ?? undefined,
-          children,
-          // Without this the relay had no way to know whether it was
-          // re-encoding a game or a slide deck, and defaulted to "text"
-          // regardless — see RelayLink.setChildren.
-          degradation: degradationModeRef.current,
-        });
-      }
-      // Relays this plan no longer uses. They have to be told in so many
-      // words — see activeRelays for what silence cost. An empty list is a
-      // complete instruction: setChildren releases every child still held.
-      for (const relayId of activeRelays.current) {
-        if (serving.has(relayId)) continue;
-        signalingClient.sendSignal(relayId, {
-          channel,
-          role: "broadcaster",
-          kind: "relay-assign",
-          originId: signalingClient.state.selfId ?? undefined,
-          children: [],
-          degradation: degradationModeRef.current,
-        });
-      }
-      activeRelays.current = new Set(serving.keys());
-      servingRelayChildren.current = serving;
-
-      // Someone a relay has taken over: drop our direct connection to them.
-      // Telling them first is what stops the handover looking like a failure:
-      // a connection that simply dies leaves them to discover it through ICE,
-      // conclude we broke, and send a reconnect-request for a link we
-      // deliberately closed.
-      for (const peerId of nowRelayed) {
-        if (!relayedAway.current.has(peerId) && sendPCs.current.has(peerId)) {
-          signalingClient.sendSignal(peerId, {
-            channel,
-            role: "broadcaster",
-            kind: "stop",
-            reparenting: true,
-          });
-          closeSendPC(peerId);
-        }
-      }
-      // Someone a relay used to serve but no longer does: we own them again.
-      for (const peerId of relayedAway.current) {
-        if (!nowRelayed.has(peerId) && activeRef.current) openSendPCRef.current(peerId);
-      }
-      // Nothing about the cascade is visible from outside the browser it
-      // happens in, which is why every question about it so far has had to be
-      // answered by reading code. A transition either way is rare and worth
-      // one event.
-      if (nowRelayed.size > 0 && relayedAway.current.size === 0) {
-        trackEvent("cascade_engage");
-      } else if (nowRelayed.size === 0 && relayedAway.current.size > 0) {
-        trackEvent("cascade_release");
-      }
-      relayedAway.current = nowRelayed;
-    },
-    [channel, closeSendPC, isRelayOptedOut]
-  );
-
-  // Tells every relay currently serving for us what content this is, without
-  // changing who they serve. A relay-assign is a relay's only source for that
-  // (see RelayLink.setChildren), and it is only ever sent by a planning pass
-  // — so switching profile mid-share left every viewer behind a relay on
-  // whatever profile happened to be current when the topology was last
-  // computed, which in a settled room is indefinitely.
-  //
-  // The last plan is a cache, and the topology also moves *outside* a
-  // planning pass: a relay-nack takes children back immediately and opts them
-  // out of being relayed again for a while. Re-sending the cache verbatim
-  // would hand a relay back the very child it just said it could not serve,
-  // which is the flap relayOptOut exists to prevent — so every child is
-  // re-checked against the live routing on the way out, and the cache is
-  // narrowed to what survived. That is also why a relay left with nothing is
-  // skipped rather than sent an empty list: an empty list is a complete
-  // instruction to release everybody (see applyRelayPlan), and this function
-  // is not entitled to make that decision.
-  const resendRelayProfile = useCallback(() => {
-    if (!RELAY_ENABLED) return;
-    const stillServing = new Map<string, RelayChild[]>();
-    for (const [relayId, children] of servingRelayChildren.current) {
-      const live = children.filter(
-        (child) => relayedAway.current.has(child.id) && !isRelayOptedOut(child.id)
-      );
-      if (live.length === 0) continue;
-      stillServing.set(relayId, live);
-      signalingClient.sendSignal(relayId, {
-        channel,
-        role: "broadcaster",
-        kind: "relay-assign",
-        originId: signalingClient.state.selfId ?? undefined,
-        children: live,
-        degradation: degradationModeRef.current,
-      });
-    }
-    servingRelayChildren.current = stillServing;
-  }, [channel, isRelayOptedOut]);
-
   // Lets the broadcaster change resolution/fps/bitrate mid-share to react to
   // a room bogging down, instead of having to stop and restart the whole
   // capture. Skipped while inactive — a change picked before starting is
@@ -2188,20 +1763,26 @@ function useBroadcastChannel(
       height: videoQuality.height,
       // Held to what any tier sends, as at start (see captureConstraints).
       frameRate: Math.min(videoQuality.frameRate, MAX_TIER_FPS),
+      floor: screenFloorFor(track, sourceRef.current),
     };
     const applied = appliedConstraints.current;
     const dimensionsChanged =
       !applied ||
       applied.width !== wanted.width ||
       applied.height !== wanted.height ||
-      applied.frameRate !== wanted.frameRate;
+      applied.frameRate !== wanted.frameRate ||
+      applied.floor !== wanted.floor;
     if (track && dimensionsChanged) {
       appliedConstraints.current = wanted;
       track
         .applyConstraints({
           width: { ideal: wanted.width },
           height: { ideal: wanted.height },
-          frameRate: { ideal: wanted.frameRate },
+          frameRate: {
+            ideal: wanted.frameRate,
+            // A screen, where a ceiling cannot be refused (see captureConstraints).
+            ...(wanted.floor > 0 ? { min: wanted.floor, max: wanted.frameRate } : {}),
+          },
         })
         .catch(() => {
           // Nothing was applied, so the record above cannot stand: left as
@@ -2230,56 +1811,31 @@ function useBroadcastChannel(
       if (track.contentHint !== hint) track.contentHint = hint;
     }
 
-    const captureHeight = track?.getSettings().height ?? videoQuality.height;
-    qualityRegistry.current.setCaptureHeight(captureHeight);
+    const settings = track?.getSettings();
+    qualityRegistry.current.setCaptureSize(settings?.width ?? videoQuality.width, settings?.height ?? videoQuality.height);
     qualityRegistry.current.setDegradation(videoQuality.degradation);
     qualityRegistry.current.setBitrateCeiling(videoQuality.maxBitrateKbps);
     nativeVideoSourceFor(track)?.setCeiling(videoQuality.maxBitrateKbps);
 
-    // Re-cap every peer against the new ceiling. Crucially this only moves
-    // the *assigned tier*: each controller keeps the congestion ratio it has
-    // learned for that viewer's link. The previous implementation rebuilt
-    // every monitor from scratch here, and since this effect also ran on
-    // every peer-count change, a viewer on a weak link was reset to full
-    // bitrate every time anyone joined or left the room and never converged.
+    // Re-cap every peer against the new ceiling. This only moves the *assigned
+    // tier*: each controller keeps what it has learned about that viewer's link.
     for (const peerId of sendPCs.current.keys()) {
       const controller = qualityRegistry.current.get(peerId);
       if (!controller) continue;
       controller.setTier(tierForPeer(peerId));
     }
 
-    // Viewers we do not serve directly are behind a relay, and a relay only
-    // learns what it is re-encoding from an assignment message.
-    if (lastDegradationRef.current !== videoQuality.degradation) {
-      lastDegradationRef.current = videoQuality.degradation;
-      resendRelayProfile();
-    }
-
     // The codec ordering is the one part of a profile that cannot be changed
     // on a connection that already exists: setCodecPreferences applies to a
     // transceiver at negotiation time, so every sender opened before the
-    // switch keeps the ordering the *old* profile asked for. That is not
-    // cosmetic. "text" puts VP9 first, which on ordinary hardware means a
-    // software encode; leaving a 60fps game on it is exactly the stutter the
-    // person switched profile to get rid of, and it is a large part of why
-    // switching appeared to do nothing until the whole share was stopped and
-    // started again.
+    // switch keeps the ordering the *old* profile asked for.
     //
     // So renegotiate — but only when the switch actually changed which codec
-    // goes first (see videoCodecOrder), so that
-    // moving a dial the codec does not care about, or going balanced →
-    // motion, costs nothing. Closing and reopening is a path this hook
-    // already runs on every relay handover, and the viewer side handles the
-    // fresh offer by rebuilding its recvPC (see the offer branch in
-    // onSignal). Staggered like any other burst of connections. It is the
-    // same rebuild the person was doing by hand, minus a second capture
-    // prompt and without losing the capture.
-    //
-    // A relay's own children are deliberately not rebuilt: the same codec
-    // caveat applies to them, spelled out on RelayLink.setChildren, and
-    // tearing down a whole subtree from here would cost far more than it
-    // buys.
-    const codecOrder = videoCodecOrder(videoQuality.degradation, true);
+    // goes first (see videoCodecOrder), so that moving a dial the codec does
+    // not care about costs nothing. The viewer side handles the fresh offer by
+    // rebuilding its recvPC (see the offer branch in onSignal). Staggered like
+    // any other burst of connections.
+    const codecOrder = videoCodecOrder(videoQuality.degradation);
     if (codecOrderRef.current !== null && codecOrderRef.current !== codecOrder) {
       const peerIds = [...sendPCs.current.keys()];
       for (const peerId of peerIds) closeSendPC(peerId);
@@ -2294,12 +1850,12 @@ function useBroadcastChannel(
     eventPrefix,
     closeSendPC,
     openSendPCsStaggered,
-    resendRelayProfile,
+    screenFloorFor,
   ]);
 
   // The captured height is read once, when a sendPC opens, and is what every
   // scaleResolutionDownBy in this channel is computed from (see
-  // videoQuality.scaleFactorFor). It is not a constant for the life of a share:
+  // videoQuality.scaleForHeight). It is not a constant for the life of a share:
   // the person can switch which window they are sharing, resize it, or drag it
   // to a monitor of a different resolution, and getDisplayMedia follows the
   // surface. When it moved, every sender kept dividing by the old number — so
@@ -2307,12 +1863,13 @@ function useBroadcastChannel(
   // asked for, with nothing to correct it short of restarting the share.
   //
   // Cheap enough to just re-read: getSettings() is a synchronous property read,
-  // and setCaptureHeight is a no-op when the value has not changed.
+  // and setCaptureSize is a no-op when the value has not changed. Once the frames
+  // themselves have been measured they speak for it (see PeerQualityController).
   useEffect(() => {
     if (!active) return;
     const sync = () => {
-      const height = localStreamRef.current?.getVideoTracks()[0]?.getSettings().height;
-      if (height) qualityRegistry.current.setCaptureHeight(height);
+      const settings = localStreamRef.current?.getVideoTracks()[0]?.getSettings();
+      if (settings?.width && settings.height) qualityRegistry.current.setCaptureSize(settings.width, settings.height);
     };
     const timer = setInterval(sync, 3000);
     return () => clearInterval(timer);
@@ -2356,17 +1913,6 @@ function useBroadcastChannel(
     // signal makes closeRecvPCFully run for them (see the onSignal handler
     // below), since there's no longer a stream to have stopped watching.
     viewerPausedPeers.current.clear();
-    // The cascade's bookkeeping belongs to the share that built it. Left
-    // behind, `relayedAway` would make the *next* share silently skip every
-    // viewer this one had routed through a relay — openSendPCsStaggered
-    // filters on it — for as long as it took a fresh plan to say otherwise.
-    // The relays themselves need no message: the "stop" just sent above
-    // reaches them as ordinary viewers, and their own closeRecvPCFully tears
-    // down the subtree beneath them.
-    relayedAway.current.clear();
-    activeRelays.current.clear();
-    servingRelayChildren.current = new Map();
-    relayOptOut.current.clear();
     // Each channel only ever reports its *own* half: `setSharing` merges the
     // pair (see signalingClient.setSharing). Before that merge existed this
     // branch read `channel === "screen" ? setSharing(false) : setMic(false)`,
@@ -2378,6 +1924,25 @@ function useBroadcastChannel(
     onStoppedRef.current?.();
     trackEvent(`${eventPrefix}_stop`);
   }, [channel, eventPrefix]);
+
+  const holdStillScreenFloor = useCallback(
+    (track: MediaStreamTrack | undefined, requestedSource?: ShareSource): number => {
+      const preset = videoQualityRef.current;
+      const floor = screenFloorFor(track, requestedSource);
+      if (!track || !preset || floor === 0) return floor;
+      const frameRate = Math.min(preset.frameRate, MAX_TIER_FPS);
+      // Refused by a browser that will not hold a minimum: it goes on as it was.
+      track
+        .applyConstraints({
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { min: floor, ideal: frameRate, max: frameRate },
+        })
+        .catch(() => {});
+      return floor;
+    },
+    [screenFloorFor]
+  );
 
   const start = useCallback(async (requestedSource?: ShareSource) => {
     if (activeRef.current) return;
@@ -2396,6 +1961,7 @@ function useBroadcastChannel(
       stream.getVideoTracks().forEach((track) => {
         track.contentHint = hint;
       });
+      const floor = holdStillScreenFloor(stream.getVideoTracks()[0], requestedSource);
       localStreamRef.current = stream;
       activeRef.current = true;
       // Everything the mid-share quality effect needs to know about what this
@@ -2405,10 +1971,9 @@ function useBroadcastChannel(
       // re-applying them to a live capture for no reason.
       const preset = videoQualityRef.current;
       appliedConstraints.current = preset
-        ? { width: preset.width, height: preset.height, frameRate: preset.frameRate }
+        ? { width: preset.width, height: preset.height, frameRate: preset.frameRate, floor }
         : null;
-      codecOrderRef.current = videoCodecOrder(degradationModeRef.current, true);
-      lastDegradationRef.current = degradationModeRef.current;
+      codecOrderRef.current = videoCodecOrder(degradationModeRef.current);
       sourceRef.current = requestedSource;
       setLocalStream(stream);
       setActive(true);
@@ -2478,6 +2043,7 @@ function useBroadcastChannel(
     eventPrefix,
     openSendPCsStaggered,
     stop,
+    holdStillScreenFloor,
   ]);
 
   // Whether a swap is already in flight. Two flips in quick succession — a
@@ -2494,8 +2060,8 @@ function useBroadcastChannel(
    * channel sends every viewer a "stop", which tears their recvPC down, drops
    * their tile, takes anyone watching fullscreen back out to the grid, and
    * loses the per-viewer state that went with it — their chosen tier, their
-   * volume, their PeerQualityController's learned congestion ratio. Starting
-   * again then rebuilt all of it from nothing. For the person flipping from
+   * volume, what their PeerQualityController learned. Starting again then
+   * rebuilt all of it from nothing. For the person flipping from
    * the front camera to the rear one, that is a whole room interrupted to
    * answer a question about their own phone.
    *
@@ -2557,11 +2123,9 @@ function useBroadcastChannel(
         requestedSource,
         degradationModeRef.current
       );
+      const floor = holdStillScreenFloor(nextVideo, requestedSource);
 
       try {
-        // Every sender at once. A relay is an ordinary viewer of ours as far
-        // as this map is concerned, so its subtree follows from the one
-        // replacement here without any message of its own.
         await Promise.all(
           [...sendPCs.current.values()].flatMap((pc) =>
             pc
@@ -2607,12 +2171,14 @@ function useBroadcastChannel(
       // it here means the first frames out of the new camera are already
       // scaled for the tier each viewer asked for, instead of arriving
       // visibly wrong and being corrected.
-      const height = nextVideo.getSettings().height;
-      if (height) qualityRegistry.current.setCaptureHeight(height);
+      const nextSettings = nextVideo.getSettings();
+      if (nextSettings.width && nextSettings.height) {
+        qualityRegistry.current.setCaptureSize(nextSettings.width, nextSettings.height);
+      }
 
       const preset = videoQualityRef.current;
       appliedConstraints.current = preset
-        ? { width: preset.width, height: preset.height, frameRate: preset.frameRate }
+        ? { width: preset.width, height: preset.height, frameRate: preset.frameRate, floor }
         : null;
       sourceRef.current = requestedSource;
       setSource(requestedSource);
@@ -2621,43 +2187,29 @@ function useBroadcastChannel(
       trackEvent(`${eventPrefix}_swap`);
       return true;
     },
-    [capture, channel, eventPrefix, stop]
+    [capture, channel, eventPrefix, stop, holdStillScreenFloor]
   );
 
   const openRecvPC = useCallback(
-    // peerId is who is sending to us; originId is who actually produced
-    // the stream. They differ only for relayed traffic. Keeping the recvPC
-    // keyed by sender while filing the stream under the origin is what lets a
-    // relayed viewer still see the real broadcaster on the tile.
-    (peerId: string, originId: string = peerId) => {
+    (peerId: string) => {
       const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current));
       recvPCs.current.set(peerId, pc);
-      recvOrigins.current.set(peerId, originId);
       if (channel !== "mic") {
-        connectionRegistry.register({
-          channel,
-          direction: "recv",
-          peerId,
-          originId,
-          viaRelay: originId !== peerId,
-          pc,
-        });
+        connectionRegistry.register({ channel, direction: "recv", peerId, originId: peerId, pc });
         // Our end relaying through TURN is invisible to whoever sends to
         // us, and they are the one who decides what is encoded — so say so.
-        // To the peer sending (a relay, for relayed traffic), not the origin.
         recvTurnCleanups.current.get(peerId)?.();
-        const unwatchTurn = watchTurnRelay(pc, (via, provider) => {
+        const unwatchTurn = watchTurnRelay(pc, (via) => {
           signalingClient.sendSignal(peerId, {
             channel,
             role: "viewer",
             kind: "route",
             cloudflare: via,
-            turnProvider: provider,
           });
         });
         recvTurnCleanups.current.set(peerId, unwatchTurn);
       }
-      setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
+      setRecvConnectionStates((prev) => ({ ...prev, [peerId]: pc.connectionState }));
       // Never connected in time without TURN: the "Pro relays" notice (see
       // lib/turnUpsell). A no-op for an account that has TURN.
       setTimeout(() => {
@@ -2665,15 +2217,16 @@ function useBroadcastChannel(
       }, TURN_UPSELL_DELAY_MS);
       pc.ontrack = (e) => {
         // Smooth out network jitter for viewers with fluctuating or high-latency
-        // connections (absorbs micro-bursts without causing frame freezes).
-        if (e.receiver && "playoutDelayHint" in e.receiver) {
+        // connections (absorbs micro-bursts without causing frame freezes). Not
+        // for the mic: a tenth of a second is nothing on a picture and a lot in
+        // a conversation.
+        if (channel !== "mic" && e.receiver && "playoutDelayHint" in e.receiver) {
           try {
             (e.receiver as RTCRtpReceiver & { playoutDelayHint?: number }).playoutDelayHint = 0.1;
           } catch {
             // Ignored on unsupported browsers
           }
         }
-        const origin = recvOrigins.current.get(peerId) ?? peerId;
         // Every RTP packet already carries the sender's own measured audio
         // level, so handing the receiver over lets the speaking indicator
         // read it instead of building an analyser per participant to measure
@@ -2682,8 +2235,8 @@ function useBroadcastChannel(
         if (channel === "mic" && e.streams[0]) {
           speakingDetector.attachReceiver(e.streams[0].id, e.receiver);
         }
-        setRemoteStreams((prev) => ({ ...prev, [origin]: e.streams[0] }));
-        clearResuming(origin);
+        setRemoteStreams((prev) => ({ ...prev, [peerId]: e.streams[0] }));
+        clearResuming(peerId);
         // A stream is arriving from them, so neither placeholder is true any
         // more — including the stopped one, which only clearResuming's twin
         // used to retire. That mattered once the resume watchdog started
@@ -2691,17 +2244,13 @@ function useBroadcastChannel(
         // broadcaster's own retry loop can perfectly well succeed afterwards,
         // and the marker it left behind would then sit there being wrong,
         // waiting to caption the next gap as "you left this transmission".
-        clearStopped(origin);
-        // Only a relay needs to hold on to the pc and stream: it is the source
-        // it will forward, and the thing it must watch for stalls.
-        if (RELAY_ENABLED && channel === "screen") {
-          relaySources.current.set(origin, { pc, stream: e.streams[0] });
-        }
+        clearStopped(peerId);
         // A fresh track means a brand new sender on their side, which has
         // never heard what size we render them at — so it is currently
         // encoding at its own ceiling for us. Re-announce immediately rather
         // than waiting for the next resize or the periodic refresh.
         if (channel !== "mic") {
+          qualityNegotiator.bindStream(channel as QualityChannel, peerId, e.streams[0]);
           qualityNegotiator.announce(channel as QualityChannel, peerId);
         }
       };
@@ -2746,7 +2295,7 @@ function useBroadcastChannel(
 
       pc.onconnectionstatechange = () => {
         if (recvPCs.current.get(peerId) !== pc) return;
-        setRecvConnectionStates((prev) => ({ ...prev, [originId]: pc.connectionState }));
+        setRecvConnectionStates((prev) => ({ ...prev, [peerId]: pc.connectionState }));
         if (pc.connectionState === "closed") {
           closeRecvPC(peerId);
           requestReconnect(peerId);
@@ -2785,10 +2334,6 @@ function useBroadcastChannel(
         // immediately before scheduling the next retry, and resetting it there
         // would flatten the backoff back to a constant interval.
         sendRetryAttempts.current.delete(from);
-        // Their capacity report describes a link that is gone. Nothing else
-        // ever deleted from this map, so a long share in a busy room held one
-        // entry for everyone who had ever passed through.
-        peerCapacities.current.delete(from);
         return;
       }
       if (data.channel !== channel) return;
@@ -2837,8 +2382,7 @@ function useBroadcastChannel(
             existingPc.connectionState !== "closed" &&
             existingPc.signalingState === "stable";
           if (existingPc && !restartInPlace) closeRecvPC(from);
-          const thisPc =
-            restartInPlace && existingPc ? existingPc : openRecvPC(from, data.originId ?? from);
+          const thisPc = restartInPlace && existingPc ? existingPc : openRecvPC(from);
           thisPc
             .setRemoteDescription(data.sdp)
             .then(async () => {
@@ -2850,9 +2394,6 @@ function useBroadcastChannel(
                   await thisPc.addIceCandidate(candidate).catch(() => {});
                 }
               }
-              // Experiment "recv-codec" (see lib/receiveCodec): the answer's
-              // codec order is what the sender encodes with.
-              if (channel !== "mic") applyReceiveCodecPreferences(thisPc);
               return thisPc.createAnswer();
             })
             .then((answer) => {
@@ -2883,30 +2424,6 @@ function useBroadcastChannel(
             pendingRecvCandidates.current.set(from, queue);
           }
         } else if (data.kind === "stop") {
-          if (data.reparenting) {
-            // Same stream, different route. Closing the connection is right —
-            // it is genuinely going away — but clearing the tile is not: an
-            // offer from the new parent is already in flight, and treating the
-            // handover as "they stopped sharing" is what turned every
-            // reparenting into a tile that vanished and then reappeared.
-            // Marking it resuming keeps a placeholder on screen for the second
-            // or two in between, and openRecvPC's ontrack clears it.
-            //
-            // The origin has to be read *before* closeRecvPC, which deletes the
-            // sender→origin mapping on its way out. Reading it afterwards meant
-            // the `?? from` fallback always won, and on the one path where
-            // sender and origin differ — a relay handing a child on — that put
-            // the *relay* into resumingPeers instead of the broadcaster. Two
-            // things followed, both permanent: the broadcaster's tile went
-            // blank with no placeholder at all, and a participant transmitting
-            // nothing acquired a "Retomando..." tile that nothing could ever
-            // clear, since ontrack clears by origin. Direct traffic hid it
-            // completely — there the two ids are the same.
-            const origin = recvOrigins.current.get(from) ?? from;
-            closeRecvPC(from, true);
-            markResuming(origin);
-            return;
-          }
           // The broadcaster stopped sharing entirely — nothing to "come
           // back" to, so this fully clears the tile rather than leaving a
           // stopped-by-us placeholder behind.
@@ -2916,9 +2433,7 @@ function useBroadcastChannel(
         }
       } else if (data.role === "viewer") {
         if (data.kind === "diag-request") {
-          // Answered by whoever holds the sending end — us as the broadcaster,
-          // or us as a relay for one of our children; connectionDiagLink finds
-          // the connection either way and ignores anyone we do not send to.
+          // connectionDiagLink ignores anyone we do not send to.
           if (channel === "mic") return;
           connectionDiagLink.respond(channel, from, data.originId, () => {
             const preset = videoQualityRef.current;
@@ -2932,157 +2447,34 @@ function useBroadcastChannel(
           });
           return;
         }
-        if (data.kind === "relay-assign") {
-          // The broadcaster has asked us to forward their stream onward. We
-          // can only do that if we are actually receiving it — if the source
-          // has not arrived yet the assignment is dropped rather than queued,
-          // because by the time it did arrive the plan would likely be stale.
-          if (!RELAY_ENABLED || channel !== "screen") return;
-          const origin = data.originId ?? from;
-          if (!data.children) return;
-          // An assignment naming nobody is the root saying this relay is no
-          // longer part of the plan (see applyRelayPlan). Answered before the
-          // source check below, because it has to work in exactly the case
-          // that check rejects: our source being gone is precisely when a link
-          // still holding children would otherwise go on re-encoding for
-          // people the root has already taken back.
-          if (data.children.length === 0) {
-            relays.current.get(origin)?.releaseAllChildren();
-            return;
-          }
-          const source = relaySources.current.get(origin);
-          if (!source) {
-            // We are not receiving this stream, so we cannot forward it. That
-            // is an ordinary situation — we may have stopped watching them, be
-            // hyperfocused elsewhere, or have auto-join switched off — and it
-            // used to be handled by silently dropping the assignment. Silence
-            // was the wrong answer: the broadcaster had already closed its
-            // direct connection to every viewer in this list on the assumption
-            // we would take them, so each of them lost their stream outright
-            // and stayed black until some later plan happened to route around
-            // us. Saying so puts them back within one signalling round trip.
-            signalingClient.sendSignal(origin, {
-              channel: "screen",
-              role: "viewer",
-              kind: "relay-nack",
-              originId: origin,
-              children: data.children,
-            });
-            return;
-          }
-          // Read as a set rather than "motion or else text": with three
-          // profiles that shape is no longer a default, it is a
-          // misclassification. A broadcaster sharing a game on "balanced"
-          // would have had their relayed viewers served under
-          // maintain-resolution — the one setting they did not choose, and
-          // the one that turns their share into a slideshow.
-          //
-          // A sender that names no profile at all predates this field (an
-          // older tab still open through a deploy). That falls to the app's
-          // default, same as RelayLink's own — "nobody said" and "nobody
-          // opened the menu" are the same statement and deserve the same
-          // answer.
-          const degradation: DegradationMode =
-            data.degradation === "motion" || data.degradation === "balanced"
-              ? data.degradation
-              : "text";
-          const link = relays.current.ensure(origin, source.stream, source.pc, forceRelayIceRef.current, () => {
-            // Our own source died. Tell the broadcaster so it can re-plan
-            // rather than keep routing people through a dead branch.
-            signalingClient.sendSignal(origin, {
-              channel: "screen",
-              role: "viewer",
-              kind: "capacity",
-              uploadKbps: 0,
-              encodeMpxs: 0,
-              eligibleRelay: false,
-              measured: true,
-            });
-          });
-          const wasIdle = !link.hasChildren();
-          link.setChildren(data.children, degradation);
-          if (wasIdle && link.hasChildren()) trackEvent("relay_promoted");
-          return;
-        }
-        if (data.kind === "relay-nack") {
-          // A relay we assigned children to cannot serve them. Take them back
-          // immediately rather than waiting for the next planning pass, and
-          // drop them from relayedAway so the peer-list-driven loop stops
-          // skipping them too.
-          if (!activeRef.current) return;
-          for (const child of data.children ?? []) {
-            relayedAway.current.delete(child.id);
-            // And keep them here. Taking them back for one pass and handing
-            // them to the same relay six seconds later is not a recovery, it
-            // is a flap — see relayOptOut.
-            optOutOfRelaying(child.id);
-            if (!viewerPausedPeers.current.has(child.id)) openSendPC(child.id);
-          }
-          trackEvent("relay_nack");
-          return;
-        }
-        if (data.kind === "capacity") {
-          const existing = peerCapacities.current.get(from);
-          const now = Date.now();
-          peerCapacities.current.set(from, {
-            peerId: from,
-            uploadKbps: data.uploadKbps ?? 0,
-            encodeMpxs: data.encodeMpxs ?? 0,
-            eligibleRelay: data.eligibleRelay === true,
-            measured: data.measured === true,
-            // firstSeenAt is preserved across updates on purpose: it is how
-            // "has been here a while" is measured, and that is the tiebreak
-            // that stops the planner promoting someone who just walked in and
-            // may walk straight back out.
-            firstSeenAt: existing?.firstSeenAt ?? now,
-            updatedAt: now,
-          });
-        } else if (data.kind === "quality" && data.tier) {
-          // This viewer told us how large they actually render our video.
-          // Recorded even when no sendPC exists yet (a request can beat the
-          // connection, and must survive a reconnect), then applied to the
-          // live controller if there is one.
+        if (data.kind === "quality" && data.tier) {
+          // This viewer told us how large they actually render our video, and
+          // whether they are looking at it at all. Recorded even when no sendPC
+          // exists yet (a request can beat the connection, and must survive a
+          // reconnect), then applied to the live controller if there is one.
           requestedTiers.current.set(from, data.tier);
-          qualityRegistry.current.get(from)?.setTier(tierForPeer(from));
+          const idle = data.idle === true;
+          qualityRegistry.current.get(from)?.setRequest(tierForPeer(from), idle);
+          const pc = sendPCs.current.get(from);
+          if (pc) {
+            nativeVideoSourceFor(localStreamRef.current?.getVideoTracks()[0])?.setViewerPaused(
+              pc,
+              idle && !isClassicSend()
+            );
+          }
         } else if (data.kind === "route") {
           // This viewer's end of our connection to them is relayed through
           // a TURN server (or stopped being). Caps only what is encoded
-          // for them — see lib/turnRoute.ts. Either registry: they are our
-          // own viewer, or a child of a relay we are running.
-          const via = data.cloudflare === true;
-          const provider =
-            data.turnProvider === "cloudflare" || data.turnProvider === "own" ? data.turnProvider : null;
-          qualityRegistry.current.setRemoteRelayRoute(from, via, provider);
-          relays.current.findByChild(from)?.setRemoteRelayRoute(from, via, provider);
+          // for them — see lib/turnRoute.ts.
+          qualityRegistry.current.setRemoteRelayRoute(from, data.cloudflare === true);
         } else if (data.kind === "stop") {
           // This peer (as a viewer of OUR stream) asked us to stop sending —
           // free the upload-side connection and remember not to reopen it on
           // our own until they explicitly ask to resume.
           viewerPausedPeers.current.add(from);
           closeSendPC(from);
-          // They may be a relay child rather than one of our own viewers, and
-          // that connection lives somewhere else entirely (see relayLink). It
-          // is also the expensive one — a whole re-encode — so it is the one
-          // most worth releasing when someone says they are not watching.
-          relays.current.findByChild(from)?.releaseChild(from);
         } else if (data.kind === "resume") {
           viewerPausedPeers.current.delete(from);
-          // If a relay was serving them, that arrangement ended when they
-          // asked to stop. Forgetting it here keeps the direct connection we
-          // are about to open from being immediately closed again as a
-          // duplicate, and lets the next planning pass decide afresh whether
-          // they should go back to a relay.
-          relayedAway.current.delete(from);
-          // A resume flagged as a repair is a viewer whose relayed stream
-          // never arrived at all, asking to be served by us instead (see
-          // RESUME_WATCHDOG_MS). Letting the next planning pass hand them
-          // straight back to the route that just failed them would undo the
-          // rescue six seconds after it worked, so that route is closed to
-          // them for a while. A person clicking "Retomar transmissão" is not
-          // this and does not set the flag — nothing was broken there, and
-          // pinning every manual resume to a direct connection would put load
-          // back on a broadcaster the cascade exists to take it off.
-          if (data.recovery) optOutOfRelaying(from);
           // Closed first, deliberately. openSendPC is a no-op when a pc for
           // this peer already exists, and one can perfectly well still be
           // sitting there: the "stop" that should have torn it down is sent
@@ -3101,40 +2493,20 @@ function useBroadcastChannel(
           // wrong on its own. Force a fresh sendPC regardless of what ours
           // currently thinks, unless they deliberately paused us.
           if (viewerPausedPeers.current.has(from)) return;
-          // A relay is serving them on our behalf. Reopening a direct
-          // connection here would not repair anything — it would double-encode
-          // and double-send the very stream the cascade exists to send once.
-          // Their relay is the one that can help, and they will reach it (see
-          // the relay branch below, which runs on that machine).
-          if (relayedAway.current.has(from)) return;
-          // We may not be the broadcaster at all: if we are relaying someone
-          // else's stream to this viewer, the dead connection is the relay
-          // child, and we are the only party who can rebuild it. Without this
-          // the request fell straight through the `!activeRef.current` guard
-          // below — a relay is not sharing anything of its own — so a relayed
-          // viewer whose link dropped had no recovery path in the system at
-          // all, and simply kept a frozen tile until the topology happened to
-          // be replanned.
-          const relayForPeer = relays.current.findByChild(from);
-          if (relayForPeer) {
-            relayForPeer.reopenChild(from);
-            return;
-          }
           if (!activeRef.current) return;
           // Renegotiate in place if we still can. Their pc is being held open
           // for exactly this (see recoverRecvPC), so the cheap repair is on
           // the table right up until their own fallback fires.
           if (sendIceRestarters.current.get(from)?.() === true) return;
           closeSendPC(from);
-          openSendPC(from);
+          // Through the backoff, like every other retry, rather than straight
+          // away. A pair with no path between them only ever ends up here: the
+          // viewer's connection fails, it asks, a new connection goes through
+          // ICE and fails the same way. Answered at once, that was a fresh
+          // connection every 25 seconds for as long as both stayed in the room,
+          // 5% of pairs in the reports, each one a new encoder on the sender.
+          scheduleSendRetry(from);
         } else if (data.kind === "answer" && data.sdp) {
-          // A relay child answers us, not the original broadcaster, so route
-          // it to the RelayLink before falling through to our own senders.
-          const relayLink = relays.current.findByChild(from);
-          if (relayLink) {
-            relayLink.acceptAnswer(from, data.sdp);
-            return;
-          }
           const pc = sendPCs.current.get(from);
           pc?.setRemoteDescription(data.sdp)
             .then(async () => {
@@ -3148,11 +2520,6 @@ function useBroadcastChannel(
             })
             .catch(() => {});
         } else if (data.kind === "ice" && data.candidate) {
-          const relayLink = relays.current.findByChild(from);
-          if (relayLink) {
-            relayLink.acceptCandidate(from, data.candidate);
-            return;
-          }
           const pc = sendPCs.current.get(from);
           if (pc && pc.remoteDescription) {
             pc.addIceCandidate(data.candidate).catch(() => {});
@@ -3186,7 +2553,6 @@ function useBroadcastChannel(
       const readyPeerIds: string[] = [];
       for (const peer of peers) {
         if (viewerPausedPeers.current.has(peer.id)) continue;
-        if (relayedAway.current.has(peer.id)) continue;
         readyPeerIds.push(peer.id);
       }
       openSendPCsStaggered(readyPeerIds);
@@ -3203,12 +2569,6 @@ function useBroadcastChannel(
       if (resumingPeersRef.current.has(peerId)) clearResuming(peerId);
       viewerPausedPeers.current.delete(peerId);
       sendRetryAttempts.current.delete(peerId);
-      peerCapacities.current.delete(peerId);
-      relayedAway.current.delete(peerId);
-      activeRelays.current.delete(peerId);
-      // Someone who has left the room and comes back is a fresh viewer, not
-      // one still carrying the verdict of a handover that failed minutes ago.
-      relayOptOut.current.delete(peerId);
     }
 
     const unsubscribeRoomJoined = signalingClient.onRoomJoined(() => {
@@ -3280,9 +2640,8 @@ function useBroadcastChannel(
     closeRecvPCFully,
     clearStopped,
     clearResuming,
-    markResuming,
-    optOutOfRelaying,
     tierForPeer,
+    scheduleSendRetry,
   ]);
 
   // Existing connections were built under whatever ICE policy was in effect
@@ -3313,16 +2672,8 @@ function useBroadcastChannel(
     const pausedPeers = viewerPausedPeers.current;
     const recoveryTimers = recvRecoveryTimers.current;
     const watchdogs = resumeWatchdogs.current;
-    const relayLinks = relays.current;
     return () => {
       stop();
-      // The recvPCs below are closed directly, bypassing closeRecvPC — which
-      // is the only place a relay we were running for someone got released.
-      // So leaving the room left every RelayLink standing: its children's
-      // sendPCs open and re-encoding, their controllers still registered with
-      // the stats pump, and its 1 s stall timer ticking, all for a room we
-      // were no longer in.
-      relayLinks.clear();
       // Closing the pcs directly rather than through closeRecvPC means these
       // are not cleared along the way. They are harmless if they do fire (each
       // checks that its pc is still the current one, which it will not be), but
@@ -3344,8 +2695,6 @@ function useBroadcastChannel(
         for (const peerId of pcs.keys()) qualityNegotiator.forget(channel as QualityChannel, peerId);
       }
       pcs.clear();
-      recvOrigins.current.clear();
-      relaySources.current.clear();
       pendingRecvCandidates.current.clear();
       pendingSendCandidates.current.clear();
       setRemoteStreams({});
@@ -3369,14 +2718,6 @@ function useBroadcastChannel(
     recvConnectionStates,
     stopWatchingPeer,
     resumeWatchingPeer,
-    // Getters, not values: both maps are written on the signalling hot path,
-    // and surfacing them as state would re-render every tile in the room each
-    // time a single viewer resized its window.
-    getRequestedTiers,
-    getServedTiers,
-    getPeerCapacities,
-    applyRelayPlan,
-    applyDirectCaps,
   };
 }
 
@@ -3535,11 +2876,8 @@ export function useRoomMedia(room: string) {
   // creates — sending or receiving, any channel — through the TURN relay
   // instead of negotiating a direct P2P path. Declared first because
   // useBroadcastChannel (screen/camera/mic below) needs it at construction
-  // time. Deliberately unrelated to cascading (see topologyPlanner.ts): that
-  // is about avoiding a stranger's browser as a middleman for someone
-  // else's stream, this is about hiding your own IP from whoever you
-  // connect to, middleman or not. Seeded from localStorage like the other
-  // device-local preferences below.
+  // time. This is about hiding your own IP from whoever you connect to.
+  // Seeded from localStorage like the other device-local preferences below.
   //
   // Pro Max only (feature "force_relay"). The stored switch is kept as it is,
   // but only counts while the account has the feature — so somebody whose plan
@@ -3618,40 +2956,22 @@ export function useRoomMedia(room: string) {
   // forces the picked tier on everyone, which is what someone streaming to a
   // handful of fullscreen viewers may genuinely want.
   const [smartQualityEnabled, setSmartQualityEnabledState] = useState(getStoredSmartQuality);
-  // What is being shared. This drives contentHint, degradationPreference and
-  // codec ordering all at once, and getting it wrong is the difference
-  // between crisp text and a 60fps game that stutters into a slideshow.
-  //
-  // "balanced" is the default: most shares are neither pure text nor pure
-  // motion, and "text"'s maintain-resolution plus VP9-first encode (see
-  // peerQualityController and videoCodecPreferences) is a software-encode-heavy
-  // combination that, picked by default for people who never open the picker,
-  // was exactly what made a plain screen share compete hard with a running
-  // game for CPU. "Balanced" lets the encoder trade off frame rate and detail
-  // continuously instead of pinning one axis, and it's not clamped to 30fps
-  // the way "text" is. Anyone who actually wants sharp, static text still has
-  // "Texto/código" one click away in the same picker.
-  //
-  // Only the default: experiment "screen-codec" (see lib/screenCodec) tries
-  // "text" as the default again, because the reports since this became
-  // "balanced" say the H264 it brings is a software encode on most machines,
-  // and a worse one for screen content than the VP9 it replaced. Held apart
-  // from the person's own pick so that the experiment can move the default
-  // after the page has rendered, while a pick always wins.
+  // What is being shared, which decides what gets given up first when something
+  // runs short (see lib/sendAdaptation). "balanced" is the default: most shares
+  // are neither pure text nor pure motion. Held apart from the person's own pick
+  // so that the default can change without rewriting anyone's choice.
   const [pickedShareProfile, setPickedShareProfile] = useState<DegradationMode | null>(() => {
     const stored = getStoredShareProfile();
     return SHARE_PROFILE_OPTIONS.find((opt) => opt.value === stored)?.value ?? null;
   });
-  const screenCodecFeature = useFeature(SCREEN_CODEC_FEATURE, { track: false });
-  useEffect(() => {
-    setScreenCodecVariant(screenCodecFeature.variant);
-  }, [screenCodecFeature.variant]);
-  const shareProfile: DegradationMode =
-    pickedShareProfile ?? (screenCodecFeature.variant === "text" ? "text" : "balanced");
+  const shareProfile: DegradationMode = pickedShareProfile ?? "balanced";
 
-  // Experiment "own-turn" (see lib/ownTurn): shapes connections as they open
-  // (iceConfigFor) and the relay caps already applied, so decided here; the
-  // exposure is counted further down, next to screen-codec's.
+  // Experiment "sq-classic-send" (see lib/classicSend): read all over the send
+  // path, so decided here; the exposure is counted once a screen share runs.
+  const classicSendFeature = useFeature(CLASSIC_SEND_FEATURE, { track: false });
+  useEffect(() => {
+    setClassicSend(classicSendFeature.enabled);
+  }, [classicSendFeature.enabled]);
   // Experiment "stereo-audio" (see lib/opusStereo): read by every offer
   // that goes out, so decided here; exposure counted while sharing, below.
   const stereoAudioFeature = useFeature(STEREO_AUDIO_FEATURE, { track: false });
@@ -3659,11 +2979,6 @@ export function useRoomMedia(room: string) {
     setStereoAudioEnabled(stereoAudioFeature.enabled);
   }, [stereoAudioFeature.enabled]);
 
-  const ownTurnFeature = useFeature(OWN_TURN_FEATURE, { track: false });
-  useEffect(() => {
-    setOwnTurnVariant(ownTurnFeature.variant);
-    refreshRelayCaps();
-  }, [ownTurnFeature.variant]);
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
   // Whether the *next* share should carry system audio. A ref and not state,
@@ -3733,8 +3048,8 @@ export function useRoomMedia(room: string) {
     trackEvent(`screen_share_profile_${value}`);
   }, []);
 
-  // Other peers in the room. Still surfaced (the UI shows it, and the
-  // topology hook needs it) but deliberately no longer an input to quality:
+  // Other peers in the room. Still surfaced (the UI shows it) but deliberately
+  // not an input to quality:
   // headcount is a bad proxy for cost, and using it is what previously
   // forced a 1080p share down to the bottom of the ladder at 14 peers
   // regardless of whether anyone's link or CPU was actually under strain.
@@ -5015,12 +4330,6 @@ export function useRoomMedia(room: string) {
     cameraFromPhone,
   ]);
 
-  // Capacity measurement and the cascade decision. Both are driven by the
-  // screen channel only: it is the expensive one, and the mic's ~32 kbps is
-  // never what runs a room out of headroom. Keeping audio on a plain mesh is
-  // also deliberate — routing voice through a relay tree would add a hop of
-  // latency to conversation, which is far more noticeable than the same delay
-  // on video.
   const anyFileActive = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot].active);
 
   // Experiment "file-audio-tracks": every audio track of a local file, each
@@ -5068,265 +4377,12 @@ export function useRoomMedia(room: string) {
       unsubscribe();
     };
   }, []);
-  const sharingAnything =
-    screen.active ||
-    camera.active ||
-    camera2.active ||
-    anyFileActive ||
-    extraScreensActive > 0 ||
-    extraCamerasActive > 0;
+  // What the stats pump last read about our uplink, for the quality panel.
+  const [capacity, setCapacity] = useState<CapacitySample>(() => mediaStats.getCapacity());
+  useEffect(() => mediaStats.onCapacity(setCapacity), []);
 
-  const { capacity, self, reportLoad } = useMeshCapacity();
-  const selfRef = useRef(self);
-  useEffect(() => {
-    selfRef.current = self;
-  }, [self]);
-
-  const contentMultiplierRef = useRef(1);
-  useEffect(() => {
-    contentMultiplierRef.current = capacity.contentMultiplier || 1;
-  }, [capacity.contentMultiplier]);
-  const getContentMultiplier = useCallback(() => contentMultiplierRef.current, []);
-
-  // Keeps the encode-budget estimator honest: it needs to know how much work
-  // we are actually asking the encoder to do before it can tell whether a CPU
-  // limitation means "this device is weak" or "we simply asked for too much".
-  //
-  // Depends on the two stable getters, never on the `screen`/`camera` objects
-  // themselves: those are fresh object literals on every render, so listing one
-  // tore this interval down and rebuilt it faster than its own 4s period ever
-  // elapsed in an active room (chat, speaking indicators, tile resizes). It
-  // therefore never fired, `loadRef` stayed at 0, and the `currentLoadMpxs > 0`
-  // guard in EncodeBudget.observe meant the encode budget could never be
-  // revised *down* under CPU pressure — only up, 12% at a time, whenever
-  // pressure was low. The planner ended up believing in a machine far stronger
-  // than the real one and stopped degrading when it should have.
-  const getScreenTiers = screen.getServedTiers;
-  const getCameraTiers = camera.getRequestedTiers;
-  // Every live slot's tiers, since each is a real encode of its own.
-  const getFileTiers = useCallback(
-    () =>
-      LOCAL_MEDIA_SLOTS.flatMap((slot) =>
-        fileChannels[slot].active ? [...fileChannels[slot].getRequestedTiers().values()] : []
-      ),
-    [fileChannels]
-  );
-  const screenActive = screen.active;
-  const cameraActive = camera.active;
-  const fileActive = anyFileActive;
-  // The extra screens are real encodes too. Read through a ref so the getter
-  // keeps one identity: the channel objects are fresh every render, and an
-  // unstable getter would rebuild the interval below before it ever fired
-  // (see the comment above getScreenTiers).
-  const extraScreensRef = useRef(extraScreens);
-  useEffect(() => {
-    extraScreensRef.current = extraScreens;
-  }, [extraScreens]);
-  const getExtraScreenTiers = useCallback(
-    () =>
-      EXTRA_SCREEN_SLOTS.flatMap((slot) => {
-        const channel = extraScreensRef.current[slot];
-        return channel.active ? [...channel.getRequestedTiers().values()] : [];
-      }),
-    []
-  );
-  useEffect(() => {
-    if (!sharingAnything) return;
-    const timer = setInterval(() => {
-      // Both channels, but only the ones actually running: the encoder is one
-      // shared resource, and a camera share alongside a screen share is real
-      // work the budget has to know about. The getters answer for every peer in
-      // the room rather than for live senders, so counting an idle channel
-      // would invent a second encode per person out of nothing.
-      const tiers = [
-        ...(screenActive ? getScreenTiers().values() : []),
-        ...(cameraActive ? getCameraTiers().values() : []),
-        ...(fileActive ? getFileTiers() : []),
-        ...getExtraScreenTiers(),
-        ...EXTRA_CAMERA_SLOTS.flatMap((slot) => {
-          const channel = extraCamerasRef.current[slot];
-          return channel.active ? [...channel.getRequestedTiers().values()] : [];
-        }),
-        ...(camera2Ref.current.active ? camera2Ref.current.getRequestedTiers().values() : []),
-      ];
-      reportLoad(tiers);
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [
-    sharingAnything,
-    reportLoad,
-    getScreenTiers,
-    getCameraTiers,
-    getFileTiers,
-    getExtraScreenTiers,
-    screenActive,
-    cameraActive,
-    fileActive,
-  ]);
-
-  // Experiment "screen-codec" (see lib/screenCodec). Decided further up, where
-  // the default profile needs it; this second read only counts the exposure,
-  // once a screen share is running.
-  useFeature(SCREEN_CODEC_FEATURE, { track: screen.active });
+  useFeature(CLASSIC_SEND_FEATURE, { track: screen.active });
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
-  // Likewise "own-turn": exposed once there is screen video going either way,
-  // the only time its relay transport and cap can matter.
-  useFeature(OWN_TURN_FEATURE, {
-    track: screen.active || Object.keys(screen.remoteStreams).length > 0,
-  });
-  // Experiment "congestion-recover" (see lib/congestionRecover): read by every
-  // sender's congestion step, so a plain module flag; exposed while sharing
-  // the screen, the only time it can move anything.
-  const congestionRecover = useFeature(CONGESTION_RECOVER_FEATURE, { track: screen.active });
-  useEffect(() => {
-    setCongestionRecoverEnabled(congestionRecover.enabled);
-  }, [congestionRecover.enabled]);
-  // Experiment "recv-codec" (see lib/receiveCodec): only viewers on Safari or a
-  // phone are covered, and they are exposed once they receive video. Applied
-  // to answers as they are made, so a stream already running keeps its codec
-  // until its next negotiation.
-  const receivingVideo =
-    Object.keys(screen.remoteStreams).length > 0 || Object.keys(camera.remoteStreams).length > 0;
-  const receiveCodec = useFeature(RECEIVE_CODEC_FEATURE, {
-    track: receivingVideo && isReceiveCodecEligible(),
-  });
-  useEffect(() => {
-    setReceiveCodecEnabled(receiveCodec.enabled);
-  }, [receiveCodec.enabled]);
-
-  // Experiment "stream-perf" (see lib/streamPerf). An exposure only once a
-  // screen share is running, which is the only time it changes anything.
-  const streamPerf = useFeature(STREAM_PERF_FEATURE, { track: screen.active });
-  useEffect(() => {
-    setStreamPerfEnabled(streamPerf.enabled);
-  }, [streamPerf.enabled]);
-
-  // The "sq" experiments (see lib/streamQuality). Each one is exposed only
-  // where it can change something, and both sides send the same per-session
-  // events (see connectionTelemetry), so the admin compares like with like.
-  // sq-weak-sender: our own screen, outside "motion", on a machine with few
-  // cores — once one of its connections has fallen behind on the encoder,
-  // which is the only share the cap ever touches (see lib/streamQuality's
-  // SenderStruggle; watched in both groups).
-  const sqWeakStruggle = useSyncExternalStore(onWeakStruggle, hasWeakStruggle, () => false);
-  const sqWeakSender = useFeature(SQ_WEAK_SENDER_FEATURE, {
-    track: screen.active && shareProfile !== "motion" && isWeakMachine() && sqWeakStruggle,
-  });
-  useEffect(() => {
-    setSqWeakSenderEnabled(sqWeakSender.enabled);
-  }, [sqWeakSender.enabled]);
-  // sq-motion-hold: "motion" on the website, where H264 is not known to be hardware.
-  const sqMotionHold = useFeature(SQ_MOTION_HOLD_FEATURE, {
-    track: screen.active && shareProfile === "motion" && !isDesktopApp() && isH264Hardware() !== true,
-  });
-  useEffect(() => {
-    setSqMotionHoldEnabled(sqMotionHold.enabled);
-  }, [sqMotionHold.enabled]);
-  // sq-h264-qp: a field trial the desktop app applies at its next start (see
-  // electron/webrtcTrials.ts). Exposed only once the app runs with the side
-  // it was assigned — "assigned but not restarted yet" is neither group.
-  const trialsBridge = useMemo(() => getDesktopBridge()?.webrtcTrials ?? null, []);
-  const [trialState, setTrialState] = useState<{ known: boolean; h264Qp: boolean } | null>(null);
-  useEffect(() => {
-    if (!trialsBridge) return;
-    let live = true;
-    void trialsBridge.state().then(
-      (state) => {
-        if (!live) return;
-        setTrialState(state);
-        setSqH264QpApplied(state.h264Qp);
-      },
-      () => {}
-    );
-    return () => {
-      live = false;
-    };
-  }, [trialsBridge]);
-  const sqH264Qp = useFeature(SQ_H264_QP_FEATURE, { track: false });
-  useFeature(SQ_H264_QP_FEATURE, {
-    track: screen.active && trialState?.known === true && trialState.h264Qp === sqH264Qp.enabled,
-  });
-  useEffect(() => {
-    if (!trialsBridge || !sqH264Qp.ready) return;
-    trialsBridge.setH264Qp(sqH264Qp.enabled);
-  }, [trialsBridge, sqH264Qp.ready, sqH264Qp.enabled]);
-  // sq-recv-drops: anyone receiving video.
-  const sqRecvDrops = useFeature(SQ_RECV_DROPS_FEATURE, { track: receivingVideo });
-  useEffect(() => {
-    setSqRecvDropsEnabled(sqRecvDrops.enabled);
-  }, [sqRecvDrops.enabled]);
-  // sq-native-key: a screen share that goes through the GPU capture.
-  const sqNativeKey = useFeature(SQ_NATIVE_KEY_FEATURE, {
-    track: screen.active && nativeVideoBridge && nativeVideoWanted,
-  });
-  useEffect(() => {
-    setSqNativeKeyEnabled(sqNativeKey.enabled);
-  }, [sqNativeKey.enabled]);
-  // One event per stretch of downgrading, not one per planning pass.
-  const directDowngradeCounted = useRef(false);
-
-  const topology = useMeshTopology(
-    sharingAnything,
-    selfRef,
-    screen.getPeerCapacities,
-    screen.getRequestedTiers,
-    getContentMultiplier
-  );
-
-  // Turn the plan into instructions. In the expected case there is no plan at
-  // all (the room fits in a direct mesh) and this hands over an empty map,
-  // which tears down any relays that were running and returns everyone to
-  // being served directly.
-  const applyRelayPlan = screen.applyRelayPlan;
-  const applyDirectCaps = screen.applyDirectCaps;
-  useEffect(() => {
-    const selfId = signalingClient.state.selfId;
-    // The plan's first hop: the people we serve ourselves, at the tier the
-    // planner worked out fits (its globalDowngrade already applied). Only
-    // under experiment "stream-perf"; otherwise an empty map, i.e. every
-    // direct viewer at their full tier, as before.
-    const caps = new Map<string, QualityTier>();
-    if (streamPerf.enabled) {
-      for (const edge of topology.plan?.edges ?? []) {
-        if (edge.depth === 1) caps.set(edge.to, edge.tier);
-      }
-      // Whoever the plan could not fit even at the bottom rung is still
-      // served by us (the peer-list loop does not know about plans) — at the
-      // bottom rung, rather than at the full tier that did not fit.
-      for (const id of topology.plan?.unserved ?? []) caps.set(id, WORST_TIER);
-    }
-    applyDirectCaps(caps);
-    const downgrade = caps.size > 0 ? (topology.plan?.globalDowngrade ?? 0) : 0;
-    if (downgrade > 0 && !directDowngradeCounted.current) {
-      directDowngradeCounted.current = true;
-      trackFeatureEvent(STREAM_PERF_EVENTS.directDowngrade, { value: downgrade });
-    } else if (downgrade === 0) {
-      directDowngradeCounted.current = false;
-    }
-
-    if (!RELAY_ENABLED) return;
-    const assignments = new Map<string, RelayChild[]>();
-    for (const edge of topology.plan?.edges ?? []) {
-      if (edge.depth <= 1 || edge.from === selfId) continue;
-      const list = assignments.get(edge.from) ?? [];
-      list.push({ id: edge.to, tier: edge.tier });
-      assignments.set(edge.from, list);
-    }
-    applyRelayPlan(assignments);
-  }, [topology.plan, applyRelayPlan, applyDirectCaps, streamPerf.enabled]);
-
-  // "Qualidade reduzida para caber na sua conexão" is only true where the
-  // reduction is carried out. Outside the experiment a plain-mesh downgrade
-  // is computed and then applied to nobody, so the notice would claim
-  // something that is not happening; it is dropped there. A cascade's notice
-  // (depth > 1) is about relays, which do happen, and stays.
-  const shownTopology = useMemo(
-    () =>
-      streamPerf.enabled || !topology.plan || topology.plan.depth > 1 || topology.reason === null
-        ? topology
-        : { ...topology, reason: null },
-    [topology, streamPerf.enabled]
-  );
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture
   // closure, which useBroadcastChannel only ever calls once per mic start
@@ -5596,28 +4652,6 @@ export function useRoomMedia(room: string) {
     };
   }, [releaseMicGraph]);
 
-  // Experiment "memory-guard" (see lib/memoryGuard): RAM leak prevention and
-  // aggressive WebRTC/media cleanup in both the browser and desktop app.
-  // Tracked as an exposure once the user is in an active call/stream (sharing,
-  // receiving video/mic, or in a room with peers).
-  const inActiveCall =
-    sharingAnything ||
-    mic.active ||
-    Object.keys(screen.remoteStreams).length > 0 ||
-    Object.keys(camera.remoteStreams).length > 0 ||
-    Object.keys(mic.remoteStreams).length > 0;
-  const memoryGuard = useFeature(MEMORY_GUARD_FEATURE, { track: inActiveCall });
-  useEffect(() => {
-    setMemoryGuardEnabled(memoryGuard.enabled);
-  }, [memoryGuard.enabled]);
-  useEffect(() => {
-    if (!inActiveCall) return;
-    const timer = setInterval(() => {
-      sampleHeapMemory();
-    }, 60_000);
-    return () => clearInterval(timer);
-  }, [inActiveCall]);
-
   const toggleMic = useCallback(() => {
     const next = !mic.active;
     setStoredMicOn(next);
@@ -5854,7 +4888,6 @@ export function useRoomMedia(room: string) {
     // Live telemetry, for the share panel: measured uplink, measured content
     // cost, and whether the room currently needs anyone to relay.
     meshCapacity: capacity,
-    meshTopology: shownTopology,
 
     forceRelayIce,
     forceRelayAllowed,

@@ -1,113 +1,58 @@
 // Per-peer sender quality control.
 //
-// Two inputs decide what one viewer receives, and keeping them separate is
-// the whole point of this module:
+// What one viewer receives comes down to three things, kept apart on purpose:
 //
-//   1. the assigned tier — what this viewer actually *needs*, driven by the
-//      size their tile is rendered at (see videoQuality.tierForRenderedSize)
-//      and by the topology plan;
-//   2. the congestion ratio — how much of that tier their link can currently
-//      carry, learned from the encoder's own report of whether it is being
-//      limited (qualityLimitationReason) corroborated by their loss and the
-//      rise in their round-trip time above that path's own floor.
+//   1. the tier — what this viewer *needs*, from the size their tile is
+//      rendered at (see videoQuality.tierForRenderedSize). A viewer who is not
+//      looking needs nothing: their encoder stops until they come back.
+//   2. their link — LinkAdapter (see lib/sendAdaptation), when there are not
+//      enough bits for this one viewer.
+//   3. the machine — MachineGovernor, when the encoders cannot keep up. There
+//      is one CPU, so that one applies to everybody.
 //
-// The ordering there is load-bearing. This layer sits on top of WebRTC's
-// congestion control, which is already the fast and correct reflex for real
-// congestion; everything it adds is a slow second opinion. A second opinion
-// that fires without evidence does not make the picture safer, it just makes
-// it worse — so nothing here reduces anything unless the browser first says
-// the encoder is actually being held back.
-//
-// The previous implementation conflated the two: every time the room's peer
-// count changed, the quality effect re-applied the base bitrate to *every*
-// sender and restarted each congestion monitor from scratch. A viewer on a
-// bad link that had correctly settled at 800 kbps was slammed back to full
-// bitrate every single time anyone joined or left, then had to spend another
-// ~6 seconds per step walking back down. In a room with any churn it never
-// converged at all.
-//
-// Here, setTier() changes (1) and deliberately leaves (2) untouched, so hard
-// won knowledge about a viewer's link survives an unrelated room change.
+// The bitrate is not one of the things this layer turns down. WebRTC's
+// congestion control is already the fast and correct reflex for real
+// congestion, and it can only learn that a link has recovered by being allowed
+// to use it, so maxBitrate stays at what the tier is worth. Everything here sits
+// above that reflex and only ever decides what the bits it allows are spent on.
 
 import { mediaStats, type SenderSample } from "./mediaStats";
-import { congestionStep, initialCongestionState } from "./congestionControl";
-import {
-  capTier,
-  congestedBitrateKbps,
-  encoderCeilingKbps,
-  scaleFactorFor,
-  tierSpec,
-  type QualityTier,
-} from "./videoQuality";
+import { capTier, encoderCeilingKbps, scaleForHeight, tierSpec, type QualityTier } from "./videoQuality";
 import { RELAY_ROUTE_CAP, RELAY_ROUTE_MAX_KBPS, watchTurnRelay } from "./turnRoute";
-import type { TurnProvider } from "./iceConfig";
-import { OWN_TURN_LEAN_KBPS, OWN_TURN_LEAN_TIER, ownTurnLeanCap } from "./ownTurn";
-import { degradationPreferenceFor, onScreenCodecChange } from "./screenCodec";
-import { isCongestionRecoverEnabled } from "./congestionRecover";
 import {
-  encoderBound,
-  fallingBehind,
-  NO_SENDER_OVERRIDE,
-  NO_STRUGGLE,
-  noteWeakStruggle,
-  onStreamQualityChange,
-  senderOverride,
-  SenderStruggle,
-  SQ_EVENTS,
-  SQ_MOTION_HOLD_FEATURE,
-  SQ_WEAK_SENDER_FEATURE,
-  sqTrack,
-  weakSenderEligible,
-  type SenderStruggleState,
-} from "./streamQuality";
+  cpuPressure,
+  heldCeilingKbps,
+  LinkAdapter,
+  machineCapFor,
+  MachineGovernor,
+  SEND_GRACE_MS,
+  watchCpuPressure,
+  type SendObservation,
+} from "./sendAdaptation";
+import { isClassicSend, onClassicSendChange } from "./classicSend";
+import { isHardwareImplementation } from "./connectionDiagnostics";
 
 // What the broadcaster says they are sharing, which decides how the encoder
 // spends a shortage — of bits, of CPU, or both.
 //
-// "balanced" is the middle rung and maps to WebRTC's own degradation
-// preference of the same name: instead of protecting one axis absolutely and
-// sacrificing the other, the encoder gives up a little of each. It exists
-// because the two ends are both a cliff. "text" holds 1080p and lets frame
-// rate collapse to single digits (a sharp slideshow); "motion" holds 60fps
-// and lets the picture soften until small text is unreadable. Most real
-// screen sharing — a browser, a terminal, a video playing in a tab — is
-// neither, and picking either end for it is picking which way to be wrong.
+// "balanced" is the middle rung: most real screen sharing — a browser, a
+// terminal, a video playing in a tab — is neither a document nor a game, and
+// picking either end for it is picking which way to be wrong.
 export type DegradationMode = "text" | "balanced" | "motion";
 
-// The one place the three profiles become the WebRTC setting. A record rather
-// than a chain of ternaries so a fourth mode cannot be added without deciding
-// what it does here.
-const DEGRADATION_PREFERENCE: Record<DegradationMode, RTCDegradationPreference> = {
-  // Sharpness above all: right for code and documents, and the reason a
-  // 60fps share on this setting degrades into a slideshow.
+// maintain-resolution for all three, whatever the profile. It is the one setting
+// that keeps WebRTC's quality scaler out of it: under the other two it cuts
+// resolution on a QP reading in the first seconds of a share, when the bandwidth
+// estimator has not ramped up, and only gives it back below a QP the lower
+// resolution never reaches. See lib/sendAdaptation, which does that job instead.
+const SEND_PREFERENCE: RTCDegradationPreference = "maintain-resolution";
+
+// Experiment sq-classic-send only: how it was before.
+const CLASSIC_PREFERENCE: Record<DegradationMode, RTCDegradationPreference> = {
   text: "maintain-resolution",
-  // Give up some of each. The encoder decides the mix, continuously, from
-  // what it is actually short of.
   balanced: "balanced",
-  // Fluidity above all: right for a game or a film.
   motion: "maintain-framerate",
 };
-
-// The other half of what a profile means to the encoder, and the reason it
-// lives next to DEGRADATION_PREFERENCE instead of at either call site: the
-// origin sets it on its capture (see useRoomMedia's contentHintFor) and a
-// relay sets it on the track it re-encodes (see RelayLink), and the two
-// drifting apart means a relayed viewer is served under a profile nobody
-// picked.
-//
-// Both quality profiles bias toward spatial detail; what separates them is
-// degradationPreference, not this. "detail" rather than "motion" for balanced
-// is what makes it keep the picture it advertises instead of spending the
-// bits on frames.
-const CONTENT_HINT: Record<DegradationMode, "text" | "detail" | "motion"> = {
-  text: "text",
-  balanced: "detail",
-  motion: "motion",
-};
-
-export function contentHintForDegradation(mode: DegradationMode) {
-  return CONTENT_HINT[mode];
-}
 
 // How long to wait before re-pushing parameters the sender refused, and how
 // many times. Short, because the refusal this exists for — parameters made
@@ -118,27 +63,6 @@ export function contentHintForDegradation(mode: DegradationMode) {
 const APPLY_RETRY_MS = 500;
 const APPLY_RETRIES = 3;
 
-// Below this share of what the tier costs on average, extra spatial
-// downscaling buys the encoder headroom — half resolution encoded well beats
-// full resolution encoded into mush.
-//
-// Measured against the tier's average cost (baseKbps), not against the
-// ceiling the sender was handed, and not against absolute kbps. Absolute kbps
-// was wrong because a deliberately cheap low tier then looked permanently
-// congested simply for having a small healthy bitrate. The ceiling is wrong
-// for the mirror-image reason: it carries deliberate headroom above the
-// average (see encoderCeilingKbps), so a share of *it* would read as
-// congestion at bitrates that are in fact perfectly comfortable.
-//
-// The practical effect is that a healthy link never gets downscaled twice.
-// It still engages where it should: a broadcaster who picks a bitrate far
-// too low for the resolution they asked for gets a smaller, clean picture
-// instead of a full-size broken one.
-const SCALE_HARD = 0.35;
-const SCALE_SOFT = 0.55;
-
-// Every live controller, so the account's "uncapped_relay" feature (Pro Ultra)
-// can lift or restore the relay cap on shares already running.
 const liveControllers = new Set<PeerQualityController>();
 let relayCapExempt = false;
 
@@ -146,36 +70,44 @@ let relayCapExempt = false;
 export function setRelayCapExempt(exempt: boolean) {
   if (relayCapExempt === exempt) return;
   relayCapExempt = exempt;
-  for (const c of liveControllers) c.refreshRouteCap();
-}
-
-/** Re-applies every live relay cap — experiment "own-turn" changed (see lib/ownTurn). */
-export function refreshRelayCaps() {
-  for (const c of liveControllers) c.refreshRouteCap();
-}
-
-// Experiment "screen-codec"'s "fps" variant can move a running share's
-// degradation preference: when it is decided, and again when the encoder
-// probe answers. apply()'s own guard drops the calls that change nothing.
-onScreenCodecChange(() => {
   for (const c of liveControllers) c.apply();
-});
+}
+
+// One governor for every connection of every channel: they all run on the same
+// CPU, a camera next to a screen share included.
+const machine = new MachineGovernor();
+let machineWatching = false;
+
+function ensureMachineWatch() {
+  if (machineWatching) return;
+  machineWatching = true;
+  mediaStats.onCapacity(() => {
+    if (machine.tick(cpuPressure(), Date.now())) for (const c of liveControllers) c.apply();
+  });
+  onClassicSendChange(() => {
+    for (const c of liveControllers) c.apply();
+  });
+}
 
 /** What a sender's controller is doing to one viewer, for the quality reports. */
 export interface SenderQualityState {
   /** The tier actually sent, after any route cap. */
   tier: QualityTier;
-  /** The ceiling handed to the encoder before the congestion ratio, kbps. */
+  /** The ceiling handed to the encoder, kbps. */
   ceilingKbps: number;
-  /** The congestion ratio, 0..1 (see lib/congestionControl). */
-  ratio: number;
   degradationPreference: RTCDegradationPreference;
+  /** The height this viewer's link is holding them to; null when it is not. */
+  linkCapHeight: number | null;
+  /** How far the machine is holding everyone back; 0 when it is not. */
+  machineLevel: number;
+  /** This viewer is not looking, so nothing is being encoded for them. */
+  paused: boolean;
 }
 
 // The controller behind each send pc, for lib/connectionTelemetry: the reports
-// need the tier, ceiling and ratio next to what the encoder did with them, or a
-// low bitrate cannot be told apart between "the viewer's tile is small", "our
-// congestion layer cut it" and "the encoder did not use what it had".
+// need the tier and the caps next to what the encoder did with them, or a low
+// bitrate cannot be told apart between "the viewer's tile is small", "our
+// adaptation cut it" and "the encoder did not use what it had".
 const controllerByPc = new WeakMap<RTCPeerConnection, PeerQualityController>();
 
 /** The quality state of the controller sending on `pc`, or null when there is none. */
@@ -183,13 +115,7 @@ export function senderQualityState(pc: RTCPeerConnection): SenderQualityState | 
   return controllerByPc.get(pc)?.qualityState() ?? null;
 }
 
-/** What the "sq" sender experiments saw on `pc` (see lib/streamQuality). */
-export function senderStruggleState(pc: RTCPeerConnection): SenderStruggleState {
-  return controllerByPc.get(pc)?.struggleState() ?? NO_STRUGGLE;
-}
-
 export class PeerQualityController {
-  private congestion = initialCongestionState();
   private appliedKbps = 0;
   private appliedScale = 0;
   // Part of the same record. Without it a change that only moves the frame
@@ -197,8 +123,9 @@ export class PeerQualityController {
   // the same kbps — matched the guard on every other number and never reached
   // the sender.
   private appliedFramerate = 0;
-  // The mode those two numbers were pushed with. Null means nothing is known
-  // to have reached the sender — the initial state, and what a rejected
+  private appliedActive = true;
+  // The mode those numbers were pushed with. Null means nothing is known to
+  // have reached the sender — the initial state, and what a rejected
   // setParameters restores.
   private appliedPreference: RTCDegradationPreference | null = null;
   // Which apply() a given setParameters belongs to. Without it a call that
@@ -214,49 +141,45 @@ export class PeerQualityController {
   // lib/turnRoute.ts.
   private relayLocal = false;
   private relayRemote = false;
-  // Whose TURN server each end relays through, where known. Only matters to
-  // experiment "own-turn"'s lean cap, which is for the VPS alone.
-  private providerLocal: TurnProvider | null = null;
-  private providerRemote: TurnProvider | null = null;
-  // The encoder the browser actually picked for this connection, from the
-  // stats pump; null until the first sample. The "sq" sender experiments
-  // depend on it (see lib/streamQuality), since the codec order alone does
-  // not say whether a VP9 or an H264 is hardware.
-  private encoder: string | null = null;
-  // Which "sq" override last reached this sender, so its event counts a
-  // connection once rather than every apply().
-  private reportedOverride: "weak" | "hold" | null = null;
-  private readonly stopSqListener: () => void;
-  // What this connection has been through, for the "sq" sender experiments:
-  // sq-weak-sender's cap engages only once the encoder is seen falling behind
-  // (watched in both groups, the control's being what the cap would have
-  // answered), and sq-motion-hold lets go of a connection whose frame rate
-  // collapses under it. Both stick for the connection's life: undoing either
-  // would bring back the very thing that set it.
-  private struggle: SenderStruggleState = { ...NO_STRUGGLE };
-  private readonly weakWatch = new SenderStruggle(Date.now());
-  private readonly holdWatch = new SenderStruggle(Date.now());
+  private paused = false;
+  private link: LinkAdapter;
+  private readonly startedAt = Date.now();
+  // How this sender is addressed in the shared stats pump. Not the peer id: the
+  // pump is one process-wide map and there is a registry per channel, so a peer
+  // receiving both a screen and a camera share would otherwise be a single key
+  // written by two owners — see PeerQualityRegistry's namespace.
+  private statsKey: string;
+  private sender: RTCRtpSender;
+  private tier: QualityTier;
+  private captureWidth: number;
+  private captureHeight: number;
+  // Whether those two came from the frames themselves, which outrank what the track
+  // says (see SenderSample.sourceWidth).
+  private captureMeasured = false;
+  // The broadcaster's bitrate dial, in kbps. A hard limit on what this viewer
+  // may be given; the tier decides how much of it is actually used.
+  private bitrateCeilingKbps: number;
+  private degradation: DegradationMode;
 
   constructor(
-    readonly peerId: string,
-    // How this sender is addressed in the shared stats pump. Not the peer id:
-    // the pump is one process-wide map and there is a registry per channel, so
-    // a peer receiving both a screen and a camera share would otherwise be a
-    // single key written by two owners — see PeerQualityRegistry's namespace.
-    private statsKey: string,
-    private sender: RTCRtpSender,
-    private tier: QualityTier,
-    private captureHeight: number,
-    // The broadcaster's bitrate dial, in kbps. A hard limit on what this
-    // viewer may be given; the tier decides how much of it is actually used.
-    private bitrateCeilingKbps: number,
-    private degradation: DegradationMode,
-    // Our own share, as opposed to a relay's re-encode of somebody else's:
-    // only our own share is under experiment "screen-codec".
-    private ownShare = false
+    statsKey: string,
+    sender: RTCRtpSender,
+    tier: QualityTier,
+    captureWidth: number,
+    captureHeight: number,
+    bitrateCeilingKbps: number,
+    degradation: DegradationMode
   ) {
+    this.statsKey = statsKey;
+    this.sender = sender;
+    this.tier = tier;
+    this.captureWidth = captureWidth;
+    this.captureHeight = captureHeight;
+    this.bitrateCeilingKbps = bitrateCeilingKbps;
+    this.degradation = degradation;
     liveControllers.add(this);
-    this.stopSqListener = onStreamQualityChange(() => this.refreshRouteCap());
+    this.link = new LinkAdapter(Date.now());
+    ensureMachineWatch();
   }
 
   /** See senderQualityState. */
@@ -265,85 +188,57 @@ export class PeerQualityController {
     return {
       tier,
       ceilingKbps: this.ceilingKbps(tier),
-      ratio: this.congestion.ratio,
-      degradationPreference: this.degradationPreference(),
+      degradationPreference: this.preference(),
+      linkCapHeight: this.link.capHeight,
+      machineLevel: machine.level,
+      paused: this.paused,
     };
   }
 
-  private degradationPreference(): RTCDegradationPreference {
-    const own = DEGRADATION_PREFERENCE[this.degradation];
-    if (!this.ownShare) return own;
-    return this.sqOverride().preference ?? degradationPreferenceFor(this.degradation, own);
+  private preference(): RTCDegradationPreference {
+    return isClassicSend() ? CLASSIC_PREFERENCE[this.degradation] : SEND_PREFERENCE;
   }
 
-  // Experiments sq-weak-sender and sq-motion-hold: only ever our own share.
-  private sqOverride() {
-    return this.ownShare ? senderOverride(this.degradation, this.encoder, this.struggle) : NO_SENDER_OVERRIDE;
-  }
-
-  /** See senderStruggleState. */
-  struggleState(): SenderStruggleState {
-    return this.struggle;
-  }
-
-  // One stats sample against the two sender experiments' triggers (see
-  // SenderStruggle). Re-applies when one of them fires.
-  private watchStruggle(sample: SenderSample) {
-    const send = {
-      fps: sample.framesPerSecond,
-      sourceFps: sample.sourceFps ?? null,
-      encodeMs: sample.encodeMs ?? null,
-      targetFps: tierSpec(this.sentTier()).frameRate,
-      qualityLimitationReason: sample.qualityLimitationReason,
-    };
-    const now = Date.now();
-    let changed = false;
-    if (!this.struggle.weakStruggled && weakSenderEligible(this.degradation, this.encoder)) {
-      if (this.weakWatch.update(encoderBound(send), now)) {
-        this.struggle = { ...this.struggle, weakStruggled: true };
-        sqTrack(SQ_EVENTS.weakStruggle, SQ_WEAK_SENDER_FEATURE);
-        noteWeakStruggle();
-        changed = true;
-      }
-    }
-    if (!this.struggle.holdReleased && this.sqOverride().experiment === "hold") {
-      if (this.holdWatch.update(fallingBehind(send), now)) {
-        this.struggle = { ...this.struggle, holdReleased: true };
-        sqTrack(SQ_EVENTS.holdRelease, SQ_MOTION_HOLD_FEATURE);
-        changed = true;
-      }
-    }
-    if (changed) this.refreshRouteCap();
-  }
-
-  // Counts a connection once per override that reached it — the "on" side's
-  // proof that the experiment did something, beside the sessions both sides
-  // report (see connectionTelemetry).
-  private reportOverride() {
-    const { experiment } = this.sqOverride();
-    if (experiment === this.reportedOverride) return;
-    this.reportedOverride = experiment;
-    if (experiment === "weak") sqTrack(SQ_EVENTS.weakCap, SQ_WEAK_SENDER_FEATURE);
-    else if (experiment === "hold") sqTrack(SQ_EVENTS.holdApplied, SQ_MOTION_HOLD_FEATURE);
-  }
-
+  // Not lowered for a link that is short: the estimator already holds the encoder
+  // to what the link carries, and it can only learn the link recovered by being
+  // allowed to use it. The machine is another matter (see heldCeilingKbps).
   private ceilingKbps(tier: QualityTier): number {
-    return this.routeCapped()
-      ? Math.min(
-          encoderCeilingKbps(tier, this.bitrateCeilingKbps),
-          this.leanCapped() ? OWN_TURN_LEAN_KBPS : RELAY_ROUTE_MAX_KBPS
-        )
-      : encoderCeilingKbps(tier, this.bitrateCeilingKbps);
+    const full = encoderCeilingKbps(tier, this.bitrateCeilingKbps);
+    const spec = tierSpec(tier);
+    const ceiling = isClassicSend()
+      ? full
+      : heldCeilingKbps(full, machineCapFor(machine.level, this.degradation), spec.height, spec.frameRate);
+    return this.routeCapped() ? Math.min(ceiling, RELAY_ROUTE_MAX_KBPS) : ceiling;
   }
 
-  /**
-   * Assign a new tier (tile resized, topology changed, dial moved).
-   * Congestion state is intentionally preserved across this call.
-   */
+  /** Assign a new tier (tile resized, dial moved). */
   setTier(tier: QualityTier) {
     if (this.tier === tier) return;
     this.tier = tier;
-    mediaStats.setTier(this.statsKey, this.sentTier());
+    this.apply();
+  }
+
+  /**
+   * What this viewer asked for: a tier, and whether they are looking at all
+   * (see qualityNegotiation). Nothing is encoded while they are not, which is an
+   * encoder less on the machine that is already the bottleneck in a mesh room.
+   * One call for both, since a viewer coming back changes both at once and each
+   * change to the sender is a reconfiguration.
+   */
+  setRequest(tier: QualityTier, paused: boolean) {
+    if (this.tier === tier && this.paused === paused) return;
+    this.tier = tier;
+    if (this.paused !== paused) {
+      this.paused = paused;
+      if (paused) {
+        machine.forget(this.statsKey);
+      } else {
+        // What the link did while nothing was going over it says nothing.
+        const cap = this.link.capHeight;
+        this.link = new LinkAdapter(Date.now());
+        this.link.capHeight = cap;
+      }
+    }
     this.apply();
   }
 
@@ -351,24 +246,14 @@ export class PeerQualityController {
    * Marks this connection as relayed, or no longer relayed, through
    * a TURN server on one side. See lib/turnRoute.ts.
    */
-  setRelayRoute(side: "local" | "remote", via: boolean, provider: TurnProvider | null = null) {
-    const known = via ? provider : null;
+  setRelayRoute(side: "local" | "remote", via: boolean) {
     if (side === "local") {
-      if (this.relayLocal === via && this.providerLocal === known) return;
+      if (this.relayLocal === via) return;
       this.relayLocal = via;
-      this.providerLocal = known;
     } else {
-      if (this.relayRemote === via && this.providerRemote === known) return;
+      if (this.relayRemote === via) return;
       this.relayRemote = via;
-      this.providerRemote = known;
     }
-    mediaStats.setTier(this.statsKey, this.sentTier());
-    this.apply();
-  }
-
-  /** Re-applies after the relay-cap exemption changed. */
-  refreshRouteCap() {
-    mediaStats.setTier(this.statsKey, this.sentTier());
     this.apply();
   }
 
@@ -378,33 +263,19 @@ export class PeerQualityController {
     return (this.relayLocal || this.relayRemote) && !relayCapExempt;
   }
 
-  // Experiment "own-turn"'s tighter cap: some end relays through our own VPS.
-  // An end that relays without naming its server (an older client, a browser
-  // that leaves the candidate's url out) counts as the VPS — it is the one
-  // every client has, and the one this protects.
-  private leanCapped(): boolean {
-    if (!this.routeCapped() || !ownTurnLeanCap()) return false;
-    return (
-      (this.relayLocal && this.providerLocal !== "cloudflare") ||
-      (this.relayRemote && this.providerRemote !== "cloudflare")
-    );
-  }
-
   // What is actually encoded: the assigned tier, capped while the connection
   // is relayed through TURN. Only this send path sees the cap — getTier
-  // still answers the assigned tier, so the planner, the dials and everything
-  // on screen carry on as if the connection were direct.
+  // still answers the assigned tier, so the dials and everything on screen
+  // carry on as if the connection were direct.
   private sentTier(): QualityTier {
-    const cap = this.sqOverride().cap;
-    const tier = cap ? capTier(this.tier, cap) : this.tier;
-    if (this.leanCapped()) return capTier(tier, OWN_TURN_LEAN_TIER);
-    return this.routeCapped()
-      ? capTier(tier, RELAY_ROUTE_CAP)
-      : tier;
+    return this.routeCapped() ? capTier(this.tier, RELAY_ROUTE_CAP) : this.tier;
   }
 
-  setCaptureHeight(height: number) {
-    if (!height || this.captureHeight === height) return;
+  /** What the track says it is capturing. See captureMeasured. */
+  setCaptureSize(width: number, height: number) {
+    if (this.captureMeasured || !width || !height) return;
+    if (this.captureWidth === width && this.captureHeight === height) return;
+    this.captureWidth = width;
     this.captureHeight = height;
     this.apply();
   }
@@ -427,81 +298,75 @@ export class PeerQualityController {
 
   /** Feed one telemetry sample for this peer. */
   onSample(sample: SenderSample) {
-    if (this.disposed) return;
-    const encoder = sample.encoderImplementation ?? null;
-    if (encoder && encoder !== this.encoder) {
-      // A renegotiation can move a share between encoders; the sq overrides
-      // follow, so re-apply when the answer changes.
-      this.encoder = encoder;
-      if (this.ownShare) this.refreshRouteCap();
+    if (this.disposed || this.paused || isClassicSend()) return;
+    const measuredWidth = sample.sourceWidth ?? 0;
+    const measuredHeight = sample.sourceHeight ?? 0;
+    if (measuredWidth > 0 && measuredHeight > 0) {
+      this.captureMeasured = true;
+      if (measuredWidth !== this.captureWidth || measuredHeight !== this.captureHeight) {
+        this.captureWidth = measuredWidth;
+        this.captureHeight = measuredHeight;
+        this.apply();
+      }
     }
-    if (this.ownShare) this.watchStruggle(sample);
-    const next = congestionStep(this.congestion, sample, {
-      recoverWhileLimited: isCongestionRecoverEnabled(),
-    });
-    const changed = next.ratio !== this.congestion.ratio;
-    this.congestion = next;
-    if (changed) this.apply();
+    const tier = tierSpec(this.sentTier());
+    const hardware = isHardwareImplementation(sample.encoderImplementation ?? null, sample.powerEfficient);
+    const observation: SendObservation = {
+      fps: sample.framesPerSecond,
+      sourceFps: sample.sourceFps ?? null,
+      targetFps: this.targetFps(),
+      encodeMs: sample.encodeMs ?? null,
+      hardware,
+      limitation: sample.qualityLimitationReason,
+      qp: sample.qp ?? null,
+      codec: sample.codec ?? null,
+      targetKbps: sample.targetKbps ?? 0,
+      availableKbps: sample.availableKbps ?? 0,
+      height: sample.frameHeight,
+    };
+    const software = hardware === false;
+    const now = Date.now();
+    const topHeight = Math.min(tier.height, this.captureHeight || tier.height);
+    if (now - this.startedAt >= SEND_GRACE_MS) {
+      machine.observe(this.statsKey, observation, this.degradation, software, { height: topHeight, fps: tier.frameRate }, now);
+    }
+    if (this.link.update(observation, this.degradation, topHeight, now)) this.apply();
+  }
+
+  private targetFps(): number {
+    const cap = isClassicSend() ? null : machineCapFor(machine.level, this.degradation).fps;
+    const fps = tierSpec(this.sentTier()).frameRate;
+    return cap ? Math.min(cap, fps) : fps;
+  }
+
+  /** The height to send at, once every cap has had its say. */
+  private sentHeight(): number {
+    const height = tierSpec(this.sentTier()).height;
+    if (isClassicSend()) return height;
+    const machineHeight = machineCapFor(machine.level, this.degradation).height;
+    return Math.min(height, this.link.capHeight ?? height, machineHeight ?? height);
   }
 
   /** Pushes the current target onto the sender, if it actually changed. */
   apply() {
     if (this.disposed) return;
-    // Deliberately NOT scaled by the measured content multiplier, which is
-    // what this used to do and what made quality collapse and never come
-    // back. That multiplier is derived from the bitrate the encoder actually
-    // produced — so feeding it back in as the encoder's own cap closed a
-    // loop with only one direction of travel: any quiet stretch (reading a
-    // page, a paused video) drove the measurement down, the cap followed it
-    // down, and the cap then made the measurement impossible to ever exceed
-    // again. A share that idled for twenty seconds was pinned near a tenth
-    // of its tier's bitrate for the rest of the session.
-    //
-    // The multiplier is still exactly right for *planning* — how much of the
-    // uplink a stream really consumes, see topologyPlanner — because there it
-    // is an observation that changes nothing about what is observed. Here it
-    // is a control input, and a control input must never be the thing it
-    // controls.
-    this.reportOverride();
     const tier = this.sentTier();
-    const tierKbps = tierSpec(tier).baseKbps;
-    const ceilingKbps = this.ceilingKbps(tier);
-    const preference = this.degradationPreference();
-    const targetKbps = congestedBitrateKbps(ceilingKbps, this.congestion.ratio);
-    const tierScale = scaleFactorFor(tier, this.captureHeight);
-    const share = tierKbps > 0 ? targetKbps / tierKbps : 1;
-    // "balanced" opts out of this extra downscale, and that opt-out is the
-    // profile's whole promise: stay at the best picture the ceiling allows
-    // and let the encoder find the equilibrium. Under the other two modes
-    // this is a useful nudge, because the encoder is protecting one axis
-    // absolutely and will not shrink the picture on its own. Under
-    // "balanced" it already does exactly that, adaptively and from moment to
-    // moment — so applying both means degrading twice for one shortage: the
-    // app halves the picture, then the encoder degrades what is left.
-    const congestionScale =
-      this.degradation === "balanced" ? 1 : share <= SCALE_HARD ? 2 : share <= SCALE_SOFT ? 1.5 : 1;
-    const scale = Math.round(tierScale * congestionScale * 100) / 100;
+    const targetKbps = this.ceilingKbps(tier);
+    const preference = this.preference();
+    const scale = scaleForHeight(this.sentHeight(), this.captureWidth, this.captureHeight);
+    const framerate = this.targetFps();
+    const active = !this.paused || isClassicSend();
 
     // setParameters triggers an encoder reconfiguration; calling it with
     // values that did not change costs a keyframe and a visible hitch for
     // no benefit. In a 30-peer room this guard removes the large majority
     // of calls, since most peers are steady most of the time.
-    //
-    // The mode has to be part of the comparison, and leaving it out was a
-    // real bug rather than an omission: switching profile mid-share moves
-    // neither the bitrate nor the scale in the ordinary case, so
-    // setDegradation() reached this guard, matched on both numbers, and
-    // returned before the degradationPreference below could be written. The
-    // picker said "Vídeo / jogo" while the sender was still on
-    // maintain-resolution — protect sharpness, throw frames away — which is
-    // exactly the slideshow the switch was made to escape, and only
-    // restarting the whole share cleared it.
-    const framerate = tierSpec(tier).frameRate;
     if (
       this.appliedPreference === preference &&
-      Math.abs(targetKbps - this.appliedKbps) < Math.max(50, this.appliedKbps * 0.05) &&
+      targetKbps === this.appliedKbps &&
       scale === this.appliedScale &&
-      framerate === this.appliedFramerate
+      framerate === this.appliedFramerate &&
+      active === this.appliedActive
     ) {
       return;
     }
@@ -518,20 +383,20 @@ export class PeerQualityController {
     // here the only way out is setParameters, whose own failure rolls this
     // back below. Written before that call, not after, so that several
     // apply()s in the same tick collapse into one.
+    if (active !== this.appliedActive) mediaStats.setPaused(this.statsKey, !active);
     this.appliedKbps = targetKbps;
     this.appliedScale = scale;
     this.appliedFramerate = framerate;
+    this.appliedActive = active;
     this.appliedPreference = preference;
     const seq = (this.applySeq += 1);
     const encodings =
       params.encodings && params.encodings.length > 0 ? params.encodings : [{} as RTCRtpEncodingParameters];
+    encodings[0].active = active;
     encodings[0].maxBitrate = targetKbps * 1000;
     encodings[0].scaleResolutionDownBy = scale;
     encodings[0].maxFramerate = framerate;
     params.encodings = encodings;
-    // See DEGRADATION_PREFERENCE. Choosing wrong is not subtle: a 60fps share
-    // under maintain-resolution degrades into a slideshow rather than
-    // softening.
     params.degradationPreference = preference;
     this.sender.setParameters(params).then(
       () => {
@@ -549,14 +414,13 @@ export class PeerQualityController {
         this.appliedKbps = 0;
         this.appliedScale = 0;
         this.appliedFramerate = 0;
+        this.appliedActive = true;
         this.appliedPreference = null;
         // And undoing it is not enough on its own, which is the part that
-        // bites. apply() runs when something moves — a tier, a dial, a
-        // congestion ratio — and a profile switch on a settled link moves
-        // none of them. So there is no "next apply() will reconcile" to rely
-        // on: without a retry of our own the sender keeps the old mode for as
-        // long as that link stays quiet, which from the person's side is
-        // exactly the bug this whole change exists to fix, just rarer.
+        // bites. apply() runs when something moves, and on a settled link
+        // nothing does. So there is no "next apply() will reconcile" to rely
+        // on: without a retry of our own the sender keeps the old values for as
+        // long as that link stays quiet.
         if (this.retriesLeft <= 0 || this.retryTimer) return;
         this.retriesLeft -= 1;
         this.retryTimer = setTimeout(() => {
@@ -570,7 +434,7 @@ export class PeerQualityController {
   dispose() {
     this.disposed = true;
     liveControllers.delete(this);
-    this.stopSqListener();
+    machine.forget(this.statsKey);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
   }
@@ -588,30 +452,23 @@ export class PeerQualityRegistry {
   private unsubscribeSender: (() => void) | null = null;
   // Seeded to the "alto" dial position, which is also useRoomMedia's default.
   // Overwritten by setBitrateCeiling as soon as a share's preset is known.
-  private bitrateCeilingKbps = 4000;
+  private bitrateCeilingKbps = 6000;
   // Matches useRoomMedia's own default, for the same reason the bitrate seed
-  // above does: this is only ever read in the gap before a share's preset
-  // arrives, and a seed that disagreed with the default would make that gap
-  // visible as a brief switch of encoder strategy.
-  private degradation: DegradationMode = "text";
+  // above does.
+  private degradation: DegradationMode = "balanced";
   private keyPrefix: string;
 
   /**
    * `namespace` separates this registry's senders from every other one's in
-   * the process-wide stats pump. There is a registry per media channel (and
-   * one more per relay), all of them keyed by the same peer ids, so without it
-   * a peer watching someone's screen *and* camera collapsed into one shared
-   * entry: the camera's registration overwrote the screen's, so the screen
-   * sender was never polled at all; every sample the camera produced was fanned
-   * out to the screen's controller too, which then moved the screen's bitrate on
-   * the camera's loss and RTT; and closing either channel's connection
-   * unregistered the other one's sender along with it.
+   * the process-wide stats pump. There is a registry per media channel, all of
+   * them keyed by the same peer ids, so without it a peer watching someone's
+   * screen *and* camera collapsed into one shared entry: the camera's
+   * registration overwrote the screen's, so the screen sender was never polled
+   * at all; every sample the camera produced was fanned out to the screen's
+   * controller too; and closing either channel's connection unregistered the
+   * other one's sender along with it.
    */
-  constructor(
-    namespace: string,
-    // A broadcaster's own screen share — see PeerQualityController's ownShare.
-    private ownShare = false
-  ) {
+  constructor(namespace: string) {
     this.keyPrefix = `${namespace}\u0000`;
   }
 
@@ -633,29 +490,30 @@ export class PeerQualityRegistry {
     pc: RTCPeerConnection,
     sender: RTCRtpSender,
     tier: QualityTier,
+    captureWidth: number,
     captureHeight: number
   ): PeerQualityController {
     this.remove(peerId);
     const key = this.statsKey(peerId);
     const controller = new PeerQualityController(
-      peerId,
       key,
       sender,
       tier,
+      captureWidth,
       captureHeight,
       this.bitrateCeilingKbps,
-      this.degradation,
-      this.ownShare
+      this.degradation
     );
     this.controllers.set(peerId, controller);
     controllerByPc.set(pc, controller);
-    mediaStats.register(key, pc, sender, tier);
+    mediaStats.register(key, pc, sender);
+    watchCpuPressure(true);
     controller.apply();
     // Our own end relaying through TURN. The viewer's end is theirs to
     // see — see setRemoteRelayRoute.
     this.routeWatches.set(
       peerId,
-      watchTurnRelay(pc, (via, provider) => controller.setRelayRoute("local", via, provider))
+      watchTurnRelay(pc, (via) => controller.setRelayRoute("local", via))
     );
     this.start();
     return controller;
@@ -671,8 +529,8 @@ export class PeerQualityRegistry {
    * there is no connection to them: the report is about one connection, and
    * a new one is checked and reported afresh.
    */
-  setRemoteRelayRoute(peerId: string, via: boolean, provider: TurnProvider | null = null) {
-    this.controllers.get(peerId)?.setRelayRoute("remote", via, provider);
+  setRemoteRelayRoute(peerId: string, via: boolean) {
+    this.controllers.get(peerId)?.setRelayRoute("remote", via);
   }
 
   remove(peerId: string) {
@@ -681,6 +539,7 @@ export class PeerQualityRegistry {
     this.controllers.get(peerId)?.dispose();
     this.controllers.delete(peerId);
     mediaStats.unregister(this.statsKey(peerId));
+    if (liveControllers.size === 0) watchCpuPressure(false);
   }
 
   setDegradation(mode: DegradationMode) {
@@ -695,8 +554,8 @@ export class PeerQualityRegistry {
     for (const c of this.controllers.values()) c.setBitrateCeiling(kbps);
   }
 
-  setCaptureHeight(height: number) {
-    for (const c of this.controllers.values()) c.setCaptureHeight(height);
+  setCaptureSize(width: number, height: number) {
+    for (const c of this.controllers.values()) c.setCaptureSize(width, height);
   }
 
   clear() {

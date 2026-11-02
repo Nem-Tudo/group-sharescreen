@@ -2,7 +2,7 @@
 
 A **shell around the deployed site**, not a second copy of it. The window
 loads `https://golive.nemtudo.me` and the entire UI — every component, all
-the WebRTC, the whole mesh/cascade implementation — comes from there
+the WebRTC, the whole mesh implementation — comes from there
 unchanged.
 
 That is deliberate. Bundling the Next build inside the app would buy nothing:
@@ -193,7 +193,7 @@ for the shell.
 ## Updates — two halves, only one of which needs an installer
 
 **The website updates itself.** Every screen, all the WebRTC, the whole
-mesh/cascade implementation is loaded live from the deploy, so shipping a
+mesh implementation is loaded live from the deploy, so shipping a
 front-end change reaches users on their next launch with nothing to install.
 That is the wrapper architecture paying off, not a feature anyone had to
 build.

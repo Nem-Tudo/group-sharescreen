@@ -15,8 +15,6 @@ const TURN_URLS = parseTurnUrls(process.env.NEXT_PUBLIC_TURN_URLS || "");
 const TURN_USERNAME = process.env.NEXT_PUBLIC_TURN_USERNAME || "";
 const TURN_CREDENTIAL = process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "";
 
-import { ownTurnTcpOnly } from "./ownTurn";
-
 const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 
 // Our own TURN server on the VPS, from the build's environment. Only the
@@ -89,9 +87,13 @@ function ownServers(): RTCIceServer[] {
 }
 
 /**
- * The VPS entries restricted to TCP (experiment "own-turn", see lib/ownTurn):
- * `?transport=tcp` and `turns:` URLs only. An entry left with nothing is left
- * as it was — a relay over UDP beats no relay at all.
+ * The VPS entries restricted to TCP: `?transport=tcp` and `turns:` URLs only.
+ * UDP to that server is being dropped somewhere, by its link or on the way:
+ * compared side by side over 30 days (experiment "own-turn", 10k relayed
+ * sessions), relaying over TCP delivered 2134 kbps at 21.2 fps where UDP
+ * delivered 1537 at 20.4, with no more loss. Head-of-line blocking is the
+ * textbook reason not to; this server is the exception. An entry left with
+ * nothing is left as it was — a relay over UDP beats no relay at all.
  */
 export function tcpOnlyServers(servers: RTCIceServer[]): RTCIceServer[] {
   return servers.map((server) => {
@@ -185,9 +187,8 @@ export function isTurnConfigured(): boolean {
  */
 export function iceConfigFor(forceRelay: boolean): RTCConfiguration {
   if (!turnAllowed) return { iceServers: [STUN_SERVER] };
-  const own = ownTurnTcpOnly() ? tcpOnlyServers(ownServers()) : ownServers();
   const config: RTCConfiguration = {
-    iceServers: [STUN_SERVER, ...dynamicServers, ...own],
+    iceServers: [STUN_SERVER, ...dynamicServers, ...tcpOnlyServers(ownServers())],
   };
   if (forceRelay && isTurnConfigured()) config.iceTransportPolicy = "relay";
   return config;

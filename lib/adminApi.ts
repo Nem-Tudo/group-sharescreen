@@ -204,7 +204,6 @@ export type QualityBadSession = {
   direction: "send" | "recv";
   senderUserId: string | null;
   receiverUserId: string | null;
-  viaRelay: boolean;
   durationS: number;
   routeKind: string;
   relayProtocol: string | null;

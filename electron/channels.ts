@@ -108,17 +108,16 @@ export const IPC = {
   /** main -> renderer: one encoded frame: (NativeFrameMeta, Uint8Array). */
   nativeVideoFrame: "golive:native-video:frame",
   /**
+   * main -> renderer: the MessagePort the frames arrive on instead, when the
+   * page asked for one. Passed on to the page's window, whose worker reads it
+   * directly: the page's main thread can be busy without the picture noticing.
+   */
+  nativeVideoFramePort: "golive:native-video:frame-port",
+  /**
    * main -> renderer: the capture ended on its own. "target-gone" when the
    * window or monitor went away, "failed" for anything else.
    */
   nativeVideoEnded: "golive:native-video:ended",
-
-  /**
-   * renderer -> main: the WebRTC field trials this process started with (see
-   * electron/webrtcTrials.ts), and the site's decision for the next start.
-   */
-  webrtcTrialsState: "golive:webrtc-trials:state",
-  webrtcTrialsSetH264Qp: "golive:webrtc-trials:set-h264-qp",
 
   /**
    * renderer -> main: this installation's id (see the site's
@@ -461,6 +460,8 @@ export interface NativeVideoStartOptions {
    * screen) or Windows Graphics Capture. Windows always use the latter.
    */
   captureMethod?: NativeVideoCaptureMethod;
+  /** Deliver the frames over a MessagePort (see IPC.nativeVideoFramePort). */
+  framePort?: boolean;
 }
 
 export type NativeVideoCaptureMethod = "duplication" | "wgc";

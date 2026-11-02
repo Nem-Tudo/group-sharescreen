@@ -1,8 +1,8 @@
 // Every live video peer connection this client holds, in one place.
 //
 // The connections themselves live in refs deep inside useBroadcastChannel
-// (sendPCs/recvPCs) and RelayLink (a relay's children), which is right for
-// the code that drives them and useless for anything that only wants to *look*
+// (sendPCs/recvPCs), which is right for the code that drives them and useless
+// for anything that only wants to *look*
 // at them: the connection-stats panel on a tile, the per-viewer list a
 // broadcaster sees, and quality telemetry. Threading the maps out as props
 // would re-render every tile each time a connection opened. This is the same
@@ -22,22 +22,8 @@ export interface RegisteredConnection {
   direction: ConnectionDirection;
   /** The other end of this pc: who we send to, or who sends to us. */
   peerId: string;
-  /**
-   * Whose picture this is.
-   *
-   * On a recv pc, the person sharing — different from `peerId` when the stream
-   * reaches us through a relay. On a send pc, null for our own share and the
-   * origin's id when we are relaying for them. Part of the identity on the
-   * send side because a relay can be sending the same viewer two different
-   * pictures on one channel at once: its own share, and someone else's
-   * re-encoded.
-   */
+  /** Whose picture this is: the person sharing on a recv pc, null (ours) on a send pc. */
   originId: string | null;
-  /**
-   * Whether a relay's re-encode sits on this path: we are re-encoding someone
-   * else's stream (send), or the stream reaches us from a relay (recv).
-   */
-  viaRelay: boolean;
   pc: RTCPeerConnection;
   openedAt: number;
 }

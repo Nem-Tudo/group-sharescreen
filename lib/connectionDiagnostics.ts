@@ -1,8 +1,8 @@
 // What one peer connection's getStats() says about why a stream looks bad.
 //
-// Everything the quality path already measures (mediaStats, congestionControl,
-// topologyPlanner) is measured in order to *act*, and so only ever reads what
-// it acts on: the sender's own bitrate, loss and limitation reason. That left
+// Everything the quality path already measures (mediaStats, sendAdaptation) is
+// measured in order to *act*, and so only ever reads what it acts on: the
+// sender's own frame rate, QP and limitation reason. That left
 // the app blind to exactly the three things "the stream is bad only with
 // certain people" most plausibly comes down to:
 //

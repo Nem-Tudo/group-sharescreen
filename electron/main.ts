@@ -2,7 +2,7 @@
 //
 // This is a *shell around the deployed site*, not a second copy of it. The
 // window loads https://golive.nemtudo.me (or whatever GOLIVE_APP_URL says)
-// and the entire UI, all the WebRTC, the whole mesh/cascade implementation
+// and the entire UI, all the WebRTC, the whole mesh implementation
 // come from there unchanged. That is a deliberate choice and worth stating,
 // because the obvious alternative — bundling the Next build inside the app —
 // would buy nothing here: this is a real-time communication app, so it is
@@ -93,7 +93,6 @@ import {
   saveSystemAudioSettings,
 } from "./audioSettings";
 import { getHiddenWindowSettings, saveHiddenWindowSettings } from "./videoSettings";
-import { applyWebrtcTrials, saveH264QpTrial, webrtcTrialState } from "./webrtcTrials";
 import {
   applySystemAudioSettings,
   isSystemAudioCapturing,
@@ -135,10 +134,6 @@ const APP_USER_MODEL_ID = "me.nemtudo.golive";
 // the renderer forever. Generous, because the flow legitimately involves
 // typing a password and possibly a 2FA code in another application.
 const OAUTH_TIMEOUT_MS = 5 * 60_000;
-
-// Experiment sq-h264-qp's field trial, decided by the site on an earlier run
-// (see webrtcTrials.ts). Switches only count before the app is ready.
-applyWebrtcTrials();
 
 // System audio on macOS. Chromium can capture it through ScreenCaptureKit on
 // macOS 13 (Darwin 22) and later, but only behind feature flags — Electron's
@@ -681,6 +676,7 @@ function parseNativeVideoOptions(raw: unknown): NativeVideoStartOptions | null {
     bitrateKbps,
     cursor: value.cursor !== false,
     captureMethod: value.captureMethod === "wgc" ? "wgc" : "duplication",
+    framePort: value.framePort === true,
   };
 }
 
@@ -2195,17 +2191,6 @@ if (!gotLock) {
       return startSystemAudioCapture(event.sender);
     });
     ipcMain.on(IPC.systemAudioStop, () => stopSystemAudioCapture());
-
-    // The WebRTC field trials (see webrtcTrials.ts). Origin-checked: only the
-    // site decides experiments.
-    ipcMain.handle(IPC.webrtcTrialsState, (event) => {
-      if (!event.sender.getURL().startsWith(APP_ORIGIN)) return { known: false, h264Qp: false };
-      return webrtcTrialState();
-    });
-    ipcMain.on(IPC.webrtcTrialsSetH264Qp, (event, on: unknown) => {
-      if (!event.sender.getURL().startsWith(APP_ORIGIN) || typeof on !== "boolean") return;
-      saveH264QpTrial(on);
-    });
 
     // The GPU screen capture (see nativeVideo.ts), origin-checked for the same
     // reason: it records the screen.
