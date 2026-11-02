@@ -292,6 +292,26 @@ The macOS target is a **universal** binary on purpose: browsers on Apple
 Silicon still report "Intel Mac OS X", so `/download` cannot tell the
 architectures apart and one file that runs on both is the only honest answer.
 
+### Microsoft Store
+
+A separate step, run by hand from the Actions tab: **Publish to Microsoft
+Store** (`.github/workflows/publish-store.yml`), given a tag that already
+exists. It builds the package from that tag and uploads it as a draft, or
+straight to certification with `commit` on.
+
+Every run **replaces whatever submission is pending**, even one in the middle
+of certification, so it restarts the wait. Run it when the shell changed and
+the Store should have it, not for every tag. Do not mark a submission as
+mandatory in Partner Center: the API refuses apps that use that.
+
+With `rollout` below 100, the update can be stopped while it spreads:
+
+```bash
+msstore submission rollout update 9N29JDBBLH3M 50
+msstore submission rollout halt 9N29JDBBLH3M
+msstore submission rollout finalize 9N29JDBBLH3M
+```
+
 ## Before shipping
 
 - **Windows signing is not cosmetic.** Unsigned builds do not merely "trip

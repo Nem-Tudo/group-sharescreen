@@ -1,0 +1,145 @@
+# Builds the Microsoft Store package from a release tag and uploads it.
+#
+# A button in the Actions tab rather than a tag trigger, because every Store
+# submission goes through certification (up to three business days) and
+# `msstore publish` deletes whatever submission is already pending — including
+# one in the middle of certification. Tags here come several in a day, and most
+# only need the site or the installers, so publishing on each would keep sending
+# the Store build to the back of the queue.
+#
+# Needs an Entra ID application added to Partner Center with the Manager role,
+# stored in the PARTNER_CENTER_* secrets. Not the AZURE_* ones in
+# release-desktop.yml: those sign the installers and are a different identity.
+
+name: Publish to Microsoft Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, e.g. v1.0.29. Replaces any submission already pending in the Store."
+        required: true
+      commit:
+        description: "Send to certification. Off, it stays as a draft in Partner Center."
+        type: boolean
+        default: false
+      rollout:
+        description: "Percentage of users who get it (1-100). Below 100 it can be halted."
+        default: "100"
+
+permissions:
+  contents: read
+
+# Two runs at once would each delete the other's submission.
+concurrency:
+  group: microsoft-store
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    env:
+      TAG: ${{ inputs.tag }}
+      COMMIT: ${{ inputs.commit }}
+      ROLLOUT: ${{ inputs.rollout }}
+
+    steps:
+      # refs/tags/ so that a branch with the same name can never be what ships.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+
+      - name: Check the request
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG holds package.json version $version"
+            exit 1
+          fi
+          if ! [[ "$ROLLOUT" =~ ^([1-9][0-9]?|100)$ ]]; then
+            echo "::error::Rollout must be a whole number from 1 to 100, got: $ROLLOUT"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The next two steps are explained in release-desktop.yml, where they
+      # were learned the hard way.
+      - name: Drop the restored npm scratch directory
+        shell: bash
+        run: |
+          cache="$(npm config get cache)"
+          rm -rf "${cache//\\//}/_cacache/tmp" || true
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt of 3), retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - run: npm run electron:build
+
+      # Same as the installers: built from the tagged source on this runner,
+      # and a missing compiler fails the run instead of shipping without them.
+      - name: Build the native helpers from source
+        run: node electron/native/build.mjs --force --required
+
+      - name: Type-check the shell
+        run: npm run electron:typecheck
+
+      # No certificate on purpose: Partner Center signs the package.
+      - name: Build the package
+        run: npx electron-builder --win appx --x64 --publish never
+
+      # A way to upload by hand if the step below is what fails.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-package-${{ inputs.tag }}
+          path: electron/release/*.appx
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      # Pinned because the flags below are read from this release's source: the
+      # docs call -i a file, but it takes a directory.
+      - uses: microsoft/microsoft-store-apppublisher@v1.4
+        with:
+          version: v0.4.3
+
+      - name: Sign in to Partner Center
+        shell: pwsh
+        env:
+          PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          msstore reconfigure --tenantId $env:PARTNER_CENTER_TENANT_ID --sellerId $env:PARTNER_CENTER_SELLER_ID --clientId $env:PARTNER_CENTER_CLIENT_ID --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
+
+      # The first argument only selects how msstore treats the upload. Given a
+      # folder with a package.json it takes the Electron path, the only one that
+      # accepts an .appx (a loose file is refused unless it is an .msix). It also
+      # runs `npm install` in that folder, hence an empty project and not this
+      # repo, whose install was already done and is the flaky part of the run.
+      #
+      # 100s is msstore's default upload timeout; this package is 140 MB.
+      - name: Upload to the Store
+        shell: pwsh
+        run: |
+          $project = Join-Path $env:RUNNER_TEMP "msstore-project"
+          New-Item -ItemType Directory -Force $project | Out-Null
+          '{"name":"golive-store-publish","version":"0.0.0","private":true}' | Set-Content (Join-Path $project "package.json")
+
+          $packages = Join-Path (Join-Path $env:GITHUB_WORKSPACE "electron") "release"
+          $publishArgs = @($project, "-i", $packages, "-id", "9N29JDBBLH3M", "--uploadTimeout", "3600")
+          if ($env:COMMIT -ne "true") { $publishArgs += "--noCommit" }
+          if ($env:ROLLOUT -ne "100") { $publishArgs += @("--packageRolloutPercentage", $env:ROLLOUT) }
+          msstore publish @publishArgs

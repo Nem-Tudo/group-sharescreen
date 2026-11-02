@@ -136,8 +136,9 @@ win:
 # Microsoft Store package. Not in win.target on purpose: CI's electron:dist
 # publishes everything it builds to the GitHub release, and the /download
 # route has no use for an .appx — it only installs from the Store. Built on
-# its own with `npm run electron:store`, uploaded by hand in Partner Center,
-# which signs it; that is why no certificate is needed here.
+# its own by .github/workflows/publish-store.yml, or with
+# `npm run electron:store` and a manual upload. Partner Center signs it either
+# way; that is why no certificate is needed here.
 #
 # The three identity values come from Partner Center → Identidade do Produto
 # and must match it exactly, or the upload is rejected. Tile images live in
