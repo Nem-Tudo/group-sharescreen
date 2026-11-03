@@ -456,10 +456,30 @@ que por isso continua sendo lido e **não pode ser arquivado**), sem adaptadores
 captura por conexão. Sair ou entrar não precisa de deploy, e vale ao vivo. Só o que é da conexão
 em si fica como começou: quem entra com a transmissão no ar ganha o codec por conexão na próxima.
 
-O experiment não devolve o que o mesmo trabalho tirou ou trocou para todos: `congestionControl`,
-`memoryGuard`, `relayLink`, `ownTurn`, `topologyPlanner`, `streamPerf`, `streamQuality`, a captura
-por GPU reescrita (`nativeVideoSink`) e a telemetria nova. Quem não está nele usa o envio de antes
-sem esses sistemas.
+Medido contra o código real de antes (`50b42ee`, `screen-codec=auto`), na mesma sessão (fps / dB):
+
+| Cena | Código de antes | Fora de `sq-new-send` |
+|---|---|---|
+| Vídeo, sem limite | 20,6 / 44,1 | 21,5 / 43,9 |
+| Vídeo, 3 Mbps | 17,7 / 42,1 | 16,1 / 43,2 |
+| Vídeo, 1,5 Mbps | 17,2 / 39,0 | 17,5 / 39,1 |
+| Rolagem, 3 Mbps | 16,7 / 33,6 | 17,3 / 34,4 |
+| Perfil texto, vídeo, 3 Mbps | 16,3 / 42,2 | 19,4 / 41,8 |
+| Perfil texto, rolagem, 3 Mbps | 19,2 / 34,3 | 16,6 / 34,2 |
+| Vídeo/jogo, 3 Mbps (124 linhas) | 29,9 / 27,5 | 29,7 / 27,5 |
+| 3 espectadores, 9 Mbps | 15,5 / 43,2 | 13,2 / 44,9 |
+| Máquina com AMD, sem limite | 20,7 / 44,2 | 22,1 / 44,1 |
+| Máquina com AMD, 3 Mbps | 17,2 / 42,8 | 17,9 / 41,3 |
+
+As diferenças estão dentro do ruído de uma rodada. O ramo de `auto` que põe H264 de hardware primeiro
+não apareceu nesta máquina: aqui os dois lados foram de VP9, e ele só tem teste unitário.
+
+O experiment não devolve o que o mesmo trabalho tirou ou trocou para todos: `congestionControl`
+(o corte de bitrate por conexão), `memoryGuard`, `relayLink` e `topologyPlanner` (a cascata, sem
+nenhuma sessão em 14 dias), `recv-codec`, `congestion-recover`, os `sq-*` a 5%, o TURN próprio só
+por TCP (antes, metade por UDP), o pedido de qualidade de quem assiste (`lib/qualityNegotiation`, que
+só é lido pelo envio novo no que diz respeito a parar o encoder), a captura por GPU reescrita
+(`nativeVideoSink`) e a telemetria nova. Quem não está nele usa o envio de antes sem esses sistemas.
 
 O experiment `sq-h264-send` (0%) só vale dentro de `sq-new-send`: tira o AV1 de quem transmite, ao
 vivo, e tudo vai em H264 no modo câmera. É o primeiro a usar se o AV1 der problema, porque o resto
