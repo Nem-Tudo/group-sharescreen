@@ -108,6 +108,7 @@ import { setTelemetryShareSettings, startConnectionTelemetry } from "./connectio
 import { mediaStats, type CapacitySample } from "./mediaStats";
 import {
   applyVideoCodecPreferences,
+  choosesCodecPerConnection,
   contentHintForShare,
   stillScreenFloor,
   videoCodecOrder,
@@ -126,6 +127,8 @@ import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { CLASSIC_SEND_FEATURE, isClassicSend, setClassicSend } from "./classicSend";
+import { H264_SEND_FEATURE, setH264Send } from "./h264Send";
+import { declineCostlyCodecs } from "./receiveCodecs";
 import { releasePeerConnection } from "./peerConnectionRelease";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
@@ -756,9 +759,25 @@ function contentHintFor(
   // set to — same reasoning — and so is everything else that is not a real
   // screen share.
   if (!channel.startsWith("screen") || source === "camera") return "motion";
-  // On a real screen share the profile chooses the hint, and what it chooses
-  // depends on the codec it comes with (see lib/videoCodecPreferences).
+  // On a real screen share it goes with the codec (see lib/videoCodecPreferences), which
+  // where each viewer has their own (see choosesCodecFor) makes this the preview's only.
   return contentHintForShare(mode);
+}
+
+// Whether a viewer of this capture gets a codec of their own, and with it a copy of
+// the track: the encoder's mode is a property of the track, and it goes with the codec.
+// Nobody else's: a camera is moving pictures in the cheapest thing there is whatever
+// the machine could afford, and the same goes for a file (see contentHintFor).
+function choosesCodecFor(channel: Channel, source: ShareSource | undefined): boolean {
+  return channel.startsWith("screen") && source !== "camera" && choosesCodecPerConnection();
+}
+
+// A clone starts from what the capture has, and what was asked of it a moment ago, the
+// minimum frame rate for a start, may not have got there yet.
+function copyForViewer(track: MediaStreamTrack): MediaStreamTrack {
+  const copy = track.clone();
+  copy.applyConstraints(track.getConstraints()).catch(() => {});
+  return copy;
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +845,7 @@ export const SCREEN_SHARE_STATS = {
   codecH264: "screen_codec_h264",
   codecVp8: "screen_codec_vp8",
   codecVp9: "screen_codec_vp9",
+  codecAv1: "screen_codec_av1",
   codecOther: "screen_codec_other",
   codecHardware: "screen_codec_hardware",
 } as const;
@@ -992,7 +1012,9 @@ function reportShareEnd(stats: ShareStats) {
           ? SCREEN_SHARE_STATS.codecVp8
           : codec === "VP9"
             ? SCREEN_SHARE_STATS.codecVp9
-            : SCREEN_SHARE_STATS.codecOther
+            : codec === "AV1"
+              ? SCREEN_SHARE_STATS.codecAv1
+              : SCREEN_SHARE_STATS.codecOther
     );
     if (stats.hardware) trackFeatureEvent(SCREEN_SHARE_STATS.codecHardware);
   }
@@ -1081,6 +1103,9 @@ function useBroadcastChannel(
   >({});
   const localStreamRef = useRef<MediaStream | null>(null);
   const sendPCs = useRef<Map<string, RTCPeerConnection>>(new Map());
+  // Each viewer's own copy of the capture, where they have one (see choosesCodecFor).
+  // Left running, one of these keeps the capture alive after the share has stopped.
+  const sendTracks = useRef<Map<string, MediaStreamTrack>>(new Map());
   const recvPCs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const activeRef = useRef(false);
   const pendingSendCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
@@ -1319,6 +1344,8 @@ function useBroadcastChannel(
       sendPCs.current.delete(peerId);
       if (channel !== "mic") connectionRegistry.unregister(pc);
     }
+    sendTracks.current.get(peerId)?.stop();
+    sendTracks.current.delete(peerId);
     // Drops this peer's controller and unregisters it from the stats pump.
     // The requested tier deliberately survives in requestedTiers: a reconnect
     // should resume at the size that viewer actually renders us at, not snap
@@ -1497,7 +1524,10 @@ function useBroadcastChannel(
           nativeVideo.attach(pc, stream);
           return;
         }
-        const sender = pc.addTrack(track, stream);
+        const choosesCodec = track.kind === "video" && !nativeVideo && choosesCodecFor(channel, sourceRef.current);
+        const sendTrack = choosesCodec ? copyForViewer(track) : track;
+        if (choosesCodec) sendTracks.current.set(peerId, sendTrack);
+        const sender = pc.addTrack(sendTrack, stream);
         if (nativeVideo) {
           nativeVideo.passThrough(sender);
           return;
@@ -1520,7 +1550,7 @@ function useBroadcastChannel(
           qualityRegistry.current.setDegradation(mode);
           const ceilingKbps = videoQualityRef.current?.maxBitrateKbps;
           if (ceilingKbps) qualityRegistry.current.setBitrateCeiling(ceilingKbps);
-          qualityRegistry.current.add(peerId, pc, sender, tier, captureWidth, captureHeight);
+          qualityRegistry.current.add(peerId, pc, sender, tier, captureWidth, captureHeight, choosesCodec);
         }
       });
       pc.onicecandidate = (e) => {
@@ -1774,16 +1804,20 @@ function useBroadcastChannel(
       applied.floor !== wanted.floor;
     if (track && dimensionsChanged) {
       appliedConstraints.current = wanted;
+      const constraints = {
+        width: { ideal: wanted.width },
+        height: { ideal: wanted.height },
+        frameRate: {
+          ideal: wanted.frameRate,
+          // A screen, where a ceiling cannot be refused (see captureConstraints).
+          ...(wanted.floor > 0 ? { min: wanted.floor, max: wanted.frameRate } : {}),
+        },
+      };
+      // A track's constraints are its own, and what its copies were cloned with is not
+      // what they get after that.
+      for (const copy of sendTracks.current.values()) copy.applyConstraints(constraints).catch(() => {});
       track
-        .applyConstraints({
-          width: { ideal: wanted.width },
-          height: { ideal: wanted.height },
-          frameRate: {
-            ideal: wanted.frameRate,
-            // A screen, where a ceiling cannot be refused (see captureConstraints).
-            ...(wanted.floor > 0 ? { min: wanted.floor, max: wanted.frameRate } : {}),
-          },
-        })
+        .applyConstraints(constraints)
         .catch(() => {
           // Nothing was applied, so the record above cannot stand: left as
           // it is, the comparison matches on every later run and the retry
@@ -1908,6 +1942,8 @@ function useBroadcastChannel(
       if (channel !== "mic") connectionRegistry.unregister(pc);
     }
     sendPCs.current.clear();
+    for (const copy of sendTracks.current.values()) copy.stop();
+    sendTracks.current.clear();
     // A brand-new share later starts clean — mirrors the viewer side, which
     // has its "stopped watching" marker cleared the moment this "stop"
     // signal makes closeRecvPCFully run for them (see the onSignal handler
@@ -2125,13 +2161,22 @@ function useBroadcastChannel(
       );
       const floor = holdStillScreenFloor(nextVideo, requestedSource);
 
+      // Each viewer with a copy of the old capture gets a copy of the new one, in the
+      // encoder's mode they were in.
+      const nextCopies = new Map<string, MediaStreamTrack>();
       try {
         await Promise.all(
-          [...sendPCs.current.values()].flatMap((pc) =>
+          [...sendPCs.current.entries()].flatMap(([peerId, pc]) =>
             pc
               .getSenders()
               .filter((sender) => sender.track?.kind === "video")
-              .map((sender) => sender.replaceTrack(nextVideo))
+              .map((sender) => {
+                if (!sendTracks.current.has(peerId)) return sender.replaceTrack(nextVideo);
+                const copy = copyForViewer(nextVideo);
+                copy.contentHint = sender.track?.contentHint ?? "";
+                nextCopies.set(peerId, copy);
+                return sender.replaceTrack(copy);
+              })
           )
         );
       } catch {
@@ -2140,9 +2185,14 @@ function useBroadcastChannel(
         // renegotiating — which is exactly the restart the caller falls back
         // to, so this capture is discarded and the old one left in place.
         // A wrapper owns the old track, so it is not stopped with it here.
+        for (const copy of nextCopies.values()) copy.stop();
         if (!wrap) next.getTracks().forEach((t) => t.stop());
         swapping.current = false;
         return false;
+      }
+      for (const [peerId, copy] of nextCopies) {
+        sendTracks.current.get(peerId)?.stop();
+        sendTracks.current.set(peerId, copy);
       }
 
       // The MediaStream object itself is kept and its tracks swapped inside
@@ -2394,6 +2444,8 @@ function useBroadcastChannel(
                   await thisPc.addIceCandidate(candidate).catch(() => {});
                 }
               }
+              await declineCostlyCodecs(thisPc);
+              if (recvPCs.current.get(from) !== thisPc) return null;
               return thisPc.createAnswer();
             })
             .then((answer) => {
@@ -2972,6 +3024,11 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setClassicSend(classicSendFeature.enabled);
   }, [classicSendFeature.enabled]);
+  // The same for experiment "sq-h264-send" (see lib/h264Send).
+  const h264SendFeature = useFeature(H264_SEND_FEATURE, { track: false });
+  useEffect(() => {
+    setH264Send(h264SendFeature.enabled);
+  }, [h264SendFeature.enabled]);
   // Experiment "stereo-audio" (see lib/opusStereo): read by every offer
   // that goes out, so decided here; exposure counted while sharing, below.
   const stereoAudioFeature = useFeature(STEREO_AUDIO_FEATURE, { track: false });
@@ -4382,6 +4439,7 @@ export function useRoomMedia(room: string) {
   useEffect(() => mediaStats.onCapacity(setCapacity), []);
 
   useFeature(CLASSIC_SEND_FEATURE, { track: screen.active });
+  useFeature(H264_SEND_FEATURE, { track: screen.active });
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture

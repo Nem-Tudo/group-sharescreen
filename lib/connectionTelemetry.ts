@@ -44,13 +44,15 @@ import {
 import { turnProvider } from "./iceConfig";
 import { trackFeatureEvent } from "./features";
 import { CLASSIC_SEND_FEATURE, isClassicSend } from "./classicSend";
+import { H264_SEND_FEATURE, isH264Send } from "./h264Send";
 import { senderQualityState } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
 import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
 
 // One of each per session of our own screen, at its end, from both groups of
-// experiment sq-classic-send (see lib/classicSend), so the admin compares like
-// with like. The GPU capture, which neither group changes, is left out.
+// experiments sq-classic-send and sq-h264-send (see lib/classicSend, lib/h264Send), so
+// the admin compares like with like. The GPU capture, which no group changes, is left
+// out.
 //   send_session            a connection carrying our screen
 //   send_session_fps        ...its average fps (value)
 //   send_session_height     ...its average height (value)
@@ -58,6 +60,7 @@ import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
 //   send_link_held          ...spent over a tenth of its time held down by its link
 //   send_machine_held       ...spent over a tenth of its time held down by the machine
 //   send_paused             ...spent over a tenth of its time with nobody looking
+//   send_moving_picture     ...settled in the camera mode of the costly codec at some point
 export const SEND_SESSION_EVENTS = {
   session: "send_session",
   fps: "send_session_fps",
@@ -66,6 +69,7 @@ export const SEND_SESSION_EVENTS = {
   linkHeld: "send_link_held",
   machineHeld: "send_machine_held",
   paused: "send_paused",
+  movingPicture: "send_moving_picture",
 } as const;
 
 const ENABLED = process.env.NEXT_PUBLIC_QUALITY_TELEMETRY_ENABLED !== "false";
@@ -144,7 +148,8 @@ export function setTelemetryShareSettings(settings: ShareSettings | null) {
 }
 
 function experimentsTag(): string | null {
-  return isClassicSend() ? `${CLASSIC_SEND_FEATURE}=on` : null;
+  const on = [isClassicSend() && CLASSIC_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE].filter(Boolean);
+  return on.length > 0 ? on.map((key) => `${key}=on`).join(";") : null;
 }
 
 interface Session {
@@ -153,6 +158,7 @@ interface Session {
   selfPeerId: string;
   peerUserId: string | null;
   acc: SessionAccumulator;
+  movingPicture: boolean;
 }
 
 function browserOf(ua: string): string {
@@ -213,6 +219,7 @@ class ConnectionTelemetry {
       selfPeerId: signalingClient.state.selfId ?? "",
       peerUserId: signalingClient.state.peers.find((p) => p.id === connection.peerId)?.userId ?? null,
       acc,
+      movingPicture: false,
     });
     if (!this.timer) {
       this.timer = setInterval(() => {
@@ -259,6 +266,7 @@ class ConnectionTelemetry {
       // encoder's own numbers (see SenderControlSample).
       const { connection } = session;
       const control = connection.direction === "send" ? senderQualityState(connection.pc) : null;
+      if (control?.movingPicture) session.movingPicture = true;
       const visible =
         connection.direction === "recv" ? qualityNegotiator.isVisible(connection.channel, connection.peerId) : null;
       const paused =
@@ -302,7 +310,7 @@ class ConnectionTelemetry {
     if (summary.durationS < MIN_SESSION_S || (summary.kbpsAvg === null && !noVideo)) return null;
     const provider = acc.relayUrl ? turnProvider(acc.relayUrl) : null;
     // Before the sampling below: the experiment counts every session.
-    this.countSendSession(summary, connection);
+    this.countSendSession(summary, connection, session.movingPicture);
     if (!summary.bad && Math.random() >= QUALITY_SAMPLE_RATE) return null;
     const native = connection.direction === "send" ? nativeSinkStats(connection.pc) : null;
 
@@ -347,21 +355,23 @@ class ConnectionTelemetry {
   }
 
   // See SEND_SESSION_EVENTS.
-  private countSendSession(summary: SessionSummary, connection: RegisteredConnection) {
+  private countSendSession(summary: SessionSummary, connection: RegisteredConnection, movingPicture: boolean) {
     if (connection.direction !== "send" || !connection.channel.startsWith("screen")) return;
     const height = summary.heightAvg ?? 0;
     // The GPU capture's stand-in track measures 16 px tall; nothing else does.
     if (height > 0 && height < 40) return;
-    const feature = CLASSIC_SEND_FEATURE;
-    trackFeatureEvent(SEND_SESSION_EVENTS.session, { feature });
-    trackFeatureEvent(SEND_SESSION_EVENTS.fps, { feature, value: summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg) });
-    trackFeatureEvent(SEND_SESSION_EVENTS.height, { feature, value: height });
-    if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) {
-      trackFeatureEvent(SEND_SESSION_EVENTS.slideshow, { feature });
+    for (const feature of [CLASSIC_SEND_FEATURE, H264_SEND_FEATURE]) {
+      trackFeatureEvent(SEND_SESSION_EVENTS.session, { feature });
+      trackFeatureEvent(SEND_SESSION_EVENTS.fps, { feature, value: summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg) });
+      trackFeatureEvent(SEND_SESSION_EVENTS.height, { feature, value: height });
+      if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) {
+        trackFeatureEvent(SEND_SESSION_EVENTS.slideshow, { feature });
+      }
+      if ((summary.linkCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.linkHeld, { feature });
+      if ((summary.machineCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.machineHeld, { feature });
+      if ((summary.pausedShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.paused, { feature });
+      if (movingPicture) trackFeatureEvent(SEND_SESSION_EVENTS.movingPicture, { feature });
     }
-    if ((summary.linkCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.linkHeld, { feature });
-    if ((summary.machineCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.machineHeld, { feature });
-    if ((summary.pausedShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.paused, { feature });
   }
 
   private scheduleFlush() {

@@ -10,6 +10,11 @@
 //   3. the machine — MachineGovernor, when the encoders cannot keep up. There
 //      is one CPU, so that one applies to everybody.
 //
+// And which codec it goes out in, on a share that gets to choose: the costly one for
+// as many connections as the machine can afford (see chooseSharp in lib/sendAdaptation),
+// changed on the running connection, with nothing renegotiated. And in which of that
+// codec's modes, going by what is on the screen (see PictureWatch).
+//
 // The bitrate is not one of the things this layer turns down. WebRTC's
 // congestion control is already the fast and correct reflex for real
 // congestion, and it can only learn that a link has recovered by being allowed
@@ -20,16 +25,22 @@ import { mediaStats, type SenderSample } from "./mediaStats";
 import { capTier, encoderCeilingKbps, scaleForHeight, tierSpec, type QualityTier } from "./videoQuality";
 import { RELAY_ROUTE_CAP, RELAY_ROUTE_MAX_KBPS, watchTurnRelay } from "./turnRoute";
 import {
+  chooseSharp,
   cpuPressure,
   heldCeilingKbps,
   LinkAdapter,
   machineCapFor,
   MachineGovernor,
+  PictureWatch,
   SEND_GRACE_MS,
+  SHARP_TAKE_WAIT_MS,
   watchCpuPressure,
   type SendObservation,
+  type SharpCandidate,
 } from "./sendAdaptation";
+import { sendCodecFrom, sendHintFor, SHARP_CODEC } from "./videoCodecPreferences";
 import { isClassicSend, onClassicSendChange } from "./classicSend";
+import { isH264Send, onH264SendChange } from "./h264Send";
 import { isHardwareImplementation } from "./connectionDiagnostics";
 
 // What the broadcaster says they are sharing, which decides how the encoder
@@ -53,6 +64,9 @@ const CLASSIC_PREFERENCE: Record<DegradationMode, RTCDegradationPreference> = {
   balanced: "balanced",
   motion: "maintain-framerate",
 };
+
+// In every browser that matters here, and not yet in TypeScript's own idea of one.
+type EncodingWithCodec = RTCRtpEncodingParameters & { codec?: RTCRtpCodec };
 
 // How long to wait before re-pushing parameters the sender refused, and how
 // many times. Short, because the refusal this exists for — parameters made
@@ -78,15 +92,69 @@ export function setRelayCapExempt(exempt: boolean) {
 const machine = new MachineGovernor();
 let machineWatching = false;
 
+// How many streams go through the graphics card's encoder at once. On a Radeon RX 560, five took
+// the driver down in one run of three, and the whole machine's screen with it, where four
+// never have. Past this a connection goes on a software encoder, at the price of most of a core.
+const CARD_STREAMS_MAX = 4;
+// Whether this machine's H264 encoder is the graphics card's; null until one has been heard from.
+let cardH264: boolean | null = null;
+
+// What an encoder on the graphics card starts on. AMD's H264 goes by the bits it is started
+// with. Started on all the link has, which is what changing codec, coming back from a pause
+// or getting a new height all do, it spends most of its time at 13-16 fps and QP 19, on 6 Mbps
+// of a 12 Mbps estimate. Started on little, as at the beginning of a share when the estimator
+// has yet to ramp up, it holds 30 fps at QP 26 on the same 6 Mbps. Lowering the bits after the
+// start does not help. How soon they can come back is ENCODER_START_MS.
+//
+// Nor can it be switched off and on. AMD's, active again after ten seconds, sends key frame after
+// key frame that the viewer's hardware decoder never takes, for as long as anyone has waited.
+// So a connection nobody is looking at goes off the card altogether, and an encoder comes back
+// new. Which also hands its place on the card over while it is not using it.
+const ENCODER_START_KBPS = 1500;
+const ENCODER_START_MS = 1500;
+
+// Who goes out in the costly codec, over every connection on this machine, and who stays
+// off the graphics card.
+function planSharp() {
+  const now = Date.now();
+  const pressure = cpuPressure();
+  const calm = machine.level === 0 && pressure !== "serious" && pressure !== "critical";
+  const controllers = [...liveControllers];
+  const candidates = controllers.flatMap((c) => c.sharpCandidate(now, calm));
+  const cores = globalThis.navigator?.hardwareConcurrency || 4;
+  const chosen = chooseSharp(candidates, cores);
+  const movable = (c: PeerQualityController) => c.takesPlainCodec(chosen.has(c.key()));
+  // Those with no say in it take their places first: a camera, say.
+  let room = CARD_STREAMS_MAX - controllers.filter((c) => !movable(c) && c.encodingOnCard()).length;
+  for (const c of controllers) {
+    const plain = movable(c);
+    c.setCodecChoice(chosen.has(c.key()), plain && cardH264 === true && room <= 0, now);
+    if (plain) room -= 1;
+  }
+}
+
+// They all carry the same capture, so one try answers for all of them.
+function settlePicture() {
+  const now = Date.now();
+  if (![...liveControllers].some((c) => c.pictureProven())) return;
+  for (const c of liveControllers) c.adoptPicture(now);
+}
+
 function ensureMachineWatch() {
   if (machineWatching) return;
   machineWatching = true;
   mediaStats.onCapacity(() => {
-    if (machine.tick(cpuPressure(), Date.now())) for (const c of liveControllers) c.apply();
+    const changed = machine.tick(cpuPressure(), Date.now());
+    planSharp();
+    settlePicture();
+    if (changed) for (const c of liveControllers) c.apply();
   });
-  onClassicSendChange(() => {
+  const again = () => {
+    planSharp();
     for (const c of liveControllers) c.apply();
-  });
+  };
+  onClassicSendChange(again);
+  onH264SendChange(again);
 }
 
 /** What a sender's controller is doing to one viewer, for the quality reports. */
@@ -102,6 +170,10 @@ export interface SenderQualityState {
   machineLevel: number;
   /** This viewer is not looking, so nothing is being encoded for them. */
   paused: boolean;
+  /** Whether they are getting the costly codec. */
+  sharp: boolean;
+  /** Whether that went to its camera mode for a moving picture. */
+  movingPicture: boolean;
 }
 
 // The controller behind each send pc, for lib/connectionTelemetry: the reports
@@ -124,6 +196,9 @@ export class PeerQualityController {
   // the sender.
   private appliedFramerate = 0;
   private appliedActive = true;
+  // Which way the codec was chosen; null until that reached a sender with something
+  // negotiated to choose from.
+  private appliedSharp: boolean | null = null;
   // The mode those numbers were pushed with. Null means nothing is known to
   // have reached the sender — the initial state, and what a rejected
   // setParameters restores.
@@ -160,6 +235,23 @@ export class PeerQualityController {
   // may be given; the tier decides how much of it is actually used.
   private bitrateCeilingKbps: number;
   private degradation: DegradationMode;
+  // Whether this connection chooses its codec. If so its track is its own, so the
+  // encoder's mode can go with the codec without touching anyone else's.
+  private readonly choosesCodec: boolean;
+  private sharp = false;
+  // This viewer's answer left the costly codec out.
+  private sharpRefused = false;
+  // Whether its encoder was on the graphics card when last heard from.
+  private onCard = false;
+  // Past what the card holds: see planSharp.
+  private offCard = false;
+  private appliedOffCard = false;
+  // Its encoder has just been started: see ENCODER_START_KBPS.
+  private startingLow = false;
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
+  private codecChangedAt = 0;
+  private availableKbps = 0;
+  private picture = new PictureWatch();
 
   constructor(
     statsKey: string,
@@ -168,8 +260,10 @@ export class PeerQualityController {
     captureWidth: number,
     captureHeight: number,
     bitrateCeilingKbps: number,
-    degradation: DegradationMode
+    degradation: DegradationMode,
+    choosesCodec = false
   ) {
+    this.choosesCodec = choosesCodec;
     this.statsKey = statsKey;
     this.sender = sender;
     this.tier = tier;
@@ -192,7 +286,72 @@ export class PeerQualityController {
       linkCapHeight: this.link.capHeight,
       machineLevel: machine.level,
       paused: this.paused,
+      sharp: this.sharp,
+      movingPicture: this.picture.proven,
     };
+  }
+
+  key(): string {
+    return this.statsKey;
+  }
+
+  /** This connection as chooseSharp sees it; nothing when it is out of the running. */
+  sharpCandidate(now: number, calm: boolean): SharpCandidate[] {
+    if (!this.choosesCodec || this.sharpRefused || this.paused || isClassicSend() || isH264Send()) return [];
+    if (!machineCapFor(machine.level, this.degradation).sharp) return [];
+    return [
+      {
+        key: this.statsKey,
+        profile: this.degradation,
+        height: this.sentHeight(),
+        fps: this.targetFps(),
+        holding: this.sharp,
+        mayTake: calm && now - this.codecChangedAt >= SHARP_TAKE_WAIT_MS,
+        // The estimator ramping up is not a short link.
+        availableKbps: now - this.startedAt >= SEND_GRACE_MS ? this.availableKbps : 0,
+      },
+    ];
+  }
+
+  private watchesPicture(): boolean {
+    return this.sharp && !this.paused && this.degradation !== "motion";
+  }
+
+  pictureProven(): boolean {
+    return this.watchesPicture() && this.picture.proven;
+  }
+
+  pictureTrying(): boolean {
+    return this.watchesPicture() && this.picture.trying;
+  }
+
+  /** Camera mode came out better on another connection. */
+  adoptPicture(now: number) {
+    if (this.watchesPicture() && this.picture.adopt(now)) this.applyHint();
+  }
+
+  /** Encoding on the graphics card right now. */
+  encodingOnCard(): boolean {
+    return this.onCard && !this.paused;
+  }
+
+  /** Whether this connection would go on a plain codec, and is free to choose which. */
+  takesPlainCodec(sharp: boolean): boolean {
+    return this.choosesCodec && !sharp && !this.paused;
+  }
+
+  setCodecChoice(sharp: boolean, offCard: boolean, now: number) {
+    // The card means nothing to a connection in the costly codec.
+    const moved = this.sharp !== sharp || (!sharp && this.offCard !== offCard);
+    this.offCard = offCard;
+    if (!moved) return;
+    this.sharp = sharp;
+    // Nothing being encoded, nothing anyone could see change: no reason to make them wait.
+    if (!this.paused && this.appliedSharp !== null) this.codecChangedAt = now;
+    // What the link could carry in another codec says nothing about this one.
+    this.link = new LinkAdapter(now);
+    this.picture = new PictureWatch();
+    this.apply();
   }
 
   private preference(): RTCDegradationPreference {
@@ -215,6 +374,7 @@ export class PeerQualityController {
   setTier(tier: QualityTier) {
     if (this.tier === tier) return;
     this.tier = tier;
+    planSharp();
     this.apply();
   }
 
@@ -237,9 +397,13 @@ export class PeerQualityController {
         const cap = this.link.capHeight;
         this.link = new LinkAdapter(Date.now());
         this.link.capHeight = cap;
+        // Nor does it say what is on the screen now.
+        this.picture = new PictureWatch();
       }
     }
+    planSharp();
     this.apply();
+    this.applyHint();
   }
 
   /**
@@ -289,7 +453,10 @@ export class PeerQualityController {
   setDegradation(mode: DegradationMode) {
     if (this.degradation === mode) return;
     this.degradation = mode;
+    this.picture = new PictureWatch();
+    planSharp();
     this.apply();
+    this.applyHint();
   }
 
   getTier(): QualityTier {
@@ -309,8 +476,19 @@ export class PeerQualityController {
         this.apply();
       }
     }
+    // The browser leaves the estimate out of the odd report, which says nothing.
+    if (sample.availableKbps) this.availableKbps = sample.availableKbps;
     const tier = tierSpec(this.sentTier());
     const hardware = isHardwareImplementation(sample.encoderImplementation ?? null, sample.powerEfficient);
+    // A report that does not say is no news.
+    if (hardware !== null) {
+      const cardBefore = cardH264;
+      if (sample.codec?.toUpperCase() === "H264") cardH264 = hardware;
+      if (hardware !== this.onCard || cardH264 !== cardBefore) {
+        this.onCard = hardware;
+        planSharp();
+      }
+    }
     const observation: SendObservation = {
       fps: sample.framesPerSecond,
       sourceFps: sample.sourceFps ?? null,
@@ -321,6 +499,7 @@ export class PeerQualityController {
       qp: sample.qp ?? null,
       codec: sample.codec ?? null,
       targetKbps: sample.targetKbps ?? 0,
+      sentKbps: sample.outgoingKbps,
       availableKbps: sample.availableKbps ?? 0,
       height: sample.frameHeight,
     };
@@ -328,9 +507,13 @@ export class PeerQualityController {
     const now = Date.now();
     const topHeight = Math.min(tier.height, this.captureHeight || tier.height);
     if (now - this.startedAt >= SEND_GRACE_MS) {
-      machine.observe(this.statsKey, observation, this.degradation, software, { height: topHeight, fps: tier.frameRate }, now);
+      machine.observe(this.statsKey, observation, this.degradation, software, { height: topHeight, fps: tier.frameRate, sharp: this.sharp }, now);
     }
     if (this.link.update(observation, this.degradation, topHeight, now)) this.apply();
+    if (this.watchesPicture()) {
+      const mayTry = ![...liveControllers].some((c) => c !== this && c.pictureTrying());
+      if (this.picture.update(observation, now, mayTry)) this.applyHint();
+    }
   }
 
   private targetFps(): number {
@@ -347,15 +530,43 @@ export class PeerQualityController {
     return Math.min(height, this.link.capHeight ?? height, machineHeight ?? height);
   }
 
+  // Whether this connection stays off the graphics card, past what it holds or while it is paused.
+  private sentOffCard(): boolean {
+    return this.choosesCodec && !this.sharp && (this.offCard || (this.paused && cardH264 !== false));
+  }
+
+  // Whether these settings make the browser start the encoder over, on the graphics card.
+  private restartsOnCard(scale: number, active: boolean, sharp: boolean | null, offCard: boolean): boolean {
+    if (!this.choosesCodec || !active || sharp || offCard || cardH264 === false) return false;
+    // Nothing has reached the sender yet, so nothing is being started over.
+    if (this.appliedScale === 0 || this.appliedSharp === null) return false;
+    return scale !== this.appliedScale || !this.appliedActive || sharp !== this.appliedSharp || offCard !== this.appliedOffCard;
+  }
+
+  private startLow() {
+    this.startingLow = true;
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = setTimeout(() => {
+      this.startTimer = null;
+      this.startingLow = false;
+      this.apply();
+    }, ENCODER_START_MS);
+  }
+
   /** Pushes the current target onto the sender, if it actually changed. */
   apply() {
     if (this.disposed) return;
     const tier = this.sentTier();
-    const targetKbps = this.ceilingKbps(tier);
     const preference = this.preference();
     const scale = scaleForHeight(this.sentHeight(), this.captureWidth, this.captureHeight);
     const framerate = this.targetFps();
-    const active = !this.paused || isClassicSend();
+    // A channel that cannot choose its codec has nowhere to go off the card to.
+    const active = !this.paused || isClassicSend() || (!this.choosesCodec && this.onCard);
+    const sharp = this.choosesCodec ? this.sharp : null;
+    const offCard = this.sentOffCard();
+    if (this.restartsOnCard(scale, active, sharp, offCard)) this.startLow();
+    const ceiling = this.ceilingKbps(tier);
+    const targetKbps = this.startingLow ? Math.min(ceiling, ENCODER_START_KBPS) : ceiling;
 
     // setParameters triggers an encoder reconfiguration; calling it with
     // values that did not change costs a keyframe and a visible hitch for
@@ -366,7 +577,9 @@ export class PeerQualityController {
       targetKbps === this.appliedKbps &&
       scale === this.appliedScale &&
       framerate === this.appliedFramerate &&
-      active === this.appliedActive
+      active === this.appliedActive &&
+      sharp === this.appliedSharp &&
+      offCard === this.appliedOffCard
     ) {
       return;
     }
@@ -389,6 +602,7 @@ export class PeerQualityController {
     this.appliedFramerate = framerate;
     this.appliedActive = active;
     this.appliedPreference = preference;
+    this.appliedOffCard = offCard;
     const seq = (this.applySeq += 1);
     const encodings =
       params.encodings && params.encodings.length > 0 ? params.encodings : [{} as RTCRtpEncodingParameters];
@@ -396,12 +610,14 @@ export class PeerQualityController {
     encodings[0].maxBitrate = targetKbps * 1000;
     encodings[0].scaleResolutionDownBy = scale;
     encodings[0].maxFramerate = framerate;
+    this.chooseCodec(params, encodings[0]);
     params.encodings = encodings;
     params.degradationPreference = preference;
     this.sender.setParameters(params).then(
       () => {
         if (seq !== this.applySeq) return;
         this.retriesLeft = APPLY_RETRIES;
+        this.checkCodecTook();
       },
       () => {
         // Superseded: a later apply() is the one whose result counts, and
@@ -415,6 +631,7 @@ export class PeerQualityController {
         this.appliedScale = 0;
         this.appliedFramerate = 0;
         this.appliedActive = true;
+        this.appliedSharp = null;
         this.appliedPreference = null;
         // And undoing it is not enough on its own, which is the part that
         // bites. apply() runs when something moves, and on a settled link
@@ -431,12 +648,50 @@ export class PeerQualityController {
     );
   }
 
+  // The codec for this connection, as far as there is anything to choose from yet.
+  // Before the answer there is not: H264 is first in the offer, and with nothing
+  // negotiated nothing is encoded either, so choosing can wait for it.
+  private chooseCodec(params: RTCRtpSendParameters, encoding: EncodingWithCodec) {
+    if (!this.choosesCodec) return;
+    const negotiated = params.codecs ?? [];
+    if (this.sharp && negotiated.length > 0 && !negotiated.some((c) => c.mimeType === SHARP_CODEC)) {
+      this.sharpRefused = true;
+      this.sharp = false;
+    }
+    this.applyHint();
+    this.appliedSharp = negotiated.length > 0 ? this.sharp : null;
+    const codec = sendCodecFrom(negotiated, this.sharp, this.sentOffCard());
+    if (codec) encoding.codec = codec;
+  }
+
+  // The encoder's mode. The track is this connection's own, and the browser takes it from
+  // there: nothing else about the connection changes.
+  private applyHint() {
+    if (!this.choosesCodec) return;
+    const track = this.sender.track;
+    const hint = sendHintFor(this.sharp, this.degradation === "motion" || this.picture.moving);
+    if (track && track.contentHint !== hint) track.contentHint = hint;
+  }
+
+  // A browser old enough not to know encodings[0].codec drops it without a word, and
+  // the connection goes on in H264 in the wrong encoder mode.
+  private checkCodecTook() {
+    if (!this.sharp || this.appliedSharp !== true) return;
+    if ((this.sender.getParameters().encodings?.[0] as EncodingWithCodec | undefined)?.codec) return;
+    this.sharpRefused = true;
+    this.setCodecChoice(false, this.offCard, Date.now());
+  }
+
   dispose() {
     this.disposed = true;
     liveControllers.delete(this);
     machine.forget(this.statsKey);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = null;
+    // What it held goes to somebody else.
+    planSharp();
   }
 }
 
@@ -491,7 +746,8 @@ export class PeerQualityRegistry {
     sender: RTCRtpSender,
     tier: QualityTier,
     captureWidth: number,
-    captureHeight: number
+    captureHeight: number,
+    choosesCodec = false
   ): PeerQualityController {
     this.remove(peerId);
     const key = this.statsKey(peerId);
@@ -502,19 +758,27 @@ export class PeerQualityRegistry {
       captureWidth,
       captureHeight,
       this.bitrateCeilingKbps,
-      this.degradation
+      this.degradation,
+      choosesCodec
     );
     this.controllers.set(peerId, controller);
     controllerByPc.set(pc, controller);
     mediaStats.register(key, pc, sender);
     watchCpuPressure(true);
+    planSharp();
     controller.apply();
     // Our own end relaying through TURN. The viewer's end is theirs to
     // see — see setRemoteRelayRoute.
-    this.routeWatches.set(
-      peerId,
-      watchTurnRelay(pc, (via) => controller.setRelayRoute("local", via))
-    );
+    const stopRoute = watchTurnRelay(pc, (via) => controller.setRelayRoute("local", via));
+    // The answer is what there is to choose a codec from.
+    const onNegotiated = () => {
+      if (pc.signalingState === "stable") controller.apply();
+    };
+    pc.addEventListener("signalingstatechange", onNegotiated);
+    this.routeWatches.set(peerId, () => {
+      stopRoute();
+      pc.removeEventListener("signalingstatechange", onNegotiated);
+    });
     this.start();
     return controller;
   }
