@@ -1,5 +1,6 @@
 // Experiment "sq-h264-send": every share in H264, with no connection in the costly
-// codec (see lib/videoCodecPreferences). At 0% unless somebody turns it up.
+// codec (see lib/videoCodecPreferences). At 0% unless somebody turns it up, and only
+// means anything to those in sq-new-send (see lib/classicSend).
 //
 // That makes two things possible without a deploy: giving up AV1 if it turns out badly
 // on machines the lab never saw, and comparing the two side by side in

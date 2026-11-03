@@ -58,7 +58,7 @@ export type DegradationMode = "text" | "balanced" | "motion";
 // resolution never reaches. See lib/sendAdaptation, which does that job instead.
 const SEND_PREFERENCE: RTCDegradationPreference = "maintain-resolution";
 
-// Experiment sq-classic-send only: how it was before.
+// Outside experiment sq-new-send: how it was before.
 const CLASSIC_PREFERENCE: Record<DegradationMode, RTCDegradationPreference> = {
   text: "maintain-resolution",
   balanced: "balanced",

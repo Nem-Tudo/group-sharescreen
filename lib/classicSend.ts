@@ -1,19 +1,22 @@
-// Experiment "sq-classic-send": the way out of the send path of lib/sendAdaptation.
+// Experiment "sq-new-send": the way into the send path of lib/sendAdaptation.
 //
-// Everybody gets the new way of sending: maintain-resolution with our own
-// recoverable adapters, encoders stopped for viewers who are not looking, and a codec
-// per connection (see lib/videoCodecPreferences). This feature, at 0% unless somebody
-// turns it up, puts a share back on what most of them did before: the profile's own
-// degradation preference left to WebRTC's quality scaler, VP9 first except for
-// "motion", and every viewer encoded for all the time.
+// Everybody sends the way they did before: the profile's own degradation preference
+// left to WebRTC's quality scaler, the first codec by profile and experiment screen-codec
+// (see lib/screenCodec), and every viewer encoded for all the time. This feature, at 0%
+// unless somebody turns it up, puts a
+// share on the new way of sending: maintain-resolution with our own recoverable
+// adapters, encoders stopped for viewers who are not looking, and a codec per
+// connection (see lib/videoCodecPreferences).
 //
-// That makes two things possible without a deploy: rolling the change back, and
-// comparing the two side by side in connection_quality_reports, where the group
-// shows up in `experiments` as "sq-classic-send=on".
+// That makes two things possible without a deploy: bringing the change in little by
+// little or rolling it back, and comparing the two side by side in
+// connection_quality_reports, where the group shows up in `experiments` as
+// "sq-new-send=on".
 
-export const CLASSIC_SEND_FEATURE = "sq-classic-send";
+export const NEW_SEND_FEATURE = "sq-new-send";
 
-let classic = false;
+// Until the feature says otherwise: nobody is on the new path without being in it.
+let classic = true;
 const listeners = new Set<() => void>();
 
 export function setClassicSend(value: boolean) {

@@ -49,25 +49,29 @@
 
 import type { DegradationMode } from "./peerQualityController";
 import { isClassicSend } from "./classicSend";
+import { plannedFirstCodec } from "./screenCodec";
 
 export type VideoCodecOrder = "h264" | "vp9";
 
 // Exported because a codec preference is the one part of a profile that cannot be
 // changed on a connection that is already negotiated, so a mid-share profile switch
 // has to know whether the switch actually changed which codec goes first before it
-// decides to renegotiate anything (see useRoomMedia). Only sq-classic-send's does:
-// everybody else's first is H264 for good, and what goes out is chosen after that.
+// decides to renegotiate anything (see useRoomMedia). Only outside sq-new-send does it:
+// inside, the first is H264 for good, and what goes out is chosen after that.
 export function videoCodecOrder(mode: DegradationMode): VideoCodecOrder {
-  if (isClassicSend()) return mode === "motion" ? "h264" : "vp9";
-  return "h264";
+  if (!isClassicSend()) return "h264";
+  return plannedFirstCodec(mode) ?? (mode === "text" ? "vp9" : "h264");
 }
 
 const CODEC_ORDER = ["video/H264", "video/VP8", "video/VP9", "video/AV1"];
-// Experiment sq-classic-send only.
-const CLASSIC_ORDER: Record<VideoCodecOrder, string[]> = {
-  h264: ["video/H264", "video/AV1", "video/VP9", "video/VP8"],
-  vp9: ["video/VP9", "video/AV1", "video/H264", "video/VP8"],
-};
+// Outside experiment sq-new-send. Moved off VP9 by experiment screen-codec, "text" keeps VP9
+// second, ahead of AV1: its screen-content mode is the reason "text" wanted it.
+function classicOrder(mode: DegradationMode): string[] {
+  if (videoCodecOrder(mode) === "vp9") return ["video/VP9", "video/AV1", "video/H264", "video/VP8"];
+  return mode === "text"
+    ? ["video/H264", "video/VP9", "video/AV1", "video/VP8"]
+    : ["video/H264", "video/AV1", "video/VP9", "video/VP8"];
+}
 
 // The costly codec, in the encoder's screen mode, and what a connection is on otherwise,
 // in its camera mode. Second and third for a viewer without H264.
@@ -126,7 +130,7 @@ export function applyVideoCodecPreferences(transceiver: RTCRtpTransceiver, mode:
   if (typeof RTCRtpSender.getCapabilities !== "function") return;
   const capabilities = RTCRtpSender.getCapabilities("video");
   if (!capabilities?.codecs) return;
-  const order = isClassicSend() ? CLASSIC_ORDER[videoCodecOrder(mode)] : CODEC_ORDER;
+  const order = isClassicSend() ? classicOrder(mode) : CODEC_ORDER;
   const sorted = [...capabilities.codecs].sort((a, b) => {
     const ia = order.indexOf(a.mimeType);
     const ib = order.indexOf(b.mimeType);
@@ -157,7 +161,7 @@ export function stillScreenFloor(maxKbps: number): { min: number } | null {
   return { min: Math.max(STILL_SCREEN_FPS, Math.ceil(maxKbps / MAX_KBITS_PER_STILL_FRAME)) };
 }
 
-// Experiment sq-classic-send only.
+// Outside experiment sq-new-send.
 const CLASSIC_HINT: Record<DegradationMode, "text" | "detail" | "motion"> = {
   text: "text",
   balanced: "detail",

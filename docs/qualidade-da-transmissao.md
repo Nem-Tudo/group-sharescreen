@@ -29,7 +29,8 @@ consegue fazer num dia bom.
 | `lib/receiveCodecs.ts` | Quem assiste em máquina fraca ou celular tira o AV1 da resposta |
 | `lib/mediaStats.ts` | **Uma** passada de `getStats()` para tudo |
 | `lib/h264Send.ts` | Experiment `sq-h264-send`: sem AV1, sem deploy |
-| `lib/classicSend.ts` | Experiment `sq-classic-send`: a volta atrás, sem deploy |
+| `lib/classicSend.ts` | Experiment `sq-new-send`: quem está nele usa o envio novo; quem não está, o de antes |
+| `lib/screenCodec.ts` | Experiment `screen-codec`: perfil padrão e primeiro codec de quem está fora de `sq-new-send` |
 | `lib/nativeVideoSink.ts` + `.worker.ts` | Captura por GPU do app: o lockstep, fora da thread principal |
 
 O servidor repassa o `data` de um `signal` de forma opaca, então `quality` (e o
@@ -282,7 +283,7 @@ dial de fps de quem transmite é que limita.
 
 **O que vai para o encoder é teto, não média.** O sender recebe
 `encoderCeilingKbps()`, a média do tier com folga (×2) limitada pelo dial. O dial
-padrão ("alto") é 6 Mbps porque quem está em H264 precisa: um vídeo em 1080p vai de 39,3 dB
+padrão ("alto") é 6 Mbps (fora de `sq-new-send`, 4 Mbps e folga de ×1,5, como antes) porque quem está em H264 precisa: um vídeo em 1080p vai de 39,3 dB
 a 4 Mbps para 42,6 a 6, com 7% a mais de CPU, e a estimativa de banda segura o que o link
 não carrega. Teto na média corta exatamente os momentos que precisam de mais bits, e em
 `maintain-resolution` esse corte sai como quadro derrubado. O preço está numa queda
@@ -325,7 +326,7 @@ Na API: `connectionQualityReport.ts` (validação, testada),
 dias), `connectionQualityStore.ts` e `connectionQualityRoutes.ts`.
 
 Os relatórios de envio trazem `linkCapShare`, `machineCapShare` e `pausedShare`
-além do que o encoder fez, e `experiments` diz se a sessão estava em `sq-classic-send` ou em
+além do que o encoder fez, e `experiments` diz se a sessão estava em `sq-new-send` e em
 `sq-h264-send`. Uma conexão que nunca subiu traz `iceLocal`, `iceRemote`,
 `icePairs` e `iceResponses`: sem candidatos próprios é STUN bloqueado, sem candidatos
 do outro lado é a sinalização que perdeu, e os dois sem nenhuma resposta às checagens
@@ -449,18 +450,26 @@ estimativa acompanha o que se envia, então isso não prova um upload curto. Que
 
 ## Comparar e reverter
 
-O experiment `sq-h264-send` (0%) tira o AV1 de quem transmite, ao vivo: tudo vai em H264 no
-modo câmera. É o primeiro a usar se o AV1 der problema, porque o resto do envio novo continua.
+O envio novo só vale para quem está no experiment `sq-new-send` (0%). Quem não está transmite
+como antes: preferência por perfil, o codec pelo perfil e por `screen-codec` (`lib/screenCodec.ts`,
+que por isso continua sendo lido e **não pode ser arquivado**), sem adaptadores, pausa nem cópia da
+captura por conexão. Sair ou entrar não precisa de deploy, e vale ao vivo. Só o que é da conexão
+em si fica como começou: quem entra com a transmissão no ar ganha o codec por conexão na próxima.
 
-O experiment `sq-classic-send` (0%) devolve o envio de antes: preferência por
-perfil, VP9 fora do `motion`, sem adaptadores, pausa nem cópia da captura por conexão. Serve
-para reverter sem deploy.
+O experiment não devolve o que o mesmo trabalho tirou ou trocou para todos: `congestionControl`,
+`memoryGuard`, `relayLink`, `ownTurn`, `topologyPlanner`, `streamPerf`, `streamQuality`, a captura
+por GPU reescrita (`nativeVideoSink`) e a telemetria nova. Quem não está nele usa o envio de antes
+sem esses sistemas.
+
+O experiment `sq-h264-send` (0%) só vale dentro de `sq-new-send`: tira o AV1 de quem transmite, ao
+vivo, e tudo vai em H264 no modo câmera. É o primeiro a usar se o AV1 der problema, porque o resto
+do envio novo continua.
 
 Os dois servem para comparar em `connection_quality_reports`, onde o grupo aparece em
-`experiments` como `sq-h264-send=on` ou `sq-classic-send=on`. Com um deles em 50% logo depois do
-deploy, os dois envios rodam lado a lado com o tráfego real, que é a comparação que o
-laboratório não faz. Compare fps e altura: a taxa de sessões "ruins" não é comparável com
-`sq-classic-send`, porque tela parada e espectador pausado contam de outro jeito. O evento
+`experiments` como `sq-new-send=on` e `sq-h264-send=on`. Com `sq-new-send` em 50%, os dois envios
+rodam lado a lado com o tráfego real, que é a comparação que o laboratório não faz. Compare fps
+e altura: a taxa de sessões "ruins" não é comparável entre os dois grupos, porque tela parada e
+espectador pausado contam de outro jeito. O evento
 `send_moving_picture` conta as conexões em que o modo câmera do AV1 ficou, testado ou herdado.
 
 ## Verificar

@@ -3,6 +3,8 @@
 // (lib/peerQualityController) and by what a viewer asks for
 // (lib/qualityNegotiation).
 
+import { isClassicSend } from "./classicSend";
+
 export type QualityTier =
   | "2160p120"
   | "2160p60"
@@ -195,6 +197,8 @@ export function capTier(requested: QualityTier, ceiling: QualityTier): QualityTi
 // mode) that clipping comes out as dropped frames, i.e. a share that looks
 // frozen rather than merely soft.
 const CEILING_HEADROOM = 2;
+// Outside experiment sq-new-send (see lib/classicSend).
+const CLASSIC_CEILING_HEADROOM = 1.5;
 
 // The rung the bitrate dial is scaled against: a tier costing this much gets
 // the whole dial, cheaper ones a proportional share. Pinned to 1440p60, the
@@ -220,7 +224,7 @@ export function encoderCeilingKbps(tier: QualityTier, dialCeilingKbps: number): 
   // This tier's share of a reference stream, so the dial scales down the
   // ladder instead of handing a thumbnail-sized tier a 32 Mbps allowance.
   const share = base / DIAL_REFERENCE_KBPS;
-  const generous = Math.max(base * CEILING_HEADROOM, dialCeilingKbps * share);
+  const generous = Math.max(base * (isClassicSend() ? CLASSIC_CEILING_HEADROOM : CEILING_HEADROOM), dialCeilingKbps * share);
   return Math.round(Math.min(dialCeilingKbps, generous));
 }
 

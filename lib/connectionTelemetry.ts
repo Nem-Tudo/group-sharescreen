@@ -43,14 +43,15 @@ import {
 } from "./mediaPreferences";
 import { turnProvider } from "./iceConfig";
 import { trackFeatureEvent } from "./features";
-import { CLASSIC_SEND_FEATURE, isClassicSend } from "./classicSend";
+import { isClassicSend, NEW_SEND_FEATURE } from "./classicSend";
+import { defaultShareProfile, screenCodecTag } from "./screenCodec";
 import { H264_SEND_FEATURE, isH264Send } from "./h264Send";
 import { senderQualityState } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
 import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
 
 // One of each per session of our own screen, at its end, from both groups of
-// experiments sq-classic-send and sq-h264-send (see lib/classicSend, lib/h264Send), so
+// experiments sq-new-send and sq-h264-send (see lib/classicSend, lib/h264Send), so
 // the admin compares like with like. The GPU capture, which no group changes, is left
 // out.
 //   send_session            a connection carrying our screen
@@ -108,7 +109,7 @@ export interface ConnectionQualityReport extends SessionSummary {
   forceRelay: boolean;
   /** Whose TURN server our end relayed through, when it did. */
   turnProvider: "own" | "cloudflare" | null;
-  /** Our side of the transport experiments, "sq-classic-send=on", or null for control. */
+  /** Our side of the transport experiments: "sq-new-send=on", or "screen-codec=auto" outside it. */
   experiments: string | null;
   /**
    * Send only, the desktop app's GPU capture (native-video-capture): how its
@@ -148,8 +149,9 @@ export function setTelemetryShareSettings(settings: ShareSettings | null) {
 }
 
 function experimentsTag(): string | null {
-  const on = [isClassicSend() && CLASSIC_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE].filter(Boolean);
-  return on.length > 0 ? on.map((key) => `${key}=on`).join(";") : null;
+  if (isClassicSend()) return screenCodecTag();
+  const on = [NEW_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE].filter(Boolean);
+  return on.map((key) => `${key}=on`).join(";");
 }
 
 interface Session {
@@ -342,7 +344,7 @@ class ConnectionTelemetry {
             resolution: getStoredShareResolution() ?? "1080p",
             fps: getStoredShareFps() ?? 30,
             bitrate: getStoredShareBitrate() ?? "high",
-            profile: getStoredShareProfile() ?? "balanced",
+            profile: getStoredShareProfile() ?? defaultShareProfile(),
           })
         : null,
       device: {
@@ -360,7 +362,7 @@ class ConnectionTelemetry {
     const height = summary.heightAvg ?? 0;
     // The GPU capture's stand-in track measures 16 px tall; nothing else does.
     if (height > 0 && height < 40) return;
-    for (const feature of [CLASSIC_SEND_FEATURE, H264_SEND_FEATURE]) {
+    for (const feature of [NEW_SEND_FEATURE, H264_SEND_FEATURE]) {
       trackFeatureEvent(SEND_SESSION_EVENTS.session, { feature });
       trackFeatureEvent(SEND_SESSION_EVENTS.fps, { feature, value: summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg) });
       trackFeatureEvent(SEND_SESSION_EVENTS.height, { feature, value: height });

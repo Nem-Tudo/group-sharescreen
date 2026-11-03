@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { PeerQualityRegistry, senderQualityState, setRelayCapExempt } from "./peerQualityController.ts";
-import { setClassicSend } from "./classicSend.ts";
+import { isClassicSend, setClassicSend } from "./classicSend.ts";
 import { setH264Send } from "./h264Send.ts";
 import type { SenderSample } from "./mediaStats.ts";
 import { mediaStats } from "./mediaStats.ts";
@@ -48,6 +48,11 @@ function setup(tier: Parameters<PeerQualityRegistry["add"]>[3] = "1080p30", capt
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// Nobody is on the new path without being in experiment sq-new-send, which is what the rest of
+// this file goes through.
+assert.equal(isClassicSend(), true);
+setClassicSend(false);
 
 const sample = (over: Partial<SenderSample> = {}): SenderSample => ({
   peerId: "viewer",
@@ -737,7 +742,7 @@ setCores(6);
   registry.clear();
 }
 
-// Experiment sq-classic-send: how it was. The profile's own preference, nothing
+// Outside experiment sq-new-send: how it was. The profile's own preference, nothing
 // stopped, nothing adapted by us.
 {
   setClassicSend(true);

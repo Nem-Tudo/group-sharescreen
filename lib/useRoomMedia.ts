@@ -126,8 +126,9 @@ import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
-import { CLASSIC_SEND_FEATURE, isClassicSend, setClassicSend } from "./classicSend";
+import { isClassicSend, NEW_SEND_FEATURE, setClassicSend } from "./classicSend";
 import { H264_SEND_FEATURE, setH264Send } from "./h264Send";
+import { SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
 import { declineCostlyCodecs } from "./receiveCodecs";
 import { releasePeerConnection } from "./peerConnectionRelease";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
@@ -349,6 +350,12 @@ const BITRATE_CEILING_KBPS: Record<ShareBitrate, number> = {
   maximo: 16000,
   extremo: 32000,
 };
+// Outside experiment sq-new-send, "high" is what it was (see lib/classicSend).
+const CLASSIC_HIGH_KBPS = 4000;
+
+function bitrateCeilingKbps(bitrate: ShareBitrate, classic: boolean): number {
+  return classic && bitrate === "high" ? CLASSIC_HIGH_KBPS : BITRATE_CEILING_KBPS[bitrate];
+}
 
 // The best tier the resolution + fps dials allow. Reusing the tile-size
 // selector is deliberate: "the cheapest tier that still covers this many
@@ -462,7 +469,7 @@ export const SHARE_PROFILE_OPTIONS: {
 export const SHARE_BITRATE_OPTIONS: { value: ShareBitrate; label: string; feature?: Feature }[] = [
   { value: "low", get label() { return translate("useRoomMedia.lowBitrate700Kbps"); } },
   { value: "medium", get label() { return translate("useRoomMedia.mediumBitrate2Mbps"); } },
-  { value: "high", get label() { return translate("useRoomMedia.highBitrate6Mbps"); } },
+  { value: "high", get label() { return translate(isClassicSend() ? "useRoomMedia.highBitrate4Mbps" : "useRoomMedia.highBitrate6Mbps"); } },
   { value: "ultra", get label() { return translate("useRoomMedia.ultraBitrate8Mbps"); } },
   { value: "maximo", get label() { return translate("useRoomMedia.maximumBitrate16Mbps"); }, feature: "bitrate_maximo" },
   // Same key as "máximo" above, for the same reason 240 fps shares fps_120:
@@ -3016,14 +3023,20 @@ export function useRoomMedia(room: string) {
     const stored = getStoredShareProfile();
     return SHARE_PROFILE_OPTIONS.find((opt) => opt.value === stored)?.value ?? null;
   });
-  const shareProfile: DegradationMode = pickedShareProfile ?? "balanced";
 
-  // Experiment "sq-classic-send" (see lib/classicSend): read all over the send
-  // path, so decided here; the exposure is counted once a screen share runs.
-  const classicSendFeature = useFeature(CLASSIC_SEND_FEATURE, { track: false });
+  // Experiment "sq-new-send" (see lib/classicSend): read all over the send path, so
+  // decided here; the exposure is counted once a screen share runs.
+  const newSendFeature = useFeature(NEW_SEND_FEATURE, { track: false });
   useEffect(() => {
-    setClassicSend(classicSendFeature.enabled);
-  }, [classicSendFeature.enabled]);
+    setClassicSend(!newSendFeature.enabled);
+  }, [newSendFeature.enabled]);
+  // Outside it, experiment "screen-codec" has its say (see lib/screenCodec).
+  const screenCodecFeature = useFeature(SCREEN_CODEC_FEATURE, { track: false });
+  useEffect(() => {
+    setScreenCodecVariant(screenCodecFeature.variant);
+  }, [screenCodecFeature.variant]);
+  const shareProfile: DegradationMode =
+    pickedShareProfile ?? (!newSendFeature.enabled && screenCodecFeature.variant === "text" ? "text" : "balanced");
   // The same for experiment "sq-h264-send" (see lib/h264Send).
   const h264SendFeature = useFeature(H264_SEND_FEATURE, { track: false });
   useEffect(() => {
@@ -3139,12 +3152,12 @@ export function useRoomMedia(room: string) {
       width: dims.width,
       height: dims.height,
       frameRate: shareFps,
-      maxBitrateKbps: BITRATE_CEILING_KBPS[shareBitrate],
+      maxBitrateKbps: bitrateCeilingKbps(shareBitrate, !newSendFeature.enabled),
       ceilingTier: ceilingTierFor(shareResolution, shareFps),
       degradation: shareProfile,
       honorViewerRequests: smartQualityEnabled,
     };
-  }, [shareResolution, shareFps, shareBitrate, smartQualityEnabled, shareProfile]);
+  }, [shareResolution, shareFps, shareBitrate, smartQualityEnabled, shareProfile, newSendFeature.enabled]);
 
   // The camera runs the screen's resolution/fps/bitrate dials — those are what
   // the picker offers — but never its content profile. A camera is motion, and
@@ -3270,7 +3283,7 @@ export function useRoomMedia(room: string) {
       // Held to what any tier sends, like every other capture (see
       // captureConstraints): the helper encodes every frame it captures.
       fps: Math.min(shareFpsRef.current, MAX_TIER_FPS),
-      bitrateKbps: BITRATE_CEILING_KBPS[shareBitrateRef.current],
+      bitrateKbps: bitrateCeilingKbps(shareBitrateRef.current, isClassicSend()),
       captureMethod: nativeVideoMethodRef.current,
     };
     const { source: native, failure, hidden } = await startNativeVideo(options);
@@ -4438,7 +4451,7 @@ export function useRoomMedia(room: string) {
   const [capacity, setCapacity] = useState<CapacitySample>(() => mediaStats.getCapacity());
   useEffect(() => mediaStats.onCapacity(setCapacity), []);
 
-  useFeature(CLASSIC_SEND_FEATURE, { track: screen.active });
+  useFeature(NEW_SEND_FEATURE, { track: screen.active });
   useFeature(H264_SEND_FEATURE, { track: screen.active });
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
 
