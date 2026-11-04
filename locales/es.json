@@ -3966,6 +3966,7 @@
   "watch.watchRoom.systemDefault": "Predeterminado del sistema",
   "watch.watchRoom.talkToTheRoom": "Habla con la sala",
   "watch.watchRoom.thatNameIsAlreadyInUse": "Ese nombre ya está en uso",
+  "watch.watchRoom.accountNameTakenInRoom": "Alguien en esta sala está usando el nombre de tu cuenta. Si eres tú en otra pestaña o dispositivo, sal desde allí e inténtalo de nuevo. Si no, entra cuando esa persona salga o cambia el nombre en tu perfil.",
   "watch.watchRoom.thatRoomIsNotValid": "Esa sala no es válida.",
   "watch.watchRoom.theAdministrationHasTurnedOffTheme": "La administración ha desactivado el cambio de tema para los participantes.",
   "watch.watchRoom.theCamera": "la cámara",

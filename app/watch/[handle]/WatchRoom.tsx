@@ -4784,6 +4784,9 @@ function WatchRoomView({
   // "this didn't work" should never be a dead end.
   if (state.joinError) {
     const kind = state.joinErrorKind;
+    // An account's name comes from its profile, and the server ignores anything
+    // typed here. So there is no box to offer, only waiting or the profile.
+    const nameTakenFromAccount = kind === "name" && Boolean(account);
     const failure: {
       icon: string;
       title: string;
@@ -4792,7 +4795,7 @@ function WatchRoomView({
       retry: boolean;
     } =
       kind === "name"
-        ? { icon: "\u{1F464}", title: translate("watch.watchRoom.thatNameIsAlreadyInUse"), retry: false }
+        ? { icon: "\u{1F464}", title: translate("watch.watchRoom.thatNameIsAlreadyInUse"), retry: nameTakenFromAccount }
         : kind === "full"
           ? { icon: "\u{1F6AA}", title: translate("watch.watchRoom.thisRoomIsFull"), retry: true }
           : kind === "banned"
@@ -4826,7 +4829,9 @@ function WatchRoomView({
               ? captureProtectionLevel() === "browser"
                 ? translate("protectedRoom.joinFromApp")
                 : translate("protectedRoom.systemNotSupported")
-              : state.joinError}
+              : nameTakenFromAccount
+                ? translate("watch.watchRoom.accountNameTakenInRoom")
+                : state.joinError}
           </p>
           {kind === "app-only" && captureProtectionLevel() === "browser" && (
             <div className="mt-6 flex flex-col gap-2">
@@ -4843,7 +4848,7 @@ function WatchRoomView({
           {/* Only where changing the name is the actual fix. Everywhere else a
               name field would be the same misdirection the old screen gave
               everyone. */}
-          {kind === "name" && (
+          {kind === "name" && !nameTakenFromAccount && (
             <form onSubmit={handleNameSubmit} className="mt-6 flex flex-col gap-2 text-left">
               <label
                 htmlFor="join-error-name"

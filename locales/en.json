@@ -3966,6 +3966,7 @@
   "watch.watchRoom.systemDefault": "System default",
   "watch.watchRoom.talkToTheRoom": "Talk to the room",
   "watch.watchRoom.thatNameIsAlreadyInUse": "That name is already in use",
+  "watch.watchRoom.accountNameTakenInRoom": "Someone in this room is using your account's name. If that's you in another tab or device, leave there and try again. Otherwise, join once they leave or change the name on your profile.",
   "watch.watchRoom.thatRoomIsNotValid": "That room is not valid.",
   "watch.watchRoom.theAdministrationHasTurnedOffTheme": "The administration has turned off theme switching for participants.",
   "watch.watchRoom.theCamera": "the camera",

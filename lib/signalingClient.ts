@@ -1285,6 +1285,15 @@ class SignalingClient {
   private lastCloseCode: number | null = null;
   // Kept so a rejoin can re-state it (see reassertOwnState).
   private micOn = false;
+  // The last join the server turned down. The refusal screen sits on
+  // state.joinError, and register() clears that, so an answer to the register
+  // has to either try this room again or put the refusal back. A changed name
+  // does neither here: it re-runs the join in WatchRoom. An unchanged one (an
+  // account's name is the server's to decide, whatever was typed) changes
+  // nothing the page watches, and without this it was left on the skeleton for
+  // good, with no room, no error and no join on the way.
+  private refusedJoin: { room: string; kind: SignalingState["joinErrorKind"] } | null = null;
+  private clearedRefusal: { room: string; kind: SignalingState["joinErrorKind"] } | null = null;
   private desiredName: string | null = null;
   // The account JWT to (re)send with every "register" — null for a guest.
   // Kept alongside desiredName so a reconnect re-authenticates the same way
@@ -1758,6 +1767,7 @@ class SignalingClient {
           this.desiredToken = guestToken;
           justMintedGuestToken = true;
         }
+        const previousName = this.state.name;
         this.setState({
           name: msg.name as string,
           nameError: null,
@@ -1820,6 +1830,17 @@ class SignalingClient {
           this.joinStartedAt ??= Date.now();
           void this.performJoin(this.desiredRoom);
         }
+        // See refusedJoin. A second refusal brings the screen back, which is
+        // the honest answer if whatever stood in the way is still there.
+        {
+          const cleared = this.clearedRefusal;
+          this.clearedRefusal = null;
+          if (cleared && !this.desiredRoom && !this.state.room && previousName === msg.name) {
+            this.desiredRoom = cleared.room;
+            this.joinRetryCount = 0;
+            void this.performJoin(cleared.room);
+          }
+        }
         break;
       }
       // Banned on something only knowable once registered — the account or
@@ -1832,6 +1853,12 @@ class SignalingClient {
         break;
       case "register-error":
         this.clearRegisterAck();
+        // The rename asked for from the refusal screen was refused too. The
+        // join did not get any further, so that screen is where this belongs.
+        if (this.clearedRefusal && !this.state.room) {
+          this.setState({ joinError: msg.message as string, joinErrorKind: this.clearedRefusal.kind });
+        }
+        this.clearedRefusal = null;
         // A refusal the server itself calls temporary — it is starting up and
         // could not read the account behind this token yet (see its register
         // handler). Everything below would throw the session away over it:
@@ -1910,6 +1937,9 @@ class SignalingClient {
                         : reason === "app-only"
                           ? "app-only"
                           : "generic";
+        // Not cleared when there is no room: a join and its retry can be refused
+        // back to back, and desiredRoom is already gone by the second answer.
+        if (refusedRoom) this.refusedJoin = { room: refusedRoom, kind };
         // A protected room refuses on the way in, and also throws out whoever
         // is already inside from somewhere it can't protect the moment it is
         // switched on — in which case this arrives while we are in the room.
@@ -1983,6 +2013,8 @@ class SignalingClient {
           roomConverted: null,
         });
         trackEvent("room_joined");
+        this.refusedJoin = null;
+        this.clearedRefusal = null;
         if (msg.reclaimed === true) this.reassertOwnState();
         this.roomJoinedListeners.forEach((l) => l());
         break;
@@ -3252,6 +3284,7 @@ class SignalingClient {
     this.desiredName = name;
     this.desiredToken = token !== undefined ? token : this.desiredToken ?? getStoredGuestToken();
     this.reconnectAttempts = 0;
+    if (this.state.joinError) this.clearedRefusal = this.refusedJoin;
     this.setState({
       nameError: null,
       joinError: null,
@@ -3276,6 +3309,8 @@ class SignalingClient {
     this.desiredRoom = null;
     setStoredName(null);
     if (this.state.room) this.rawSend({ type: "leave" });
+    this.refusedJoin = null;
+    this.clearedRefusal = null;
     this.ws?.close();
     this.ws = null;
     this.setState({ ...initialState });
@@ -3328,6 +3363,8 @@ class SignalingClient {
     this.obsTarget = obsTarget ?? null;
     this.joinRetryCount = 0;
     this.joinStartedAt = Date.now();
+    this.refusedJoin = null;
+    this.clearedRefusal = null;
     // Whoever is calling this is trying again on purpose, and the most likely
     // thing they changed since the last attempt is the extension that blocked
     // the script — so the cached "it is blocked" verdict must not survive
@@ -3567,6 +3604,8 @@ class SignalingClient {
     // walking back in after hanging up (see movePasses).
     if (this.desiredRoom) this.movePasses.delete(this.desiredRoom);
     this.desiredRoom = null;
+    this.refusedJoin = null;
+    this.clearedRefusal = null;
     this.isObsSourceJoin = false;
     this.obsSourceToken = null;
     this.obsTarget = null;
