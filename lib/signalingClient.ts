@@ -1280,6 +1280,11 @@ class SignalingClient {
   private roomJoinedListeners = new Set<Listener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
+  // What the last connection closed with, told to the server by the next
+  // "register" (see sharescreen_ws_client_close_codes_total in its metrics.ts).
+  private lastCloseCode: number | null = null;
+  // Kept so a rejoin can re-state it (see reassertOwnState).
+  private micOn = false;
   private desiredName: string | null = null;
   // The account JWT to (re)send with every "register" — null for a guest.
   // Kept alongside desiredName so a reconnect re-authenticates the same way
@@ -1408,6 +1413,15 @@ class SignalingClient {
   state: SignalingState = initialState;
 
   constructor() {
+    // The server holds a dropped connection's place in the room for a few
+    // seconds in case it comes back (see the API's departureHold.ts), so a page
+    // that is really going says so, and the room hears about it right away.
+    // Not for a page going into the back/forward cache: it may well come back.
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", (event) => {
+        if (!event.persisted && this.state.room) this.rawSend({ type: "leave" });
+      });
+    }
     // A stored account token takes over identity entirely — page.tsx
     // resolves it to the account's display name (via accountApi.fetchMe)
     // and calls register(name, token) itself, so auto-registering from the
@@ -1638,6 +1652,7 @@ class SignalingClient {
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       this.clearRegisterAck();
+      this.lastCloseCode = event.code;
       // Deliberately keep the last-known room/peers instead of blanking
       // them: the underlying WebRTC connections to those peers are
       // untouched by a brief signaling hiccup, so wiping the list here
@@ -1968,6 +1983,7 @@ class SignalingClient {
           roomConverted: null,
         });
         trackEvent("room_joined");
+        if (msg.reclaimed === true) this.reassertOwnState();
         this.roomJoinedListeners.forEach((l) => l());
         break;
       }
@@ -3161,7 +3177,12 @@ class SignalingClient {
       // every register, including a rename, so a long-lived connection's
       // version is never inferred from when it first connected.
       version: BUILD_VERSION,
+      // Everything that really ends this client's stay says "leave" first (see
+      // the API's isUnplannedClose), so any other close was not its choice.
+      announcesLeave: true,
+      lastClose: this.lastCloseCode ?? undefined,
     });
+    this.lastCloseCode = null;
     this.clearRegisterAck();
     const ws = this.ws;
     if (!ws) return;
@@ -3254,6 +3275,7 @@ class SignalingClient {
     this.desiredToken = null;
     this.desiredRoom = null;
     setStoredName(null);
+    if (this.state.room) this.rawSend({ type: "leave" });
     this.ws?.close();
     this.ws = null;
     this.setState({ ...initialState });
@@ -3877,7 +3899,17 @@ class SignalingClient {
   }
 
   setMic(mic: boolean) {
+    this.micOn = mic;
     this.rawSend({ type: "mic", mic });
+  }
+
+  // After a reconnect that took over this client's session, the room is still
+  // showing what it was sharing before the drop (see the server's CarriedPeerState).
+  // The channels re-announce what is on, and only this can correct something that
+  // was turned off while the socket was down, when the message could not be sent.
+  private reassertOwnState() {
+    this.setSharing({});
+    this.setMic(this.micOn);
   }
 
   // "Silenciar microfones". Announced rather than kept to ourselves so the
