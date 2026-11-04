@@ -241,7 +241,7 @@ export function TranscriptModal({
           onClick={() => {
             trackTranscript(CALL_TRANSCRIPT_EVENTS.upsellClick);
             onClose();
-            openProModal("premium_max");
+            openProModal("transcript", "premium_max");
           }}
           className="mt-2 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 px-5 py-2.5 text-sm font-bold text-amber-950 shadow transition hover:brightness-105"
         >

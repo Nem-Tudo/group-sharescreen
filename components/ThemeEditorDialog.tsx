@@ -263,7 +263,7 @@ export function ThemeEditorDialog({
    */
   function leaveForPro(planId = "premium_max") {
     closePopup(false);
-    openPro(planId);
+    openPro("theme_editor", planId);
   }
 
   const [name, setName] = useState(existing?.name ?? "");

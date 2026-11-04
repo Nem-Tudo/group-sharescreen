@@ -55,7 +55,7 @@ export function CameraEffectPublish({ effect }: { effect: CustomCameraEffect }) 
           type="button"
           onClick={() => {
             trackWorkshop(CAMERA_WORKSHOP_EVENTS.locked);
-            openProModal(PUBLISH_TIER);
+            openProModal("camfx_publish", PUBLISH_TIER);
           }}
           className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1 self-start`}
         >

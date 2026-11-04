@@ -1054,7 +1054,7 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
             type="button"
             onClick={() => {
               if (!hasThemePlan) {
-                openProModal("premium_max");
+                openProModal("group_theme", "premium_max");
                 return;
               }
               void openPopup("room_theme", { data: { currentThemeId: detail.group.theme, groupId } });

@@ -181,7 +181,7 @@ export function StreamEndSummaryModal({
                   // would read a click or Escape in that dialog as one meant
                   // for this popup, so from here on only its own buttons close it.
                   if (popupId) updatePopup(popupId, { closeOnEscape: false, closeOnClickOutside: false });
-                  openProModal(id);
+                  openProModal("stream_summary", id);
                 }}
                 className={`flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border bg-zinc-100 px-3 py-2.5 text-left transition dark:bg-zinc-900 ${toneClass}`}
               >

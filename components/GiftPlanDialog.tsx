@@ -26,6 +26,7 @@ import {
 } from "@/lib/premiumApi";
 import { useI18n } from "@/lib/useI18n";
 import { holdPaymentShake, useShake } from "@/lib/useShake";
+import { proHref } from "@/lib/proSourceAttribution";
 
 // "Presentear": buy a plan for somebody else.
 //
@@ -450,7 +451,7 @@ export function GiftPlanDialog({
                     popup's (see ProPanel): this is opened from inside rooms,
                     and navigating would leave the call. */}
                 <a
-                  href={plan ? `/pro?plan=${encodeURIComponent(plan.id)}` : "/pro"}
+                  href={proHref("gift_dialog", plan?.id)}
                   target="_blank"
                   rel="noopener"
                   aria-disabled={busy || undefined}

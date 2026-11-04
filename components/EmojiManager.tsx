@@ -137,7 +137,7 @@ export function EmojiManager({
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">{t("customEmoji.yoursNeedPlan")}</p>
-        <button type="button" onClick={() => openProModal("premium_max")} className={`${primaryButton} self-start`}>
+        <button type="button" onClick={() => openProModal("emoji", "premium_max")} className={`${primaryButton} self-start`}>
           {t("groups.aura.getAuras")}
         </button>
       </div>

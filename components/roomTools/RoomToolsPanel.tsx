@@ -312,7 +312,7 @@ function ToolsHome({
                     }
                     trackRoomToolsEvent(ROOM_TOOLS_EVENTS.lockedClick);
                     trackRoomToolsEvent(`${ROOM_TOOLS_EVENTS.lockedClick}.${kind}`);
-                    openProModal(plan);
+                    openProModal("room_tools", plan);
                   }}
                   title={isTaken ? t("roomTools.alreadyOpen") : undefined}
                   className="flex flex-col items-start gap-1 rounded-lg border border-zinc-200 p-2.5 text-left transition hover:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-800"

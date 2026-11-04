@@ -11,6 +11,7 @@ import { botAddPath } from "@/lib/botsApi";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
+import type { ProSource } from "@/lib/proSourceAttribution";
 import { ProfileLinksRow } from "@/components/ProfileLinksRow";
 import { ProfileLinksEditor } from "@/components/ProfileLinksEditor";
 import { MAX_PROFILE_LINKS, type ProfileLink } from "@/lib/profileLinks";
@@ -303,8 +304,11 @@ export function PlanLink({
   tier,
   label,
   className = "",
+  source = "profile_lock",
 }: {
   tier: PlanTier;
+  /** The door the sale is credited to (see lib/proSourceAttribution). */
+  source?: ProSource;
   /** Overrides the default sentence, for a label that already names the plan. */
   label?: string;
   className?: string;
@@ -325,7 +329,7 @@ export function PlanLink({
       type="button"
       onClick={(e) => {
         e.preventDefault();
-        openPro(tier === "proUltra" ? "pro_ultra" : undefined);
+        openPro(source, tier === "proUltra" ? "pro_ultra" : undefined);
       }}
       className={`inline-flex cursor-pointer items-center gap-1 underline underline-offset-2 transition hover:text-zinc-800 dark:hover:text-zinc-200 ${className}`}
     >

@@ -250,7 +250,7 @@ export function AuraTab({ groupId }: { groupId: string }) {
               type="button"
               onClick={() => {
                 trackFeatureEvent(GROUP_AURA_EVENTS.upgrade, { group: groupId, feature: GROUP_AURA_FEATURE });
-                openProModal("premium_max");
+                openProModal("aura", "premium_max");
               }}
               className={`${primaryButton} self-start`}
             >

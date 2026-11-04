@@ -105,7 +105,7 @@ export function SiteHeader() {
   const tabBar = useTabBarEnabled();
 
   // The premium row — see ProOffer for the three offers it climbs through.
-  const proItem: SecondaryItem = { ...useProOffer(), target: "", alwaysVisible: true };
+  const proItem: SecondaryItem = { ...useProOffer("header"), target: "", alwaysVisible: true };
 
   // Inside one of GoLive's own apps, "App para PC" is an offer for something
   // already in hand — the Você screen drops the same row for the same reason

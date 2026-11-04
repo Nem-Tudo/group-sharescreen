@@ -101,7 +101,7 @@ export function MeScreen() {
   const { show: showBot } = useDiscordBotHidden();
   const state = useSignalingSelector(selectAccountMenu, shallow);
   const { account, points, logout } = useAuth();
-  const pro = useProOffer();
+  const pro = useProOffer("me_screen");
   const [mode, setMode] = useState<Mode>("home");
   const [nameInput, setNameInput] = useState("");
   const [oauthTicket, setOAuthTicket] = useState<Extract<OAuthResult, { kind: "ticket" }> | null>(null);
@@ -481,7 +481,7 @@ export function MyEmojisSetting({ flags }: { flags: readonly string[] }) {
             {t("customEmoji.configure")}
           </button>
         </div>
-        {locked && <PlanLink tier="proMax" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
+        {locked && <PlanLink tier="proMax" source="me_lock" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
       </div>
     </section>
   );
@@ -514,7 +514,7 @@ export function PartnerAdsSetting({ features }: { features: readonly string[] | 
           </div>
         </div>
         <PartnerAdsChoice locked={locked} />
-        {locked && <PlanLink tier="pro" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
+        {locked && <PlanLink tier="pro" source="me_lock" className="self-start text-xs text-zinc-500 dark:text-zinc-400" />}
       </div>
     </section>
   );

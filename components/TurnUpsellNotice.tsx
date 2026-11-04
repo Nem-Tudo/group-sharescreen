@@ -51,7 +51,7 @@ export function TurnUpsellTileMessage({ compact = false }: { compact?: boolean }
           event.stopPropagation();
           trackFeatureEvent(TURN_UPSELL_EVENTS.click, { feature: TURN_UPSELL_FEATURE });
           noteProSourceCta("turnUpsell");
-          openPro();
+          openPro("turn_tile");
         }}
         className="mt-1 flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
       >
@@ -87,7 +87,7 @@ export default function TurnUpsellNotice() {
           onClick={() => {
             trackFeatureEvent(TURN_UPSELL_EVENTS.click, { feature: TURN_UPSELL_FEATURE });
             noteProSourceCta("turnUpsell");
-            openPro();
+            openPro("turn_banner");
           }}
           className="mt-2 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
         >

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useT } from "@/lib/useI18n";
 import { useDiscordBotHidden } from "@/lib/discordBotHidden";
+import { proHref } from "@/lib/proSourceAttribution";
 
 /**
  * The part of the home page that exists for someone who has not arrived yet.
@@ -202,7 +203,7 @@ export function HomeSeoContent({ className = "" }: { className?: string }) {
             </li>
           )}
           <li>
-            <Link href="/pro" className={linkClass}>
+            <Link href={proHref("home_seo")} className={linkClass}>
               {t("homeSeo.linkPro")}
             </Link>
           </li>

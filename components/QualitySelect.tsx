@@ -347,7 +347,7 @@ export function QualitySelect<T extends string | number>({
                     onMouseDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                       event.stopPropagation();
-                      openProModal();
+                      openProModal("quality_select");
                     }}
                     tabIndex={-1}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"

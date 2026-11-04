@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { noteProSource, proHref, type ProSource } from "@/lib/proSourceAttribution";
 
 // Whether the Pro subscription modal is open, managed as a single global store
 // so any trigger in the app (room header, quality picker, user profile, etc.)
@@ -27,8 +28,13 @@ function set(next: ModalState) {
   for (const listener of listeners) listener();
 }
 
-/** Opens the GoLive Pro modal, on `planId` when one is named. */
-export function openProModal(planId?: string | null): void {
+/**
+ * Opens the GoLive Pro modal, on `planId` when one is named. `source` is the
+ * door it was opened from, which the sale is credited to (see
+ * lib/proSourceAttribution) — required, so no new door goes uncounted.
+ */
+export function openProModal(source: ProSource, planId?: string | null): void {
+  noteProSource(source);
   set({ open: true, planId: planId ?? null });
 }
 
@@ -65,16 +71,16 @@ export function useProModal(): ModalState {
  * The room is the only place with that constraint, so the room is the only
  * place that gets the modal.
  */
-export function useOpenPro(): (planId?: string | null) => void {
+export function useOpenPro(): (source: ProSource, planId?: string | null) => void {
   const pathname = usePathname();
   const router = useRouter();
-  return (planId?: string | null) => {
+  return (source: ProSource, planId?: string | null) => {
     if (pathname?.startsWith("/watch/")) {
-      openProModal(planId);
+      openProModal(source, planId);
       return;
     }
-    // The page reads the same thing off the query string (see ProPanel), so a
-    // plan named here survives whichever of the two answers this gives.
-    router.push(planId ? `/pro?plan=${encodeURIComponent(planId)}` : "/pro");
+    // The page reads the same things off the query string (see ProPanel), so
+    // the plan and the door survive whichever of the two answers this gives.
+    router.push(proHref(source, planId));
   };
 }

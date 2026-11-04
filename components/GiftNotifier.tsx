@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectGiftNudge } from "@/lib/signalingSelectors";
 import { translate } from "@/lib/i18n";
+import { proHref } from "@/lib/proSourceAttribution";
 
 // Tells somebody a plan was bought for them.
 //
@@ -60,7 +61,7 @@ export function GiftNotifier() {
         : lastGift.days > 0
           ? `${lastGift.planTitle} por ${lastGift.days} dias, de presente.`
           : `${lastGift.planTitle}, de presente.`,
-      href: "/pro",
+      href: proHref("gift_notice"),
     });
     if (!isNew || !alertTarget) return;
 

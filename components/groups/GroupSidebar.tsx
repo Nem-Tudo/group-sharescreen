@@ -1539,7 +1539,7 @@ export function GroupMenu({
           hint: hasThemePlan ? undefined : t("groups.groupSidebar.proMax"),
           onSelect: () => {
             if (!hasThemePlan) {
-              openProModal("premium_max");
+              openProModal("group_theme", "premium_max");
               return;
             }
             void openPopup("room_theme", {
@@ -1611,7 +1611,7 @@ export function GroupMenu({
                 setMenuOpen(false);
                 // Without the plan it is a way *to* the plan, as in a room.
                 if (!hasThemePlan) {
-                  openProModal("premium_max");
+                  openProModal("group_theme", "premium_max");
                   return;
                 }
                 void openPopup("room_theme", {

@@ -7035,7 +7035,7 @@ function WatchRoomView({
               // The modal rather than the page: leaving would end the call.
               if (screenUpgrade) {
                 trackFeatureEvent(MULTI_SCREEN_EVENTS.upgradeClick);
-                openProModal(screenUpgrade.planId);
+                openProModal("multi_screen", screenUpgrade.planId);
               }
               return;
             }
@@ -7053,7 +7053,7 @@ function WatchRoomView({
                 limit: screenUpgrade.limit,
                 onClick: () => {
                   trackFeatureEvent(MULTI_SCREEN_EVENTS.upgradeClick);
-                  openProModal(screenUpgrade.planId);
+                  openProModal("multi_screen", screenUpgrade.planId);
                 },
               }
             : null,
@@ -7126,7 +7126,7 @@ function WatchRoomView({
                       limit: cameraUpgrade.limit,
                       onClick: () => {
                         trackFeatureEvent(MULTI_CAMERA_EVENTS.upgradeClick);
-                        openProModal(cameraUpgrade.planId);
+                        openProModal("multi_camera", cameraUpgrade.planId);
                       },
                     }
                   : null
@@ -7490,7 +7490,7 @@ function WatchRoomView({
           onClick={() => {
             closeMenu();
             trackEvent("pro_button_clicked", { offer: proButton.label });
-            proButton.onPress();
+            proButton.onPress("room_menu");
           }}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
@@ -8661,7 +8661,7 @@ function WatchRoomView({
               if (!hasThemePlan) {
                 // The modal rather than the page: this is a live call, and
                 // following a link to read a price would end it.
-                openProModal("premium_max");
+                openProModal("room_theme", "premium_max");
                 return;
               }
               void openPopup("room_theme", {
@@ -9476,7 +9476,7 @@ function WatchRoomView({
                   // "the premium button was pressed" is the question, and
                   // three separate names would only have to be added back up.
                   trackEvent("pro_button_clicked", { offer: proButton.label });
-                  proButton.onPress();
+                  proButton.onPress("room_header");
                 }}
                 aria-label={proButton.ariaLabel}
                 // Not on a phone, where it is a row in "Mais opções" instead.

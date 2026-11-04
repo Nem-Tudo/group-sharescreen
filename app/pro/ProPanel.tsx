@@ -25,7 +25,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { PixChargeModal } from "@/components/PixChargeModal";
 import { holdPaymentShake } from "@/lib/useShake";
-import { trackProSourceCheckout } from "@/lib/proSourceAttribution";
+import { noteProPageVisit, trackProEntryCheckout, trackProSourceCheckout } from "@/lib/proSourceAttribution";
 import { CardCheckoutModal } from "@/components/CardCheckoutModal";
 import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
@@ -944,6 +944,12 @@ export function ProPanel({
   // it counts the panel being *drawn* — /pro is not the only place it opens
   // from (ProModal shows the same panel).
   const viewReported = useRef<string | null>(null);
+  // Which door this visit came through, for crediting the sale (see
+  // lib/proSourceAttribution). The page only: the dialog is opened by a door,
+  // and that door already noted itself.
+  useEffect(() => {
+    if (!isModal) noteProPageVisit();
+  }, [isModal]);
   useEffect(() => {
     if (!accountId || viewReported.current === accountId) return;
     viewReported.current = accountId;
@@ -1251,6 +1257,7 @@ export function ProPanel({
   // handleUpgradeSubscription.
   const handleUpgrade = useCallback(async (): Promise<boolean> => {
     if (!plan) return false;
+    trackProEntryCheckout();
     const startedAt = Date.now();
     setBusy(true);
     setGenerating(true);
@@ -1280,6 +1287,7 @@ export function ProPanel({
   const handleUpgradeCard = useCallback(async () => {
     if (!plan) return;
     trackFeatureEvent("pro_upgrade_card_click");
+    trackProEntryCheckout();
     setBusy(true);
     setGenerating(true);
     setError(null);

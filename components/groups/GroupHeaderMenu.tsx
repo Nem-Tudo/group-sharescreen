@@ -53,7 +53,7 @@ export function GroupHeaderMenu() {
           onClick={() => {
             close();
             trackEvent("pro_button_clicked", { offer: offer.label });
-            offer.onPress();
+            offer.onPress("group_menu");
           }}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >

@@ -261,7 +261,7 @@ export function BroadcastAdGateModal({
   function handlePro() {
     trackAdGate(AD_GATE_EVENTS.proClick);
     signalingClient.reportBroadcastAdGateProClick();
-    openPro();
+    openPro("ad_gate");
   }
 
   function handleAdClick() {

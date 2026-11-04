@@ -191,7 +191,7 @@ export function CustomBackgroundChips({ selected, turnOn }: { selected: boolean;
         type="button"
         onClick={() => {
           trackTileExperiment(TILE_EXPERIMENT_EVENTS.cameraEffects.bgLocked);
-          openProModal(CUSTOM_BACKGROUND_TIER);
+          openProModal("camfx_custom_bg", CUSTOM_BACKGROUND_TIER);
         }}
         title={t("watch.watchRoom.cameraEffectCustomBgLocked", { plan: TIER_NAMES[CUSTOM_BACKGROUND_TIER] })}
         className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
@@ -376,7 +376,7 @@ export function StreamBackgroundPicker({ selected, turnOn }: { selected: boolean
             type="button"
             onClick={() => {
               trackStreamBackground(CAMERA_STREAM_BG_EVENTS.locked);
-              openProModal(STREAM_BACKGROUND_TIER);
+              openProModal("camfx_stream_bg", STREAM_BACKGROUND_TIER);
             }}
             title={t("watch.watchRoom.cameraEffectStreamBgLocked", { plan: TIER_NAMES[STREAM_BACKGROUND_TIER] })}
             className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}

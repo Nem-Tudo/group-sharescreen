@@ -51,6 +51,7 @@ import { formatLocale } from "@/lib/i18n";
 import { useFeature } from "@/lib/features";
 import { CAMERA_CUSTOM_FEATURE } from "@/lib/cameraCustomEffects";
 import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
+import { proHref } from "@/lib/proSourceAttribution";
 
 // The Workshop: everybody's themes, and yours.
 //
@@ -554,7 +555,7 @@ export function WorkshopPanel() {
       {!canCreate && !banned && (
         <p className="mt-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
           {t("workshop.workshopPanel.creatingYourOwnThemesIs")}{" "}
-          <Link href="/pro" className="font-medium underline underline-offset-2">
+          <Link href={proHref("workshop")} className="font-medium underline underline-offset-2">
             {t("common.pro")}
           </Link>
           {t("workshop.workshopPanel.publishingOnDiscoverIsProMax")}

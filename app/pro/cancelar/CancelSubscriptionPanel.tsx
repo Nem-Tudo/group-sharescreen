@@ -14,6 +14,7 @@ import {
   type CancelSurvey,
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
+import { proHref } from "@/lib/proSourceAttribution";
 
 // The cancellation page: sign in again, answer the survey, cancel.
 //
@@ -83,7 +84,7 @@ export function CancelSubscriptionPanel() {
   const cancellable =
     isPremiumActive(premium) && premium?.method !== "pix" && premium?.status !== "cancelled";
 
-  const backToPro = useCallback(() => router.push("/pro"), [router]);
+  const backToPro = useCallback(() => router.push(proHref("cancel_page")), [router]);
 
   const handleCancel = useCallback(
     async (survey: CancelSurvey) => {
@@ -168,7 +169,7 @@ export function CancelSubscriptionPanel() {
               : t("cancelPage.noActiveSubscription")}
           </p>
           <Link
-            href="/pro"
+            href={proHref("cancel_page")}
             className="mt-5 inline-block rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             {t("cancelPage.backToPro")}
@@ -199,7 +200,7 @@ export function CancelSubscriptionPanel() {
             {t("cancelPage.cancelledBody", { value: dateLabel(accessUntil ?? 0) })}
           </p>
           <Link
-            href="/pro"
+            href={proHref("cancel_page")}
             className="mt-5 inline-block rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             {t("cancelPage.backToPro")}

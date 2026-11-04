@@ -101,7 +101,7 @@ export function CameraEffectForOthersRow({ userId, name, className, iconClassNam
         type="button"
         onClick={() => {
           track(CAMERA_OTHERS_EVENTS.locked);
-          openProModal(TIER);
+          openProModal("camfx_others", TIER);
         }}
         className={className}
       >

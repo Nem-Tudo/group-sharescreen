@@ -5,6 +5,7 @@ import useNtPopups from "ntpopups";
 import { MdCardGiftcard } from "react-icons/md";
 import { GoldVerifiedBadgeIcon, RubyVerifiedBadgeIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { useAuth } from "@/lib/AuthContext";
+import { proHref, type ProSource } from "@/lib/proSourceAttribution";
 import { usePlanOnSale } from "@/lib/usePlanOnSale";
 import { useT } from "@/lib/useI18n";
 
@@ -40,7 +41,8 @@ export interface ProOffer {
   iconClassName?: string;
 }
 
-export function useProOffer(): ProOffer {
+/** `source`: the door the sale is credited to (see lib/proSourceAttribution). */
+export function useProOffer(source: ProSource): ProOffer {
   const t = useT();
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
@@ -67,7 +69,7 @@ export function useProOffer(): ProOffer {
   if (flags.includes("PRO_MAX")) {
     return {
       key: "pro",
-      href: "/pro?plan=pro_ultra",
+      href: proHref(source, "pro_ultra"),
       label: t("common.proUltra"),
       short: t("common.proUltra"),
       // Ruby, like gold, carries its colour in its own gradients.
@@ -77,7 +79,7 @@ export function useProOffer(): ProOffer {
   if (flags.includes("PRO")) {
     return {
       key: "pro",
-      href: "/pro?plan=premium_max",
+      href: proHref(source, "premium_max"),
       label: t("common.proMax"),
       short: t("common.proMax"),
       // The plan's own mark carries its colour in its gradients.
@@ -86,7 +88,7 @@ export function useProOffer(): ProOffer {
   }
   return {
     key: "pro",
-    href: "/pro",
+    href: proHref(source),
     label: t("common.pro"),
     short: t("common.pro"),
     // The same blue badge that marks a verified name (see DisplayUserName).

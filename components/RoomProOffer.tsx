@@ -9,6 +9,7 @@ import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/AuthContext";
 import { usePlanOnSale } from "@/lib/usePlanOnSale";
 import { openProModal } from "@/lib/proModal";
+import type { ProSource } from "@/lib/proSourceAttribution";
 import { useT } from "@/lib/useI18n";
 
 export interface RoomProOffer {
@@ -18,7 +19,8 @@ export interface RoomProOffer {
   Icon: ComponentType<{ className?: string }>;
   iconClassName: string;
   className: string;
-  onPress: () => void;
+  /** `source`: where this copy of the button is — see lib/proSourceAttribution. */
+  onPress: (source: ProSource) => void;
 }
 
 /**
@@ -73,7 +75,7 @@ export function getRoomProOffer(
       iconClassName: "",
       className:
         "border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/40",
-      onPress: () => openProModal("pro_ultra"),
+      onPress: (source) => openProModal(source, "pro_ultra"),
     };
   }
   if (flags.includes("PRO")) {
@@ -89,7 +91,7 @@ export function getRoomProOffer(
         "border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/40",
       // Opened straight onto the card it is about: somebody who already has Pro
       // should not have to find the picker to see what is above it.
-      onPress: () => openProModal("premium_max"),
+      onPress: (source) => openProModal(source, "premium_max"),
     };
   }
   return {
@@ -103,7 +105,7 @@ export function getRoomProOffer(
     iconClassName: "text-blue-500",
     className:
       "border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40",
-    onPress: () => openProModal(),
+    onPress: (source) => openProModal(source),
   };
 }
 
@@ -126,7 +128,7 @@ export function RoomProOfferButton() {
         type="button"
         onClick={() => {
           trackEvent("pro_button_clicked", { offer: offer.label });
-          offer.onPress();
+          offer.onPress("group_bar");
         }}
         aria-label={offer.ariaLabel}
         className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition 2xl:px-3 ${offer.className}`}

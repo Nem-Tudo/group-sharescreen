@@ -70,7 +70,7 @@ function LockedPanel({
   // attention when one of them has already lost it.
   const leave = () => {
     onLeave();
-    openPro(planId);
+    openPro("theme_hub", planId);
   };
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
