@@ -236,6 +236,21 @@ export const IPC = {
    */
   windowBackgroundGet: "golive:window:background-get",
 
+  /**
+   * renderer -> main: whether to watch for the window being hidden behind
+   * another application's (experiment "desktop-cover-hide", see
+   * windowCover.ts). A boolean; the shell answers with windowCovered.
+   */
+  windowCoverWatch: "golive:window:cover-watch",
+  /**
+   * main -> renderer: whether the window is hidden behind another one right
+   * now. Sent on every change while watched, and once when watching starts.
+   * Kept apart from windowBackground on purpose: that one also decides where a
+   * call rings (see PushRegistrar), and a window behind a game is still the
+   * desktop somebody is sitting at.
+   */
+  windowCovered: "golive:window:covered",
+
   /** renderer -> main: register or update global shortcuts map. */
   shortcutsSet: "golive:shortcuts:set",
   /** main -> renderer: a registered global shortcut fired. */

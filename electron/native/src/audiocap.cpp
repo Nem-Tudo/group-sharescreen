@@ -27,10 +27,12 @@
 //                         process tree (PROCESS_LOOPBACK_MODE_EXCLUDE_*)
 //   --include-pid <pid>   only that process tree (..._INCLUDE_*)
 //
-// plus two modes that capture nothing at all and only report:
+// plus modes that capture nothing at all and only report:
 //
 //   --list-sessions       the processes that currently hold an audio stream
 //   --list-windows        the applications a person would say are open
+//   --watch-cover <hwnd>  whether that window is hidden behind another one,
+//                         on every change (see "Whether a window is covered")
 //
 // EXCLUDE is the mode this program was written for. INCLUDE and the listings
 // exist because the exclusion cannot be widened: the activation parameters
@@ -562,6 +564,71 @@ static int ListOpenWindows() {
 }
 
 // ---------------------------------------------------------------------------
+// Whether a window is covered
+// ---------------------------------------------------------------------------
+//
+// --watch-cover <hwnd> answers, once a second, whether that window — GoLive's
+// own — is entirely hidden behind another application's window: a game in
+// full screen on the same monitor, most of the time. Electron cannot tell. Its
+// renderer runs with background throttling off, which also switches off
+// Chromium's own occlusion tracking, so a window behind a game goes on decoding
+// and drawing every video in the call for nobody (see electron/windowCover.ts).
+//
+// "Covered" is deliberately narrow: one window above it in the z-order whose
+// frame contains the whole of ours. Several windows tiling over it are not
+// counted, and neither is anything that might let it show through — layered or
+// click-through windows (the overlays games and recorders put on screen),
+// cloaked ones (another virtual desktop, a suspended Store app) — nor any window
+// of GoLive's own process. Getting it wrong that way costs what it always cost;
+// the other way, a video stopping in front of somebody, is the one to avoid.
+
+static bool FrameBounds(HWND window, RECT* out) {
+  // The frame as drawn, without the invisible resize borders GetWindowRect
+  // counts — those would stop a maximised window from "containing" ours.
+  if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, out,
+                                      sizeof(*out)))) {
+    return true;
+  }
+  return GetWindowRect(window, out) != FALSE;
+}
+
+static bool HidesCompletely(HWND window, DWORD own_pid, const RECT& target) {
+  if (!IsWindowVisible(window) || IsIconic(window)) return false;
+  const LONG_PTR ex = GetWindowLongPtrW(window, GWL_EXSTYLE);
+  if (ex & (WS_EX_LAYERED | WS_EX_TRANSPARENT)) return false;
+  BOOL cloaked = FALSE;
+  if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked,
+                                      sizeof(cloaked))) &&
+      cloaked) {
+    return false;
+  }
+  DWORD pid = 0;
+  GetWindowThreadProcessId(window, &pid);
+  if (pid == own_pid) return false;
+  RECT bounds;
+  if (!FrameBounds(window, &bounds)) return false;
+  return bounds.left <= target.left && bounds.top <= target.top &&
+         bounds.right >= target.right && bounds.bottom >= target.bottom;
+}
+
+// 1 covered, 0 not (or minimised/hidden, which the shell already knows), -1
+// the window is gone.
+static int CoverState(HWND target) {
+  if (!IsWindow(target)) return -1;
+  if (!IsWindowVisible(target) || IsIconic(target)) return 0;
+  RECT bounds;
+  if (!FrameBounds(target, &bounds)) return 0;
+  if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return 0;
+  DWORD own_pid = 0;
+  GetWindowThreadProcessId(target, &own_pid);
+  for (HWND above = GetWindow(target, GW_HWNDPREV); above != nullptr;
+       above = GetWindow(above, GW_HWNDPREV)) {
+    if (HidesCompletely(above, own_pid, bounds)) return 1;
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // stdout writer
 // ---------------------------------------------------------------------------
 
@@ -698,13 +765,41 @@ static void WatchStdin(HANDLE quit) {
   SetEvent(quit);
 }
 
+// Prints "COVERED 1" / "COVERED 0" on every change (and once at the start)
+// until the shell closes stdin or the window goes away. A walk up the z-order
+// once a second is a few dozen cheap calls.
+static int WatchCover(HWND target) {
+  HANDLE quit = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!quit) return EXIT_UNSUPPORTED;
+  std::thread stdin_watch(WatchStdin, quit);
+  int last = -2;
+  for (;;) {
+    const int now = CoverState(target);
+    if (now < 0) break;
+    if (now != last) {
+      fputs(now ? "COVERED 1\n" : "COVERED 0\n", stdout);
+      fflush(stdout);
+      last = now;
+    }
+    if (WaitForSingleObject(quit, 1000) == WAIT_OBJECT_0) break;
+  }
+  // The stdin thread may still be blocked in ReadFile when the window went
+  // away first; leaving main ends it with the process.
+  stdin_watch.detach();
+  return EXIT_OK;
+}
+
 int wmain(int argc, wchar_t** argv) {
   DWORD target_pid = 0;
   bool include = false;
   bool list_sessions = false;
   bool list_windows = false;
+  HWND cover_target = nullptr;
   for (int i = 1; i < argc; i++) {
-    if (wcscmp(argv[i], L"--list-sessions") == 0) {
+    if (wcscmp(argv[i], L"--watch-cover") == 0 && i + 1 < argc) {
+      cover_target = reinterpret_cast<HWND>(
+          static_cast<uintptr_t>(_wcstoui64(argv[++i], nullptr, 10)));
+    } else if (wcscmp(argv[i], L"--list-sessions") == 0) {
       list_sessions = true;
     } else if (wcscmp(argv[i], L"--list-windows") == 0) {
       list_windows = true;
@@ -725,6 +820,8 @@ int wmain(int argc, wchar_t** argv) {
 
   // No COM: EnumWindows and the version resources are plain Win32.
   if (list_windows) return ListOpenWindows();
+  // Nor here: it only asks the window manager.
+  if (cover_target) return WatchCover(cover_target);
 
   if (list_sessions) {
     HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -739,7 +836,8 @@ int wmain(int argc, wchar_t** argv) {
              L"usage: golive-audiocap --exclude-pid <pid>\n"
              L"       golive-audiocap --include-pid <pid>\n"
              L"       golive-audiocap --list-sessions\n"
-             L"       golive-audiocap --list-windows\n");
+             L"       golive-audiocap --list-windows\n"
+             L"       golive-audiocap --watch-cover <hwnd>\n");
     return EXIT_BAD_ARGS;
   }
 

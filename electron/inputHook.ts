@@ -101,7 +101,30 @@ function loadHook(): Hook | null {
   } catch (err) {
     console.error("[inputHook] Could not load uiohook-napi:", (err as Error).message);
   }
+  if (hookModule) dropMotion(hookModule);
   return hookModule;
+}
+
+// libuiohook sends every mouse movement and wheel tick on the machine, and
+// uiohook-napi hands each one to this process's main thread as a fresh object,
+// which then goes through two EventEmitter dispatches — while we only ever
+// listen for keys and buttons. A gaming mouse polls at 1000 to 8000 Hz, and a
+// game is exactly when the mouse never stops. The hop from the hook thread and
+// the object itself happen in native code before anything here runs, so they
+// stay (a patched build of the module is the only way past them); what this
+// takes away is everything after: the event is dropped on arrival. Replaced on
+// the instance, before start() binds it.
+const EVENT_MOUSE_MOVED = 9;
+const EVENT_MOUSE_WHEEL = 11;
+
+function dropMotion(hook: Hook) {
+  const instance = hook.uIOhook as unknown as { handler: (e: { type: number }) => void };
+  const original = instance.handler;
+  if (typeof original !== "function") return;
+  instance.handler = function (this: unknown, e: { type: number }) {
+    if (e.type === EVENT_MOUSE_MOVED || e.type === EVENT_MOUSE_WHEEL) return;
+    original.call(this, e);
+  };
 }
 
 // ── Accelerator parsing ────────────────────────────────────────────────────

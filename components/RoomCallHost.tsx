@@ -22,6 +22,7 @@ import { playConnectSound } from "@/lib/soundEffects";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
+import { useDesktopCoverHide } from "@/lib/desktopCover";
 
 // The one room there is, mounted above every page.
 //
@@ -47,6 +48,8 @@ function noop() {}
 
 export function RoomCallHost() {
   const session = useCallSession();
+  // Experiment "desktop-cover-hide": a call behind a game rests like a minimised one.
+  useDesktopCoverHide(Boolean(session));
   const outlet = useCallOutlet();
   const chrome = useCallChrome();
   const router = useRouter();

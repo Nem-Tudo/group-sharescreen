@@ -1707,6 +1707,18 @@ html[data-app-shell] body {
   }
 }
 
+/* Experiment "name-fx-lite" (see lib/nameFxLite): in a list where names repeat,
+   held still — a paused animation costs nothing per frame — and sliding while
+   the pointer is on that name. */
+[data-name-fx-list] .name-fx-shimmer {
+  animation-play-state: paused;
+}
+
+[data-name-fx-list] .name-fx-shimmer:hover,
+[data-name-fx-list] :hover > .name-fx-shimmer {
+  animation-play-state: running;
+}
+
 /* A reaction sent over one of the room's media (see
    components/roomTools/ReactionLayer): rises over that tile, sways, fades. */
 @keyframes golive-reaction-rise {

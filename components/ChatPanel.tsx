@@ -42,6 +42,7 @@ import { ChatImageModal, type ChatImagePreviewState } from "@/components/ChatIma
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
 import { FILE_DROP_FEATURE, FileDropOverlay, useFileDrop } from "@/components/FileDrop";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { useNameFxListAttrs } from "@/lib/nameFxLite";
 import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { InviteEmbeds } from "@/components/groups/InviteEmbed";
@@ -1509,6 +1510,7 @@ export function ChatPanel({
 
   // Files dragged onto the box go where the "+" would send them.
   const fileDrop = useFeature(FILE_DROP_FEATURE);
+  const nameFxList = useNameFxListAttrs();
   const { dragging, dropProps } = useFileDrop((files) => {
     trackFeatureEvent("chat_file_drop_room", { room: roomHandle, value: files.length, feature: FILE_DROP_FEATURE });
     attachAnything(files);
@@ -1592,6 +1594,7 @@ export function ChatPanel({
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={listRef}
+          {...nameFxList}
           onScroll={handleListScroll}
           className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2"
         >

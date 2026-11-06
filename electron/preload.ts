@@ -262,6 +262,25 @@ contextBridge.exposeInMainWorld("golive", {
     };
   },
 
+  /**
+   * Watches whether the window is hidden behind another application's, and
+   * calls back with each change (the current state first). Returns the way to
+   * stop. See IPC.windowCoverWatch.
+   */
+  watchWindowCovered(callback: unknown): () => void {
+    if (typeof callback !== "function") return () => {};
+    const emit = callback as (covered: boolean) => void;
+    const listener = (_event: unknown, covered: unknown) => {
+      if (typeof covered === "boolean") emit(covered);
+    };
+    ipcRenderer.on(IPC.windowCovered, listener);
+    ipcRenderer.send(IPC.windowCoverWatch, true);
+    return () => {
+      ipcRenderer.off(IPC.windowCovered, listener);
+      ipcRenderer.send(IPC.windowCoverWatch, false);
+    };
+  },
+
   setGlobalShortcuts(shortcuts: unknown): void {
     if (shortcuts && typeof shortcuts === "object") {
       ipcRenderer.send(IPC.shortcutsSet, shortcuts);

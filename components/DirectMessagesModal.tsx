@@ -170,6 +170,7 @@ import { formatLocale } from "@/lib/i18n";
 import { usePageInFront } from "@/lib/pageFocus";
 import { Markdown } from "@/components/Markdown";
 import { stripMarkdown } from "@/lib/markdown";
+import { useNameFxListAttrs } from "@/lib/nameFxLite";
 
 // Private messages, in a dialog — or across the whole screen.
 //
@@ -1262,6 +1263,7 @@ export function DirectMessagesModal({
   const uploads = useAttachmentUploads("dms");
   const [filesFor, setFilesFor] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const nameFxList = useNameFxListAttrs();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   // Whether the press that became this click began on the backdrop itself.
   const pressedBackdropRef = useRef(false);
@@ -3219,6 +3221,7 @@ export function DirectMessagesModal({
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
+          {...nameFxList}
           onScroll={handleScroll}
           // Anchoring off: this component keeps the reading position itself
           // when history goes in above, and the browser doing it too would

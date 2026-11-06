@@ -206,6 +206,14 @@ export interface DesktopBridge {
    */
   onWindowBackground?(callback: (background: boolean) => void): () => void;
 
+  /**
+   * Whether the window is hidden behind another application's (a game in full
+   * screen): the current state first, then every change, while watched. Returns
+   * the way to stop watching. Experiment "desktop-cover-hide" (see
+   * lib/desktopCover); absent on shells from before it.
+   */
+  watchWindowCovered?(callback: (covered: boolean) => void): () => void;
+
   /** The version already downloaded and waiting to be applied, or null. */
   pendingUpdate?(): Promise<string | null>;
   /**

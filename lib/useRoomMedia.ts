@@ -129,7 +129,7 @@ import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { isClassicSend, NEW_SEND_FEATURE, setClassicSend } from "./classicSend";
 import { H264_SEND_FEATURE, setH264Send } from "./h264Send";
 import { SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
-import { declineCostlyCodecs } from "./receiveCodecs";
+import { AV1_HW_ONLY_FEATURE, declineCostlyCodecs, setAv1HwOnly } from "./receiveCodecs";
 import { releasePeerConnection } from "./peerConnectionRelease";
 import { TILE_EXPERIMENT_EVENTS, trackTileExperiment, useTileExperiment } from "./clipsMode";
 import {
@@ -3042,6 +3042,12 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setH264Send(h264SendFeature.enabled);
   }, [h264SendFeature.enabled]);
+  // Experiment "sq-av1-hw-only" (see lib/receiveCodecs): the viewer's side, read when
+  // answering a share; the exposure is counted once one is being received.
+  const av1HwOnlyFeature = useFeature(AV1_HW_ONLY_FEATURE, { track: false });
+  useEffect(() => {
+    setAv1HwOnly(av1HwOnlyFeature.enabled);
+  }, [av1HwOnlyFeature.enabled]);
   // Experiment "stereo-audio" (see lib/opusStereo): read by every offer
   // that goes out, so decided here; exposure counted while sharing, below.
   const stereoAudioFeature = useFeature(STEREO_AUDIO_FEATURE, { track: false });
@@ -4454,6 +4460,7 @@ export function useRoomMedia(room: string) {
   useFeature(NEW_SEND_FEATURE, { track: screen.active });
   useFeature(H264_SEND_FEATURE, { track: screen.active });
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
+  useFeature(AV1_HW_ONLY_FEATURE, { track: Object.keys(screen.remoteStreams).length > 0 });
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture
   // closure, which useBroadcastChannel only ever calls once per mic start

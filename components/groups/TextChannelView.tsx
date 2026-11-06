@@ -148,6 +148,7 @@ import {
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 import { isPageInFront } from "@/lib/pageFocus";
+import { useNameFxListAttrs } from "@/lib/nameFxLite";
 
 // One text room of a group: its history, read a page at a time and extended
 // live, and the box to write in. Drawn as a panel in the same family as the
@@ -407,6 +408,7 @@ export const TextChannelView = memo(function TextChannelView({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const nameFxList = useNameFxListAttrs();
   const atBottomRef = useRef(true);
   const olderInFlight = useRef(false);
   const pendingScroll = useRef<
@@ -2086,7 +2088,7 @@ export const TextChannelView = memo(function TextChannelView({
     }
 
     body = (
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+      <div ref={scrollRef} {...nameFxList} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         <ul className="flex min-h-full flex-col justify-end">
           {!hasMore && (
             <li className="mb-3 pt-6 text-center">

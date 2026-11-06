@@ -26,6 +26,7 @@ import { prefetchUserProfile } from "@/lib/userProfile";
 import { useWindowedList } from "@/lib/useWindowedList";
 import type { GroupChannel, GroupDetail, GroupMember, GroupRoleInfo } from "@/lib/groupsApi";
 import { useT, useTCount } from "@/lib/useI18n";
+import { useNameFxListAttrs } from "@/lib/nameFxLite";
 
 // Who is in the group, as the right-hand column of its pages — the same card a
 // room's participant list is, with the group's people in it: who is around
@@ -317,6 +318,7 @@ export function GroupMembersPanel({
 
   const auraOf = useAuraOf(detail);
 
+  const nameFxList = useNameFxListAttrs();
   const { scrollRef, start, end, topPad, bottomPad } = useWindowedList({
     count: rows.length,
     rowHeight: offsets,
@@ -394,7 +396,7 @@ export function GroupMembersPanel({
           </span>
         </Tooltip>
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+      <div ref={scrollRef} {...nameFxList} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
         {onlineEntry === null ? (
           <p className="px-2 py-1 text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
         ) : (

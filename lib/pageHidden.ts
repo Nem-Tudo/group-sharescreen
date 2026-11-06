@@ -22,6 +22,9 @@ import { getDesktopBridge } from "./desktop";
 // which is lib/pageFocus.
 
 let shellBackground = false;
+// The window hidden behind another application's — only ever set inside
+// experiment "desktop-cover-hide" (see lib/desktopCover).
+let shellCovered = false;
 let hidden = false;
 let wired = false;
 const listeners = new Set<() => void>();
@@ -31,7 +34,7 @@ function documentHidden(): boolean {
 }
 
 function recompute() {
-  const next = shellBackground || documentHidden();
+  const next = shellBackground || shellCovered || documentHidden();
   if (next === hidden) return;
   hidden = next;
   listeners.forEach((l) => l());
@@ -55,6 +58,14 @@ function wire() {
 export function isPageHidden(): boolean {
   wire();
   return hidden;
+}
+
+/** Whether the desktop window is hidden behind another one. See lib/desktopCover. */
+export function setWindowCovered(covered: boolean) {
+  wire();
+  if (shellCovered === covered) return;
+  shellCovered = covered;
+  recompute();
 }
 
 /** Calls `listener` whenever isPageHidden changes. Returns the unsubscribe. */

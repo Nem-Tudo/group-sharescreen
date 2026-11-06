@@ -46,6 +46,7 @@ import { trackFeatureEvent } from "./features";
 import { isClassicSend, NEW_SEND_FEATURE } from "./classicSend";
 import { defaultShareProfile, screenCodecTag } from "./screenCodec";
 import { H264_SEND_FEATURE, isH264Send } from "./h264Send";
+import { AV1_HW_ONLY_FEATURE, isAv1HwOnly } from "./receiveCodecs";
 import { senderQualityState } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
 import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
@@ -149,9 +150,15 @@ export function setTelemetryShareSettings(settings: ShareSettings | null) {
 }
 
 function experimentsTag(): string | null {
-  if (isClassicSend()) return screenCodecTag();
-  const on = [NEW_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE].filter(Boolean);
-  return on.map((key) => `${key}=on`).join(";");
+  const send = isClassicSend()
+    ? screenCodecTag()
+    : [NEW_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE]
+        .filter(Boolean)
+        .map((key) => `${key}=on`)
+        .join(";");
+  // The viewer's own, whichever way this machine sends (see lib/receiveCodecs).
+  const recv = isAv1HwOnly() ? `${AV1_HW_ONLY_FEATURE}=on` : null;
+  return [send, recv].filter(Boolean).join(";") || null;
 }
 
 interface Session {

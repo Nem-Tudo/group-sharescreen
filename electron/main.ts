@@ -75,6 +75,7 @@ import {
   setInputHookEnabled,
 } from "./inputHook";
 import { createScreenPen } from "./screenPen";
+import { createCoverWatch } from "./windowCover";
 import { getDiscordRpc, type DiscordActivity } from "./discordRpc";
 import { createStoreDesktopShortcutOnce } from "./storeShortcut";
 import {
@@ -196,6 +197,12 @@ function setCaptureProtection(on: boolean): boolean {
 }
 
 let mainWindow: BrowserWindow | null = null;
+
+// Whether the main window is hidden behind another application — watched only
+// while the page asks (experiment "desktop-cover-hide", see windowCover.ts).
+const coverWatch = createCoverWatch((covered) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.windowCovered, covered);
+});
 // The tray icon, and the flag that tells a real quit apart from the window
 // being closed. Without the flag, "sair" from the tray menu would be caught by
 // the same close handler that hides the window and the app could never be
@@ -1110,7 +1117,9 @@ function createWindow(initialUrl: string = APP_URL) {
     mainWindow?.hide();
   });
 
+  coverWatch.setWindow(mainWindow);
   mainWindow.on("closed", () => {
+    coverWatch.setWindow(null);
     mainWindow = null;
     taskbarFlashing = false;
   });
@@ -1177,6 +1186,8 @@ function createWindow(initialUrl: string = APP_URL) {
   // page that loads next says so again.
   mainWindow.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
+    // The page that loads next asks again if it is in the experiment.
+    coverWatch.setWanted(false);
     if (ringingCall) setCallRinging(null);
     // The same for the call's taskbar buttons: nothing is left to answer them.
     if (callControls) {
@@ -2229,6 +2240,11 @@ if (!gotLock) {
     // their instruction from our own page and not from whatever might one day
     // be loaded into this window.
     ipcMain.handle(IPC.windowBackgroundGet, () => isMainWindowBackground());
+    ipcMain.on(IPC.windowCoverWatch, (event, on: unknown) => {
+      if (!mainWindow || event.sender !== mainWindow.webContents) return;
+      coverWatch.setWanted(on === true);
+      if (on === true) event.sender.send(IPC.windowCovered, coverWatch.isCovered());
+    });
 
     ipcMain.handle(IPC.backgroundGet, (event) => {
       if (!event.sender.getURL().startsWith(APP_ORIGIN)) return null;
@@ -2561,6 +2577,7 @@ if (!gotLock) {
   // means it stops while WASAPI can still be shut down cleanly, rather than
   // during the process teardown that follows.
   app.on("will-quit", () => {
+    coverWatch.stop();
     // Otherwise a quit while the phone is ringing leaves a frameless,
     // always-on-top window on screen with nothing behind it.
     closeCallWindow();
