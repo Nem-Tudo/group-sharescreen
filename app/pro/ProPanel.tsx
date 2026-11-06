@@ -208,6 +208,38 @@ function navigateTab(tab: Window, url: string): boolean {
   }
 }
 
+// A subscription checkout was started and the person then pressed Pix instead:
+// the `checkout-inline` question of whether a card form on this page (closed
+// without paying) sends people to Pix, against the control, whose card form is
+// Stripe's page in another tab. Counted the same way in all three groups, so
+// the control column is the comparison. In sessionStorage rather than a ref:
+// on iOS and in a PWA the hosted checkout replaces this page, and coming back
+// is a fresh load of it. The API takes the event as a mark on the account and
+// credits the next purchase to it (pro_switch_sub_to_pix_buy, proSourceStats).
+const SUB_STARTED_KEY = "sharescreen:subCheckoutAt";
+const SUB_TO_PIX_WINDOW_MS = 30 * 60 * 1000;
+const SUB_TO_PIX_EVENT = "pro_checkout_switch_sub_to_pix";
+
+function noteSubscriptionStarted() {
+  try {
+    window.sessionStorage.setItem(SUB_STARTED_KEY, String(Date.now()));
+  } catch {
+    // Storage refused: this switch just goes uncounted.
+  }
+}
+
+/** Reports the switch, once per subscription checkout. */
+function reportSubToPix() {
+  try {
+    const at = Number(window.sessionStorage.getItem(SUB_STARTED_KEY));
+    if (!at || Date.now() - at > SUB_TO_PIX_WINDOW_MS) return;
+    window.sessionStorage.removeItem(SUB_STARTED_KEY);
+  } catch {
+    return;
+  }
+  trackFeatureEvent(SUB_TO_PIX_EVENT, { feature: "checkout-inline" });
+}
+
 /**
  * How much more Pix costs than subscribing, for one cycle — the whole percent,
  * rounded, or 0 when Pix is not dearer. Per cycle because both sides scale
@@ -1081,6 +1113,9 @@ export function ProPanel({
       setGenerating(false);
       return;
     }
+    // A card form is on its way, here or in Stripe's tab: a Pix press after
+    // this is a switch (see reportSubToPix).
+    noteSubscriptionStarted();
 
     // The card form on this page (checkout-inline). A placeholder opened on a
     // wrong guess goes away: nothing is going to be loaded into it.
@@ -1180,6 +1215,7 @@ export function ProPanel({
     // See handleSubscribe: the click, before anything can go wrong with it.
     trackFeatureEvent("pro_checkout_click");
     trackFeatureEvent("pro_checkout_click_pix");
+    reportSubToPix();
     trackProSourceCheckout();
     const startedAt = Date.now();
     setBusy(true);
