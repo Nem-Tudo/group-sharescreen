@@ -98,9 +98,11 @@ import { playHangUpSound } from "@/lib/soundEffects";
 import { useAuth } from "@/lib/AuthContext";
 import { hasFeature } from "@/lib/entitlements";
 import { openProModal } from "@/lib/proModal";
-import { useFeature } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import { NewBadge } from "@/components/NewBadge";
+import { StreamPreviewHover } from "@/components/groups/StreamPreviewHover";
+import { STREAM_PREVIEW_EVENTS, STREAM_PREVIEW_FEATURE } from "@/lib/streamPreview";
 import { GROUP_MOVE_FEATURE, canMoveTo, mayMoveMember, moveGroupMember } from "@/lib/groupMove";
 import { isVoiceRoomFullFor, trackVoiceLimitBlocked, userLimitOf } from "@/lib/groupVoiceLimit";
 import { useT } from "@/lib/useI18n";
@@ -410,6 +412,9 @@ export function GroupRoomsPanel({
   // by that menu, not here.
   const moveFeature = useFeature(GROUP_MOVE_FEATURE, { group: group.id, track: false });
   const canDragMembers = moveFeature.enabled && canManage(detail, "moveMembers");
+  // Hovering a voice room where somebody is transmitting shows a still of it
+  // (see lib/streamPreview). Exposure is counted by the card when it opens.
+  const streamPreviewOn = useFeature(STREAM_PREVIEW_FEATURE, { group: group.id, track: false }).enabled;
   const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(group.id);
   const sections = useMemo(() => buildSections(channels, detail.categories ?? []), [channels, detail.categories]);
   const hasCategories = sections.length > 1;
@@ -953,6 +958,8 @@ export function GroupRoomsPanel({
     // leaves. The server refuses the join regardless.
     const limit = userLimitOf(channel);
     const full = !connected && !locked && isVoiceRoomFullFor(detail, channel, people.length);
+    // Who the hover card shows a still of — see StreamPreviewHover.
+    const previewSharers = streamPreviewOn && !locked && !full ? people.filter((person) => person.screen) : [];
     // The same row a text room is (see renderTextRoom): its padding, its
     // colours, and the room on screen marked by a fill rather than a frame.
     // A voice room used to be a bordered card with its people inside, which
@@ -1014,6 +1021,21 @@ export function GroupRoomsPanel({
         {/* Only the room's own row joins it. The people under it are their
             own targets — a click on somebody is a question about them, not a
             request to walk into their call. */}
+        <StreamPreviewHover
+          groupId={group.id}
+          channelId={channel.id}
+          sharers={previewSharers}
+          onWatch={
+            locked || full
+              ? null
+              : (person) => {
+                  trackFeatureEvent(STREAM_PREVIEW_EVENTS.click, { group: group.id, feature: STREAM_PREVIEW_FEATURE });
+                  requestGroupVoiceFocus(groupVoiceHandle(channel.id), person.userId);
+                  onNavigate?.();
+                  navigation.push(groupPath(group.id, channel.id));
+                }
+          }
+        >
         {locked || full ? (
           <div
             title={full ? t("groups.channelUserLimit.full") : t("groups.groupSidebar.youDoNotHavePermissionTo")}
@@ -1031,7 +1053,8 @@ export function GroupRoomsPanel({
             // The row is what is dragged, not the link inside it.
             draggable={isManager ? false : undefined}
             aria-current={active ? "page" : undefined}
-            title={connected ? t("common.backToTheCall") : t("common.joinTheRoom")}
+            // The hover card says it instead, where there is one.
+            title={previewSharers.length > 0 ? undefined : connected ? t("common.backToTheCall") : t("common.joinTheRoom")}
             onContextMenu={(e) => roomMenu(e, channel)}
             data-room-head
             className={`group/room flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${rowTone}`}
@@ -1039,6 +1062,7 @@ export function GroupRoomsPanel({
             {headerContent}
           </GroupLink>
         )}
+        </StreamPreviewHover>
         {/* Indented under the room's name, with no frame or rule around them:
             they belong to the room by where they sit, the way a voice
             channel's people do in the list they were modelled on. */}

@@ -249,6 +249,7 @@ import {
   usePhoneCamera,
 } from "@/lib/phoneCamera";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { STREAM_PREVIEW_FEATURE, useStreamPreviewUploader } from "@/lib/streamPreview";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
@@ -3454,6 +3455,17 @@ function WatchRoomView({
     setGroupVoiceLive(groupVoiceLive);
   }, [groupVoiceLive]);
   useEffect(() => () => setGroupVoiceLive(null), []);
+
+  // A picture of your screen every few seconds while you transmit in a
+  // group's voice room, for the rooms list's hover card (see lib/streamPreview).
+  // Exposure is counted where the card shows, not here.
+  const streamPreviewOn = useFeature(STREAM_PREVIEW_FEATURE, { group: group?.groupId ?? null, track: false }).enabled;
+  useStreamPreviewUploader(
+    group?.groupId ?? null,
+    group?.channelId ?? null,
+    joinedGroupRoom && isSharing ? localStream ?? null : null,
+    streamPreviewOn
+  );
 
   // The rooms list's "ao vivo" badge: put that person's transmission on the
   // stage (see lib/groupVoiceSession's requestGroupVoiceFocus). Their tile
@@ -8972,7 +8984,10 @@ function WatchRoomView({
       data-rr-calldock={roomRedesignOn ? "" : undefined}
       className={
         dockInStage
-          ? "flex items-center justify-center gap-1.5"
+          ? // Wraps instead of overflowing: centered in a card the width of
+            // the stage, an overflowing row was cut off on both ends on small
+            // monitors (the leave button out of reach).
+            "flex min-w-0 flex-wrap items-center justify-center gap-1.5"
           : "flex items-center justify-center gap-1.5 justify-self-center rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900"
       }
     >

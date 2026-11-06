@@ -2266,6 +2266,8 @@
   "groups.groupSidebar.turnMicrophoneOff": "Turn microphone off",
   "groups.groupSidebar.turnMicrophoneOn": "Turn microphone on",
   "groups.groupSidebar.watchLive": "Watch {name}'s broadcast",
+  "groups.groupSidebar.streamPreviewNone": "Preview not available yet",
+  "groups.groupSidebar.streamPreviewHint": "Click to watch",
   "groups.groupSidebar.youAreHere": "You are here",
   "groups.groupSidebar.youDoNotHavePermissionTo": "You do not have permission to join this room",
   "groups.groupSwitcher.allGroups": "All groups",

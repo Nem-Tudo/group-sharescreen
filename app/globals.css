@@ -501,6 +501,19 @@ html[data-theme="dark"] [data-room-redesign] [data-rr-dock] {
   min-height: 2.5rem;
 }
 
+/* The bar under the stage is as wide as the stage, which on a small monitor
+   is narrower than the row. Tighter buttons first; past that the row wraps
+   (see callControls in WatchRoom). */
+[data-rr-card][data-rr-calldock] {
+  container-type: inline-size;
+}
+
+@container (max-width: 46rem) {
+  [data-rr-calldock] :is(.px-3, .px-4):not([data-tippy-root] *) {
+    padding-inline: 0.5rem;
+  }
+}
+
 [data-rr-calldock] [data-header-label] {
   display: none !important;
 }

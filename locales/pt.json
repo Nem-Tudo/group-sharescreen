@@ -2266,6 +2266,8 @@
   "groups.groupSidebar.turnMicrophoneOff": "Desligar microfone",
   "groups.groupSidebar.turnMicrophoneOn": "Ligar microfone",
   "groups.groupSidebar.watchLive": "Ver a transmissão de {name}",
+  "groups.groupSidebar.streamPreviewNone": "Prévia ainda não disponível",
+  "groups.groupSidebar.streamPreviewHint": "Clique para assistir",
   "groups.groupSidebar.youAreHere": "Você está aqui",
   "groups.groupSidebar.youDoNotHavePermissionTo": "Você não tem permissão para entrar nesta sala",
   "groups.groupSwitcher.allGroups": "Todos os grupos",
