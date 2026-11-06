@@ -614,6 +614,8 @@ export function PartnerCard({
         rewardClaimedLocally ? "" : "partner-reward-glow"
       }`}
     >
+      {/* The glow's streak, clipped to the button (see .partner-reward-sheen). */}
+      {rewardClaimedLocally ? null : <span aria-hidden className="partner-reward-sheen" />}
       {/* The whole deal in one line: how long it takes and what it
           pays. The length used to be a badge off at the far end,
           which read as a detail about the button rather than as half
@@ -1226,6 +1228,7 @@ export function PartnerCardMinimized({
                 ["--partner-reward-glow-color" as string]: partner.buttonBackgroundColor ?? "#18181b",
               }}
             >
+              <span aria-hidden className="partner-reward-sheen" />
               <BsCoin className="h-3 w-3 shrink-0" />
               {points.toLocaleString(formatLocale())}
             </span>

@@ -681,19 +681,26 @@ html .ntpopups-main {
    Deliberately gentler and slower than .partner-cta-glow above: that one
    fires once, when a reward video ends, and pulses hard because there is
    exactly one thing left to do. This one runs the whole time the reward is
-   unclaimed, in a sidebar someone may leave open for hours. */
+   unclaimed, in a sidebar someone may leave open for hours.
+   Which is why neither of them animates anything the compositor cannot do
+   alone: opacity and transform only. The halo used to be the button's own
+   box-shadow, animated, and that is a repaint on the main thread every frame
+   at the monitor's refresh rate for as long as the reward sits there —
+   measured at 7% of a core for one button at 60 Hz, against 0.1% this way. */
+/* Faded only, never scaled: a halo box smaller than the button would cast its
+   shadow inside it too. */
 @keyframes partner-reward-glow-halo {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+    opacity: 0;
   }
   /* Peaks as the streak below crosses the middle of the button, so the two
      read as one glint rather than two effects sharing an element. */
   18% {
-    box-shadow: 0 0 14px 3px color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+    opacity: 1;
   }
   45%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+    opacity: 0;
   }
 }
 
@@ -721,17 +728,40 @@ html .ntpopups-main {
     currentColor
   );
   position: relative;
-  overflow: hidden;
-  animation: partner-reward-glow-halo 3.6s ease-in-out infinite;
+  /* A stacking context of its own, so the halo below sits behind the label
+     and not behind whatever card the button is on. */
+  isolation: isolate;
 }
 
-.partner-reward-glow::after {
+/* The halo: drawn once at its fullest, then only faded. */
+.partner-reward-glow::before {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 14px 3px color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 40%, transparent);
+  opacity: 0;
+  animation: partner-reward-glow-halo 3.6s ease-in-out infinite;
+}
+
+/* What clips the streak to the button. A box of its own (a span the markup
+   puts first inside the button) rather than the button's overflow, which
+   would clip the halo above along with it. */
+.partner-reward-sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
   /* The button is the click target; this is decoration lying on top of it. */
   pointer-events: none;
-  border-radius: inherit;
+}
+
+.partner-reward-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     100deg,
     transparent 25%,
@@ -748,12 +778,13 @@ html .ntpopups-main {
    motion — a button that pulses and flashes every few seconds is exactly
    what this setting is asking us to stop. */
 @media (prefers-reduced-motion: reduce) {
-  .partner-reward-glow {
+  .partner-reward-glow::before {
     animation: none;
+    opacity: 1;
     box-shadow: 0 0 10px 1px color-mix(in srgb, var(--partner-reward-glow-color, currentColor) 30%, transparent);
   }
 
-  .partner-reward-glow::after {
+  .partner-reward-sheen::after {
     animation: none;
     transform: none;
     background: linear-gradient(

@@ -140,13 +140,47 @@ export function isSharedAudioContextRunning(): boolean {
   return sharedContext?.state === "running";
 }
 
+// One MediaStreamAudioSourceNode per stream, for the life of the page.
+//
+// Chromium keeps such a node alive for as long as its context is running —
+// disconnect() does not release it — and the shared context never closes. So a
+// fresh node per use was a node for good: another each time a tile mounted or
+// the audio status moved, and while its stream lives every one of them still
+// takes that audio in, every 10 ms, on the audio thread. Measured in a room with
+// people coming and going: every node ever made, still alive at the end.
+//
+// Shared instead. Each user connects it to a node of its own and disconnects
+// only that (`source.disconnect(node)`): the bare disconnect() would cut every
+// other user of the same stream off too. Keyed by the stream and the audio
+// track it was made from, since a node reads the track the stream had then.
+const streamSources = new WeakMap<MediaStream, { node: MediaStreamAudioSourceNode; trackId: string }>();
+
+/** The shared context's source for `stream`'s audio; null without a context or an audio track. */
+export function sharedStreamSource(stream: MediaStream): MediaStreamAudioSourceNode | null {
+  const ctx = getSharedAudioContext();
+  const trackId = stream.getAudioTracks()[0]?.id;
+  if (!ctx || !trackId) return null;
+  const held = streamSources.get(stream);
+  if (held && held.trackId === trackId) return held.node;
+  const node = ctx.createMediaStreamSource(stream);
+  streamSources.set(stream, { node, trackId });
+  return node;
+}
+
 // Runs `cb` on the next real user interaction anywhere on the page. This is
 // the only thing a browser accepts as permission to start audio, and the
 // listeners are capture-phase and passive so nothing in the app can swallow
 // the gesture before we see it.
-export function onNextUserGesture(cb: () => void) {
+//
+// Returns the way to take it back, for a caller whose reason to wait is gone
+// before the gesture comes: whatever `cb` holds is held here until then, and in
+// a window nobody touches that can be hours (see playWhenAllowed).
+export function onNextUserGesture(cb: () => void): () => void {
   gestureCallbacks.add(cb);
   armGestureListeners();
+  return () => {
+    gestureCallbacks.delete(cb);
+  };
 }
 
 function armGestureListeners() {
@@ -182,10 +216,14 @@ function disarmGestureListeners() {
   gestureArmed = false;
 }
 
+// One function rather than a fresh one per call: every audio path asks for a
+// resume, and each refusal used to queue another copy of the same retry.
+function resumeOnGesture() {
+  void ensureSharedAudioContextRunning();
+}
+
 function armGestureResume() {
-  onNextUserGesture(() => {
-    void ensureSharedAudioContextRunning();
-  });
+  onNextUserGesture(resumeOnGesture);
 }
 
 // Resumes the context, and — if the browser refuses because nothing has been
@@ -260,15 +298,30 @@ export function canRouteToPreferredSink(): boolean {
 // no-user-activation reason a suspended context has, retries on the next
 // gesture. A media element's autoplay is a separate gate from the audio
 // graph's: both have to be gotten through, and this covers the element side.
-export function playWhenAllowed(element: HTMLMediaElement) {
-  const attempt = () => {
-    const promise = element.play();
-    if (!promise) return;
-    promise.catch(() => {
-      onNextUserGesture(() => {
-        void element.play().catch(() => {});
-      });
+//
+// Only that refusal waits for a gesture. play() also fails when the element is
+// given another source, or none, before it got going — the AbortError of a
+// tile's srcObject being swapped or cleared — and retrying then would play
+// something nobody asks for any more. Those were queued too, and a queued retry
+// holds its element: every tile that ever had one stayed in memory, detached,
+// with its whole DOM, until the next click. In a desktop window left behind a
+// game that is hours of calls' worth of tiles (measured: every <video> and
+// <audio> a room ever made, still alive). The returned function takes the
+// retry back; call it once the element is no longer this caller's to play.
+export function playWhenAllowed(element: HTMLMediaElement): () => void {
+  let cancelled = false;
+  let cancelRetry: (() => void) | null = null;
+  const promise = element.play();
+  promise?.catch((err: unknown) => {
+    if (cancelled || (err as { name?: string } | null)?.name !== "NotAllowedError") return;
+    cancelRetry = onNextUserGesture(() => {
+      cancelRetry = null;
+      if (!cancelled) void element.play().catch(() => {});
     });
+  });
+  return () => {
+    cancelled = true;
+    cancelRetry?.();
+    cancelRetry = null;
   };
-  attempt();
 }

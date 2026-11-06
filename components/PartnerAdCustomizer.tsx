@@ -625,6 +625,7 @@ export function CustomizerPreview({
             }`}
             style={{ ["--partner-reward-glow-color" as string]: creative.buttonBackgroundColor ?? "#18181b" }}
           >
+            <span aria-hidden className="partner-reward-sheen" />
             <span className="truncate">
               {rewardDuration
                 ? t("partnerCard.watchAndRedeem", { duration: rewardDuration })

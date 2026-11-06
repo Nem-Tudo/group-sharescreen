@@ -88,9 +88,26 @@ export function appendCachedMessage(
   // The people it mentions go in with its author: "authors" is everybody this
   // room needs a name for, and a mention is drawn from it (see TextChannelView).
   const hasMentioned = Object.keys(mentioned).length > 0;
+  // Almost always the newest, so it goes at the end without sorting all of it.
+  const last = entry.messages[entry.messages.length - 1];
+  let messages =
+    !last || last.ts <= message.ts
+      ? [...entry.messages, message]
+      : [...entry.messages, message].sort((a, b) => a.ts - b.ts);
+  // Held to the same cap as putCachedChannel. This was the one way in that had
+  // none: a room opened once and left kept every message it received for as
+  // long as the tab lived — in the desktop app, which runs in the tray for
+  // days, every message of every room it ever opened — copied and re-sorted in
+  // full on each arrival.
+  let hasMore = entry.hasMore;
+  if (messages.length > MAX_MESSAGES_PER_CHANNEL) {
+    messages = messages.slice(messages.length - MAX_MESSAGES_PER_CHANNEL);
+    hasMore = true;
+  }
   channels.set(message.channelId, {
     ...entry,
-    messages: [...entry.messages, message].sort((a, b) => a.ts - b.ts),
+    messages,
+    hasMore,
     authors:
       author || hasMentioned
         ? { ...mentioned, ...entry.authors, ...(author ? { [author.id]: author } : {}) }

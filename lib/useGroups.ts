@@ -308,6 +308,12 @@ function noteIncomingMessage(message: GroupMessage) {
     (mentionsTakeIn(message.mentions, { id: selfId!, roleIds: myRoleIds }, message.pingedMe) ||
       message.replyTo?.userId === selfId);
   if (detail) {
+    // Already marked, and nothing to add: the store stays as it is. Publishing an
+    // identical copy redrew everything showing this group — its rooms, its top
+    // bar, the room on screen — for every message that landed in a busy room the
+    // person was not reading, which is most messages in a big group.
+    const channel = detail.channels.find((c) => c.id === channelId);
+    if (!channel || (channel.unread && !mentionsMe)) return;
     patchDetail(groupId, {
       channels: detail.channels.map((c) =>
         c.id === channelId ? { ...c, unread: true, mentions: c.mentions + (mentionsMe ? 1 : 0) } : c
@@ -317,7 +323,10 @@ function noteIncomingMessage(message: GroupMessage) {
   } else if (state.groups) {
     // A group whose rooms were never opened: only its dot on the rail — and
     // not even that from a room this person silenced.
-    if (state.groups.find((g) => g.id === groupId)?.mutedChannels?.includes(channelId)) return;
+    const summary = state.groups.find((g) => g.id === groupId);
+    if (!summary || summary.mutedChannels?.includes(channelId)) return;
+    // Same as above: a dot already lit and no mention to count changes nothing.
+    if (summary.unread && !mentionsMe) return;
     setState({
       groups: state.groups.map((g) =>
         g.id === groupId ? { ...g, unread: true, mentions: g.mentions + (mentionsMe ? 1 : 0) } : g

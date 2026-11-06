@@ -12,6 +12,7 @@ import {
   getSharedAudioContext,
   ensureSharedAudioContextRunning,
   canRouteToPreferredSink,
+  sharedStreamSource,
 } from "./audioContext";
 
 export const MAX_GAIN = 3;
@@ -50,7 +51,9 @@ export function attachGain(
   // useGainedAudio keeps the element unmuted meanwhile.
   void ensureSharedAudioContextRunning();
 
-  const source = ctx.createMediaStreamSource(stream);
+  // Shared with every other attach of this stream: see sharedStreamSource.
+  const source = sharedStreamSource(stream);
+  if (!source) return null;
   const gainNode = ctx.createGain();
   let gain = initialGain;
   let muted = initialMuted;
@@ -71,8 +74,10 @@ export function attachGain(
       apply();
     },
     dispose() {
+      // Only our own link: the source is shared (see sharedStreamSource), and
+      // the bare disconnect() would silence whoever else is playing it.
       try {
-        source.disconnect();
+        source.disconnect(gainNode);
       } catch {
         // Already disconnected — nothing to do.
       }

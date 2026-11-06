@@ -29,6 +29,7 @@ export function PartnerClickRewardPill({
       }`}
       style={{ ["--partner-reward-glow-color" as string]: "#f59e0b" }}
     >
+      <span aria-hidden className="partner-reward-sheen" />
       +{points.toLocaleString(formatLocale())}
       <BsCoin className={size === "sm" ? "h-2.5 w-2.5" : "h-3 w-3"} />
     </span>

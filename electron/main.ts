@@ -1229,6 +1229,9 @@ const CRASH_RELOAD_WINDOW_MS = 5 * 60_000;
 const CRASH_RELOAD_MAX = 3;
 const CRASH_LOG_FILE = "renderer-crash.log";
 const CRASH_LOG_MAX_BYTES = 256 * 1024;
+// How long after a GPU process death its replacement is read (see the
+// child-process-gone handler).
+const GPU_STATUS_AFTER_CRASH_MS = 10_000;
 let crashReloads: number[] = [];
 
 function logProcessCrash(message: string) {
@@ -2384,6 +2387,22 @@ if (!gotLock) {
       logProcessCrash(
         `${details.type} gone: reason=${details.reason} exitCode=${details.exitCode}${details.name ? ` name=${details.name}` : ""}`
       );
+      // What it came back on. A GPU process that keeps dying gets moved to
+      // software for the rest of the run — compositing, video decode and
+      // encode all on the CPU — which from outside reads as the app suddenly
+      // using a lot of CPU after a while, with nothing in the page changed.
+      // Read once the replacement has had time to start.
+      if (details.type === "GPU") {
+        setTimeout(() => {
+          try {
+            const status = app.getGPUFeatureStatus() as unknown as Record<string, string | undefined>;
+            const keys = ["gpu_compositing", "rasterization", "video_decode", "video_encode", "webgl"];
+            logProcessCrash(`GPU after restart: ${keys.map((key) => `${key}=${status[key] ?? "?"}`).join(" ")}`);
+          } catch {
+            // Nothing to add to the log, then.
+          }
+        }, GPU_STATUS_AFTER_CRASH_MS).unref?.();
+      }
     });
 
     app.on("activate", () => {

@@ -71,6 +71,7 @@ export function useGainedAudio<T extends HTMLMediaElement>(
     graphAudibleRef.current = graphAudible;
 
     const el = elementRef.current;
+    let cancelPlay: (() => void) | null = null;
     if (el) {
       // The graph is a second, independent path to the speakers, so exactly
       // one of the two may be audible at a time. The element's volume is set
@@ -80,9 +81,12 @@ export function useGainedAudio<T extends HTMLMediaElement>(
       // Autoplay is a separate gate from the audio graph's, and a blocked
       // play() is just as silent — retried on the next gesture, same as the
       // context's resume.
-      playWhenAllowed(el);
+      cancelPlay = playWhenAllowed(el);
     }
     return () => {
+      // A retry still waiting for a gesture holds the element: let it go with
+      // the stream it was for (see playWhenAllowed).
+      cancelPlay?.();
       handle?.dispose();
       if (gainRef.current === handle) {
         gainRef.current = null;

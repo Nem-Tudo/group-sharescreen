@@ -18,7 +18,7 @@
 // is muted. The analyser is kept only as a fallback, for the local
 // microphone (which has no receiver) and for browsers that report no level.
 
-import { getSharedAudioContext, ensureSharedAudioContextRunning } from "./audioContext";
+import { getSharedAudioContext, ensureSharedAudioContextRunning, sharedStreamSource } from "./audioContext";
 import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 
 // Unchanged from the per-row implementation, so the indicator behaves as it
@@ -204,7 +204,15 @@ class SpeakingDetector {
   }
 
   private teardownGraph(entry: Entry) {
-    entry.source?.disconnect();
+    // Only the link to our analyser: the source is shared with playback (see
+    // sharedStreamSource), which a bare disconnect() would silence.
+    if (entry.source && entry.analyser) {
+      try {
+        entry.source.disconnect(entry.analyser);
+      } catch {
+        // Not connected any more — nothing to undo.
+      }
+    }
     entry.analyser?.disconnect();
     entry.source = null;
     entry.analyser = null;
@@ -248,10 +256,12 @@ class SpeakingDetector {
       const audioContext = getSharedAudioContext();
       if (!audioContext) return null;
       void ensureSharedAudioContextRunning();
+      // The stream's one source, not a new one per row mounted: see sharedStreamSource.
+      const source = sharedStreamSource(entry.stream);
+      if (!source) return null;
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       analyser.smoothingTimeConstant = 0.6;
-      const source = audioContext.createMediaStreamSource(entry.stream);
       source.connect(analyser);
       entry.analyser = analyser;
       entry.source = source;
