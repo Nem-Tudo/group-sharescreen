@@ -3797,6 +3797,7 @@
   "cameraWorkshop.trying": "Probando \"{name}\"",
   "cameraWorkshop.tryingHint": "La sala también lo ve mientras pruebas. No se añade nada.",
   "cameraWorkshop.tryNoCamera": "Enciende la cámara para verlo.",
+  "cameraWorkshop.createAndPublish": "Crear y publicar un efecto",
   "cameraWorkshop.openPage": "Abrir página de efectos",
   "pro.proPanel.putEffectsOnOthers": "Pon efectos en la cámara de otras personas de la sala",
   "cameraOthers.put": "Poner un efecto en su cámara",

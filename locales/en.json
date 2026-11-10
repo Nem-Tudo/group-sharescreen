@@ -3797,6 +3797,7 @@
   "cameraWorkshop.trying": "Trying \"{name}\"",
   "cameraWorkshop.tryingHint": "The room sees it too while you try it. Nothing is added.",
   "cameraWorkshop.tryNoCamera": "Turn on your camera to see it.",
+  "cameraWorkshop.createAndPublish": "Create and publish an effect",
   "cameraWorkshop.openPage": "Open effects page",
   "pro.proPanel.putEffectsOnOthers": "Put effects on other people's cameras in a room",
   "cameraOthers.put": "Put an effect on their camera",

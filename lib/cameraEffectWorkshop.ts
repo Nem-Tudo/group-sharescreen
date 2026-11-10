@@ -41,6 +41,7 @@ export const CAMERA_WORKSHOP_EVENTS = {
   report: "camera_workshop_report", // denunciou um efeito
   try: "camera_workshop_try", // testou um efeito sem adicionar
   sort: "camera_workshop_sort", // trocou a ordem (Em alta é a padrão)
+  create: "camera_workshop_create", // tocou em "Criar e publicar um efeito" no Descobrir
 };
 
 /** How many effects each plan may have published. The API's cameraEffect.ts decides; this is for /pro. */

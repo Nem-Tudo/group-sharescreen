@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  MdAdd,
   MdAutoAwesome,
   MdCheck,
   MdClose,
@@ -23,8 +24,14 @@ import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { verifiedBadge } from "@/lib/entitlements";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { useAuth } from "@/lib/AuthContext";
-import { useCameraEffectSettings } from "@/lib/cameraEffects";
-import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects, useCustomEffectPreview } from "@/lib/cameraCustomEffects";
+import { setCameraEffect, useCameraEffectSettings } from "@/lib/cameraEffects";
+import {
+  CAMERA_CUSTOM_FEATURE,
+  createCustomCameraEffect,
+  openCustomEffectEditor,
+  useCustomCameraEffects,
+  useCustomEffectPreview,
+} from "@/lib/cameraCustomEffects";
 import {
   CAMERA_WORKSHOP_EVENTS,
   CAMERA_WORKSHOP_FEATURE,
@@ -270,6 +277,21 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
     setBusy(null);
   };
 
+  // A new effect in "Meus efeitos", opened in the room's editor (see
+  // CameraCustomEffectHost), on top of this popup: its publish section is there.
+  const create = () => {
+    const effect = createCustomCameraEffect(t("watch.watchRoom.cameraCustomDefaultName", { count: local.length + 1 }));
+    if (!effect) {
+      setUseFailed(true);
+      return;
+    }
+    trackWorkshop(CAMERA_WORKSHOP_EVENTS.create);
+    stopEffectTrial();
+    setCameraEffect("custom", effect.id);
+    markFeatureUsed(CAMERA_CUSTOM_FEATURE);
+    openCustomEffectEditor(effect.id);
+  };
+
   const primary =
     "bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
   const outlined =
@@ -299,6 +321,17 @@ export function CameraEffectBrowser({ inPopup = false }: { inPopup?: boolean }) 
               </button>
             ))}
           </div>
+          {/* Only in the room: the editor lives there, next to the camera. */}
+          {inPopup && tab === "all" && (
+            <button
+              type="button"
+              onClick={create}
+              className="ml-auto inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+            >
+              <MdAdd className="h-4 w-4" />
+              {t("cameraWorkshop.createAndPublish")}
+            </button>
+          )}
           {tab === "mine" && limit !== undefined && (
             <span className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">
               {limit === null
