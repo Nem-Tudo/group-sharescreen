@@ -311,9 +311,7 @@ export function CameraEffectsSheet({
           )}
 
           {tab === "custom" && hasCustom && (
-            <div className="flex flex-wrap gap-1">
-              <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
-            </div>
+            <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
           )}
 
           {tab === "reactions" && has3d && (

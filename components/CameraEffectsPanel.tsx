@@ -287,8 +287,14 @@ export function CustomEffectChips({ selected, turnOn }: { selected: string; turn
     turnOn?.();
     openCustomEffectEditor(effect.id);
   };
+  const canCreate = effects.length < MAX_CUSTOM_EFFECTS;
+  // The way to get more: under the chips, on a row of their own, so they stand out
+  // from the effects instead of looking like one more of them.
+  const ACTION =
+    "inline-flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold transition";
   return (
-    <>
+    <div className="flex w-full flex-col gap-2">
+      <div className="flex flex-wrap gap-1">
       <button
         type="button"
         aria-pressed={picked === "none"}
@@ -322,25 +328,34 @@ export function CustomEffectChips({ selected, turnOn }: { selected: string; turn
           {t("watch.watchRoom.cameraCustomEdit")}
         </button>
       )}
-      {effects.length < MAX_CUSTOM_EFFECTS && (
-        <button type="button" onClick={create} className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}>
-          <MdAdd className="h-3.5 w-3.5" />
-          {t("watch.watchRoom.cameraCustomCreate")}
-          <NewBadge id={CAMERA_CUSTOM_FEATURE} />
-        </button>
+      </div>
+      {(canCreate || hasWorkshop) && (
+        <div className="flex gap-1.5">
+          {canCreate && (
+            <button
+              type="button"
+              onClick={create}
+              className={`${ACTION} bg-emerald-600 text-white shadow-sm hover:bg-emerald-500`}
+            >
+              <MdAdd className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t("watch.watchRoom.cameraCustomCreate")}</span>
+              <NewBadge id={CAMERA_CUSTOM_FEATURE} />
+            </button>
+          )}
+          {hasWorkshop && (
+            <button
+              type="button"
+              onClick={() => openCustomEffectEditor(CUSTOM_EFFECT_WORKSHOP)}
+              className={`${ACTION} bg-emerald-500/10 text-emerald-700 ring-1 ring-inset ring-emerald-500/40 hover:bg-emerald-500/20 dark:text-emerald-300`}
+            >
+              <MdExplore className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t("cameraWorkshop.discover")}</span>
+              <NewBadge id={CAMERA_WORKSHOP_FEATURE} />
+            </button>
+          )}
+        </div>
       )}
-      {hasWorkshop && (
-        <button
-          type="button"
-          onClick={() => openCustomEffectEditor(CUSTOM_EFFECT_WORKSHOP)}
-          className={`${CHIP} ${CHIP_OFF} inline-flex items-center gap-1`}
-        >
-          <MdExplore className="h-3.5 w-3.5" />
-          {t("cameraWorkshop.discover")}
-          <NewBadge id={CAMERA_WORKSHOP_FEATURE} />
-        </button>
-      )}
-    </>
+    </div>
   );
 }
 
@@ -448,9 +463,7 @@ export function CameraEffectsPanel({ on, standalone = false }: { on: boolean; st
           {hasCustom && (
             <div className="flex flex-col gap-1">
               <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("watch.watchRoom.cameraCustomTitle")}</span>
-              <div className="flex flex-wrap gap-1">
-                <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
-              </div>
+              <CustomEffectChips selected={settings.custom} turnOn={turnOn} />
             </div>
           )}
           <EffectGroup
