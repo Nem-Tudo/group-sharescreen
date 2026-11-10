@@ -3878,6 +3878,8 @@
   "cameraWorkshop.publishing": "Publicando…",
   "cameraWorkshop.updated": "Publicación actualizada.",
   "cameraWorkshop.published": "¡Publicado! Ahora todos pueden usarlo.",
+  "cameraWorkshop.freeLimitReached": "Ya tienes {limit} efectos publicados, el límite sin plan. Quita uno para publicar otro, o suscríbete para publicar más.",
+  "cameraWorkshop.freeLimitUpgrade": "Publica más con {plan}",
   "cameraWorkshop.limitReached": "Ya tienes {limit} efectos publicados, el límite de tu plan. Quita uno para publicar otro.",
   "cameraWorkshop.publishError": "No se pudo publicar ahora. Inténtalo de nuevo.",
   "cameraWorkshop.descriptionPlaceholder": "Descripción (opcional)",
