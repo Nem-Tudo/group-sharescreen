@@ -118,7 +118,16 @@ const HELPERS = [
 function sourceHash(helper) {
   const hash = createHash("sha256");
   const inputs = [helper.source, helper.resourceScript, helper.manifest, ...(helper.extraInputs ?? [])];
-  for (const file of inputs) hash.update(readFileSync(file));
+  for (const file of inputs) {
+    const bytes = readFileSync(file);
+    // Text with CRLF line endings, whatever the checkout has on disk: that is what
+    // the Windows CI runner sees and stamps. A checkout with other endings (LF, or
+    // a mix) hashed differently and recompiled the helpers on every local build
+    // and release.
+    hash.update(
+      /\.(png|ico)$/i.test(file) ? bytes : bytes.toString("utf8").replace(/\r\n/g, "\n").replace(/\n/g, "\r\n")
+    );
+  }
   return hash.digest("hex");
 }
 
