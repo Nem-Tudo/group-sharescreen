@@ -30,6 +30,7 @@ import { BotsPanel } from "./BotsPanel";
 import { ReservedInvitesPanel } from "./ReservedInvitesPanel";
 import { FeaturesPanel } from "./FeaturesPanel";
 import { EventPromosPanel } from "./EventPromosPanel";
+import { SalesPanel } from "./SalesPanel";
 import { translate } from "@/lib/i18n";
 import type { AdminPermission } from "@/lib/adminPermissions";
 
@@ -64,6 +65,8 @@ export interface AdminSection {
   /** The tab shows when the viewer holds any of these. */
   needs: AdminPermission[];
   Panel: (props: { can: AdminCan }) => React.ReactElement;
+  /** Drawn in a wider column than the rest — a dashboard of charts side by side. */
+  wide?: boolean;
 }
 
 export const ADMIN_SECTIONS: AdminSection[] = [
@@ -76,6 +79,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         <StatsOverview />
       </Group>
     ),
+  },
+  {
+    // Money: what sold, how, to whom and through what. Its own permission,
+    // apart from "stats", because it is revenue.
+    id: "sales",
+    get label() { return translate("admin.dashboardPanel.sales"); },
+    needs: ["sales"],
+    wide: true,
+    Panel: () => <SalesPanel />,
   },
   {
     id: "broadcast",

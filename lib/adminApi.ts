@@ -1795,3 +1795,64 @@ export async function updateAdminBadge(id: string, input: AdminBadgeInput): Prom
   });
   return data.badges;
 }
+
+// ─── Sales ("Vendas" tab) ───────────────────────────────────────────────────
+// See the API's salesRoutes.ts. Rows rather than totals: the panel cuts them
+// by method, plan, device, door and so on, and every cut is computed there.
+
+export interface SalesRow {
+  at: number;
+  /** Index into SalesAnalytics.buyers. */
+  b: number;
+  kind: "plan" | "gift" | "upgrade";
+  method: "pix" | "subscription";
+  provider: string | null;
+  planId: string;
+  /** premium | premium_max | pro_ultra */
+  tier: string;
+  cycle: "monthly" | "yearly";
+  cents: number;
+  netCents: number | null;
+  days: number;
+  renewal: boolean;
+  returning: boolean;
+  door: string | null;
+  platform: string | null;
+  device: string | null;
+  ageDays: number | null;
+  callHours: number | null;
+  shareHours: number | null;
+  /** Context read now rather than at the sale (a sale from before the record existed). */
+  legacy: boolean;
+}
+
+export interface SalesAnalytics {
+  now: number;
+  days: number;
+  windowStart: number;
+  /** Rows go back this far: the window plus the one before it. */
+  sendSince: number;
+  /** When the detailed record starts; older rows are `legacy`. */
+  salesSince: number | null;
+  rows: SalesRow[];
+  buyers: { username: string | null; createdAt: number | null }[];
+  events: { at: number; type: "ended" | "refused"; tier: string; cents: number; renewal: boolean }[];
+  snapshot: {
+    accounts: number;
+    active: number;
+    activeDays: number;
+    subs: Record<string, { monthly: number; yearly: number }>;
+    pix: Record<string, number>;
+    free: Record<string, number>;
+    mrrCents: number;
+  };
+  traits: {
+    rows: { key: string; buyers: number; base: number }[];
+    buyersTotal: number;
+    baseTotal: number;
+  };
+}
+
+export async function fetchSalesAnalytics(days: number, fresh = false): Promise<SalesAnalytics> {
+  return adminFetch<SalesAnalytics>(`/admin/sales/analytics?days=${days}${fresh ? "&fresh=1" : ""}`);
+}

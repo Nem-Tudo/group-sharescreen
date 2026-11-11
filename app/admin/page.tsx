@@ -134,7 +134,11 @@ export default function AdminPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 px-4 py-10 dark:bg-black">
-      <div className="mx-auto w-full max-w-3xl">
+      <div
+        className={`mx-auto w-full ${
+          sections.find((section) => section.id === tab)?.wide ? "max-w-6xl" : "max-w-3xl"
+        }`}
+      >
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">

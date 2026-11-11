@@ -35,6 +35,7 @@ export const ADMIN_PERMISSIONS = [
   "event_promos",
   "ads",
   "logs",
+  "sales",
 ] as const;
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
