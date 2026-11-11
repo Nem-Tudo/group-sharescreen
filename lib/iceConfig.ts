@@ -11,17 +11,49 @@ function parseTurnUrls(raw: string): string[] {
     .filter(Boolean);
 }
 
-const TURN_URLS = parseTurnUrls(process.env.NEXT_PUBLIC_TURN_URLS || "");
-const TURN_USERNAME = process.env.NEXT_PUBLIC_TURN_USERNAME || "";
-const TURN_CREDENTIAL = process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "";
-
 const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 
-// Our own TURN server on the VPS, from the build's environment. Only the
-// fallback: once the API hands out short-lived credentials for it (see
-// ownDynamicServers below), those are used instead.
-const STATIC_TURN_SERVERS: RTCIceServer[] =
-  TURN_URLS.length > 0 ? [{ urls: TURN_URLS, username: TURN_USERNAME, credential: TURN_CREDENTIAL }] : [];
+// One build-time TURN server: the URLs in a slot plus the single login they
+// share. Returns null when the slot has no URLs, so an unconfigured slot is
+// left out entirely instead of entering as a broken empty entry.
+function staticServer(
+  rawUrls: string | undefined,
+  username: string | undefined,
+  credential: string | undefined
+): RTCIceServer | null {
+  const urls = parseTurnUrls(rawUrls || "");
+  if (urls.length === 0) return null;
+  return { urls, username: username || "", credential: credential || "" };
+}
+
+// Our own TURN servers from the build's environment. Only the fallback: once
+// the API hands out short-lived credentials (see ownDynamicServers below),
+// those are used instead.
+//
+// Each slot is an independent server with its own login, so two VPSes with
+// different usernames/passwords run side by side — the browser gathers relay
+// candidates from every entry and ICE picks the best (usually the nearest).
+// Slot 1 is the original unsuffixed trio; NEXT_PUBLIC_TURN_*_2 and _3 add
+// more. Next inlines NEXT_PUBLIC_* only where it sees the literal variable
+// name, so each slot is read explicitly — a key built at runtime
+// (`process.env["..." + i]`) comes back undefined in the browser.
+const STATIC_TURN_SERVERS: RTCIceServer[] = [
+  staticServer(
+    process.env.NEXT_PUBLIC_TURN_URLS,
+    process.env.NEXT_PUBLIC_TURN_USERNAME,
+    process.env.NEXT_PUBLIC_TURN_CREDENTIAL
+  ),
+  staticServer(
+    process.env.NEXT_PUBLIC_TURN_URLS_2,
+    process.env.NEXT_PUBLIC_TURN_USERNAME_2,
+    process.env.NEXT_PUBLIC_TURN_CREDENTIAL_2
+  ),
+  staticServer(
+    process.env.NEXT_PUBLIC_TURN_URLS_3,
+    process.env.NEXT_PUBLIC_TURN_USERNAME_3,
+    process.env.NEXT_PUBLIC_TURN_CREDENTIAL_3
+  ),
+].filter((server): server is RTCIceServer => server !== null);
 
 // The VPS again, with credentials the API minted (coturn's "TURN REST API":
 // an HMAC of an expiry time, see the API's ownTurn.ts). Replaces the static
@@ -150,7 +182,7 @@ export function turnProvider(url: string | null | undefined): TurnProvider | nul
   const host = turnHost(url);
   if (!host) return null;
   if (isCloudflareTurnUrl(url) || /(^|\.)cloudflare\.com$/.test(host)) return "cloudflare";
-  if (TURN_URLS.some((own) => turnHost(own) === host)) return "own";
+  if (STATIC_TURN_SERVERS.some((server) => urlsOf(server).some((u) => turnHost(u) === host))) return "own";
   if (ownDynamicServers.some((server) => urlsOf(server).some((u) => turnHost(u) === host))) return "own";
   return null;
 }
