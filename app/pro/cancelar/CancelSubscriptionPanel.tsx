@@ -8,13 +8,17 @@ import { LoginForm } from "@/components/LoginForm";
 import { useAuth } from "@/lib/AuthContext";
 import { formatLocale } from "@/lib/i18n";
 import {
+  acceptSaveOffer,
   cancelPremium,
   fetchPremiumPlans,
+  fetchSaveOffer,
   isPremiumActive,
   type CancelSurvey,
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
 import { proHref } from "@/lib/proSourceAttribution";
+import { trackFeatureEvent } from "@/lib/features";
+import { BILLING_RESCUE_EVENTS, CANCEL_SAVE_FEATURE } from "@/lib/billingRescue";
 
 // The cancellation page: sign in again, answer the survey, cancel.
 //
@@ -30,7 +34,11 @@ import { proHref } from "@/lib/proSourceAttribution";
 // What happens after it is exactly what /pro used to do: the four questions
 // (CancelSurveyDialog) and the confirmation, then one request.
 
-type Step = "login" | "survey" | "done";
+// Before any of that, right after the deliberate wait: a discount instead of
+// cancelling, for the accounts the API offers one to (experiment cancel-save,
+// see its billingRescue.ts). Taking it ends the visit on "saved"; declining
+// goes on to the sign-in and the survey as before.
+type Step = "login" | "survey" | "saved" | "done";
 
 /** How long the page waits before showing anything. */
 const LOAD_DELAY_MS = 10000;
@@ -50,7 +58,7 @@ function dateLabel(timestamp: number): string {
 export function CancelSubscriptionPanel() {
   const t = useT();
   const router = useRouter();
-  const { account, refresh } = useAuth();
+  const { account, loading: resolvingAccount, refresh } = useAuth();
   const [step, setStep] = useState<Step>("login");
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -84,6 +92,32 @@ export function CancelSubscriptionPanel() {
   const cancellable =
     isPremiumActive(premium) && premium?.method !== "pix" && premium?.status !== "cancelled";
 
+  // Asked while the deliberate wait runs, so the offer adds no wait of its own.
+  // The API counts the exposure here, for both groups: this is the moment a
+  // cancellation starts.
+  const [offer, setOffer] = useState<{ percentOff: number; months: number } | null>(null);
+  const [offerFetched, setOfferFetched] = useState(false);
+  const [offerDecided, setOfferDecided] = useState(false);
+  const accountId = account?.id ?? null;
+  useEffect(() => {
+    if (resolvingAccount) return;
+    let cancelled = false;
+    const done = (found: { percentOff: number; months: number } | null) => {
+      if (cancelled) return;
+      setOffer(found);
+      setOfferFetched(true);
+    };
+    if (!accountId) void Promise.resolve(null).then(done);
+    else void fetchSaveOffer().then(done);
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvingAccount, accountId]);
+  const showOffer = Boolean(offer) && !offerDecided && step === "login";
+  useEffect(() => {
+    if (showOffer) trackFeatureEvent(BILLING_RESCUE_EVENTS.saveShown, { feature: CANCEL_SAVE_FEATURE });
+  }, [showOffer]);
+
   const backToPro = useCallback(() => router.push(proHref("cancel_page")), [router]);
 
   const handleCancel = useCallback(
@@ -113,7 +147,8 @@ export function CancelSubscriptionPanel() {
     [premium, refresh, t]
   );
 
-  if (!ready) {
+  // The wait, and the offer's answer if it is still on its way.
+  if (!ready || !offerFetched) {
     return (
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-3 px-4 py-20">
         <span
@@ -127,7 +162,7 @@ export function CancelSubscriptionPanel() {
 
   return (
     <main className="mx-auto w-full max-w-md px-4 py-10">
-      {step === "login" && (
+      {step === "login" && !showOffer && (
         <div className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-zinc-950 sm:p-8">
           <h1 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
             {t("cancelPage.confirmItsYou")}
@@ -189,6 +224,78 @@ export function CancelSubscriptionPanel() {
           // is cancelling, there is nowhere else to leave it for.
           onClose={backToPro}
         />
+      )}
+
+      {showOffer && offer && (
+        <div className="rounded-2xl border border-emerald-300 bg-white p-6 shadow-sm dark:border-emerald-500/40 dark:bg-zinc-950 sm:p-8">
+          <p className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">
+            {t("cancelSave.badge", { percent: offer.percentOff })}
+          </p>
+          <h1 className="mt-3 text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {t("cancelSave.title")}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            {t("cancelSave.body", { percent: offer.percentOff, months: offer.months })}
+          </p>
+          {error && (
+            <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                trackFeatureEvent(BILLING_RESCUE_EVENTS.saveAccept, { feature: CANCEL_SAVE_FEATURE });
+                setBusy(true);
+                setError(null);
+                void acceptSaveOffer("before_survey").then(async (result) => {
+                  if (!result.ok) {
+                    setBusy(false);
+                    setError(result.error ?? null);
+                    return;
+                  }
+                  await refresh();
+                  setBusy(false);
+                  setStep("saved");
+                });
+              }}
+              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {busy ? t("common.loading") : t("cancelSave.accept", { percent: offer.percentOff })}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                trackFeatureEvent(BILLING_RESCUE_EVENTS.saveDecline, { feature: CANCEL_SAVE_FEATURE });
+                setError(null);
+                setOfferDecided(true);
+              }}
+              className="rounded-lg px-4 py-2.5 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+            >
+              {t("cancelSave.decline")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "saved" && offer && (
+        <div className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-zinc-950 sm:p-8">
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {t("cancelSave.savedTitle")}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            {t("cancelSave.savedBody", { percent: offer.percentOff, months: offer.months })}
+          </p>
+          <Link
+            href={proHref("cancel_page")}
+            className="mt-5 inline-block rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          >
+            {t("cancelPage.backToPro")}
+          </Link>
+        </div>
       )}
 
       {step === "done" && (

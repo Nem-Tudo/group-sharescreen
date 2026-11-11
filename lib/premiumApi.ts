@@ -886,6 +886,52 @@ export async function cancelPremium(
 }
 
 /**
+ * A Stripe page to put a new card on a subscription whose renewal was refused
+ * (experiment renewal-rescue). Answers the page's address, or an error.
+ */
+export async function startCardUpdate(): Promise<{ url: string | null; error?: string }> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/card/update`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!res.ok || !data.url) return { url: null, error: data.error ?? translate("billingRescue.cardError") };
+    return { url: data.url };
+  } catch {
+    return { url: null, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/** The "stay with a discount" offer, when this account gets one (experiment cancel-save). */
+export async function fetchSaveOffer(): Promise<{ percentOff: number; months: number } | null> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/save-offer`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { offer?: { percentOff: number; months: number } | null };
+    return data.offer ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Takes the discount instead of cancelling. */
+export async function acceptSaveOffer(reason: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${getSignalingHttpBase()}/premium/save-offer/accept`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: data.error ?? translate("cancelSave.error") };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/**
  * Whether a higher plan is still running on top of the subscription — see
  * PremiumState.carriedPlan. Mirrors the API's accountStore.carriedPlanLive.
  */

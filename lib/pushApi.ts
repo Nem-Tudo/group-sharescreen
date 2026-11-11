@@ -30,7 +30,8 @@ export type NotifyKind =
   | "theme-like"
   | "camera-effect-like"
   | "friend-request"
-  | "gift";
+  | "gift"
+  | "billing";
 
 /** One device this account receives notifications on. */
 export interface PushDevice {

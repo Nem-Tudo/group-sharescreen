@@ -1,5 +1,17 @@
 "use client";
 
+import {
+  BILLING_RESCUE_EVENTS,
+  DOOR_CONTEXT_FEATURE,
+  RENEWAL_RESCUE_FEATURE,
+  canUpdateCard,
+  clearPendingPix,
+  hasRefusedRenewal,
+  rememberPendingPix,
+} from "@/lib/billingRescue";
+import { startCardUpdate } from "@/lib/premiumApi";
+import { DOOR_CONTEXT_DOORS, ProDoorContext } from "@/components/ProDoorContext";
+
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   MdArrowUpward,
@@ -278,6 +290,7 @@ function PixSurchargeNotice({
 export function ProPanel({
   isModal = false,
   initialPlanId,
+  source,
   onClose,
   onCheckoutLockChange,
 }: {
@@ -288,6 +301,11 @@ export function ProPanel({
    * has no query string of its own to read.
    */
   initialPlanId?: string;
+  /**
+   * The door the plans were opened from, when this is the modal (the page
+   * reads its own ?from=). Drives the context card (pro-door-context).
+   */
+  source?: string | null;
   onClose?: () => void;
   /**
    * Told while a payment is being created, for the dialog around this panel
@@ -417,6 +435,28 @@ export function ProPanel({
   // arms do not flash an empty tab open and shut. A wrong guess still works —
   // see handleSubscribe.
   const checkoutInline = useFeature("checkout-inline", { track: false });
+  // A refused renewal, said while the plan is still running and with a way to
+  // put a new card on it (experiment renewal-rescue, see lib/billingRescue).
+  const rescueOn = useFeature(RENEWAL_RESCUE_FEATURE, { track: false }).enabled;
+  const [cardBusy, setCardBusy] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
+  // Back from Stripe's card page (see the API's /premium/card/update).
+  const [cardUpdated] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("card") === "updated"
+  );
+  // Which door opened the plans, read once: the modal is told, the page reads
+  // ?from=. A lock door gets a card naming what was tried (pro-door-context);
+  // the exposure is counted for both groups only there.
+  const [doorSource] = useState<string | null>(() => {
+    if (source) return source;
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("from");
+  });
+  const lockDoor = doorSource !== null && DOOR_CONTEXT_DOORS.has(doorSource);
+  const doorContextOn = useFeature(DOOR_CONTEXT_FEATURE, { track: lockDoor }).enabled;
+  // The plan the lock asked for, not whichever is picked later: the card says
+  // where the thing lives, and a lower plan picked afterwards does not have it.
+  const [doorPlanId] = useState(selectedPlanId);
   const stripeRollout = useFeature("stripe-payments", { track: false });
   const expectInlineCheckout =
     (checkoutInline.variant === "embedded" || checkoutInline.variant === "custom") &&
@@ -964,6 +1004,10 @@ export function ProPanel({
   const pixPaid = Boolean(pix) && active && (premium?.currentPeriodEnd ?? 0) > pixBaselineEnd;
   /** A Pix code on screen that has not been paid yet. */
   const pixPending = Boolean(pix) && !pixPaid;
+  // Paid: nothing left to offer again (see rememberPendingPix above).
+  useEffect(() => {
+    if (pixPaid) clearPendingPix();
+  }, [pixPaid]);
 
   // Priced for this reader (see fetchPremiumPlans' `personal`), and read
   // again when the account changes: the Pix price is an experiment decided per
@@ -1247,6 +1291,17 @@ export function ProPanel({
     // API) is read against this one: abandonment only means anything as a
     // share of the codes that were shown.
     trackFeatureEvent("pro_pix_qr_seen");
+    // Remembered so a code walked away from can be offered again later
+    // (experiment pix-recover, see BillingRescueNotice). Cleared once paid.
+    const pixPlanId = plan?.id;
+    if (pixPlanId) {
+      const expiresAt = result.charge.expiresAt ? Date.parse(result.charge.expiresAt) : Number.NaN;
+      rememberPendingPix({
+        planId: pixPlanId,
+        cycle,
+        expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 30 * 60 * 1000,
+      });
+    }
     setBusy(false);
     setGenerating(false);
     // See handleSubscribe: plan?.id is what this buys.
@@ -1449,6 +1504,12 @@ export function ProPanel({
       {/* The column that stays put while the table scrolls beside it. Off the
           layout entirely (contents) for everybody else. */}
       <div className={twoPane ? "lg:sticky lg:top-7 lg:max-h-[calc(90dvh-3.5rem)] lg:self-start lg:overflow-y-auto" : "contents"}>
+      {doorContextOn && lockDoor && plans.length > 0 && (
+        <ProDoorContext
+          door={doorSource}
+          planTitle={(plans.find((entry) => entry.id === doorPlanId) ?? plans[0]).title}
+        />
+      )}
       <div
         className={`${cardsLayout ? "hidden" : "flex"} items-start justify-between gap-4 ${
           // Below lg the popup scrolls as one: the title and the × stay on top.
@@ -1738,7 +1799,12 @@ export function ProPanel({
                   distinction worth passing on is "your card was declined" vs
                   "something went wrong", and in either case Pix is the answer
                   that works right now. */}
-              {premium?.lastRefusal && !active && (
+              {cardUpdated && (
+                <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
+                  {t("billingRescue.cardUpdated")}
+                </div>
+              )}
+              {premium?.lastRefusal && !cardUpdated && (!active || (rescueOn && hasRefusedRenewal(premium))) && (
                 <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
                   <p className="font-medium">
                     {premium.lastRefusal.reason.startsWith("cc_rejected")
@@ -1746,8 +1812,34 @@ export function ProPanel({
                       : t("pro.proPanel.theLastPaymentWasNotCompleted")}
                   </p>
                   <p className="mt-1 text-red-700 dark:text-red-300/90">
-                    {t("pro.proPanel.nothingWasChargedYouCanTry")}
+                    {/* Still active: Stripe keeps retrying for a few days, and
+                        a new card (or a Pix below) is what stops the plan
+                        ending when the retries run out. */}
+                    {active ? t("billingRescue.activeRefusalBody") : t("pro.proPanel.nothingWasChargedYouCanTry")}
                   </p>
+                  {rescueOn && canUpdateCard(premium) && (
+                    <button
+                      type="button"
+                      disabled={cardBusy}
+                      onClick={() => {
+                        trackFeatureEvent(BILLING_RESCUE_EVENTS.rescueCard, { feature: RENEWAL_RESCUE_FEATURE });
+                        setCardBusy(true);
+                        setCardError(null);
+                        void startCardUpdate().then((result) => {
+                          if (result.url) {
+                            window.location.assign(result.url);
+                            return;
+                          }
+                          setCardBusy(false);
+                          setCardError(result.error ?? null);
+                        });
+                      }}
+                      className="mt-2 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {cardBusy ? t("common.loading") : t("billingRescue.changeCard")}
+                    </button>
+                  )}
+                  {cardError && <p className="mt-1 text-xs">{cardError}</p>}
                 </div>
               )}
               {resolvingAccount ? (

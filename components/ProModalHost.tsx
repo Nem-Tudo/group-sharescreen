@@ -7,7 +7,7 @@ import { closeProModal, useProModal } from "@/lib/proModal";
 // can open the Pro modal directly without navigating away from the current room or page.
 
 export function ProModalHost() {
-  const { open, planId } = useProModal();
-  return <ProModal open={open} planId={planId} onClose={closeProModal} />;
+  const { open, planId, source } = useProModal();
+  return <ProModal open={open} planId={planId} source={source} onClose={closeProModal} />;
 }
 

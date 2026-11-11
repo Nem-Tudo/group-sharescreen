@@ -28,6 +28,7 @@ import { CallHost } from "@/components/CallHost";
 import { RoomCallHost } from "@/components/RoomCallHost";
 import { PushRegistrar } from "@/components/PushRegistrar";
 import { ProModalHost } from "@/components/ProModalHost";
+import { BillingRescueNotice } from "@/components/BillingRescueNotice";
 import { NtPopups } from "@/components/NtPopups";
 import { SettingsHost } from "@/components/settings/SettingsHost";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
@@ -391,6 +392,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <PushRegistrar />
                 {/* GoLive Pro subscription modal */}
                 <ProModalHost />
+                {/* An expired Pix or a refused renewal, while it can still be
+                    saved — see components/BillingRescueNotice. */}
+                <BillingRescueNotice />
                 <SettingsHost />
                 {/* Above the announcement bar: this one says why nothing is
                     working, and the admin's message of the day is only worth

@@ -9,6 +9,7 @@ import {
   MdCall,
   MdCardGiftcard,
   MdChatBubbleOutline,
+  MdCreditCard,
   MdDevices,
   MdGroups,
   MdNotificationsActive,
@@ -68,6 +69,7 @@ const KINDS: { kind: NotifyKind; icon: typeof MdChatBubbleOutline; labelKey: str
   { kind: "theme-like", icon: MdPalette, labelKey: "notificationSettings.kindThemeLike" },
   { kind: "camera-effect-like", icon: MdAutoAwesome, labelKey: "notificationSettings.kindCameraEffectLike" },
   { kind: "gift", icon: MdCardGiftcard, labelKey: "notificationSettings.kindGift" },
+  { kind: "billing", icon: MdCreditCard, labelKey: "notificationSettings.kindBilling" },
 ];
 
 export function NotificationSettingsScreen({ embedded = false }: { embedded?: boolean } = {}) {

@@ -63,6 +63,8 @@ export const PRO_SOURCES = [
   "gift_notice", // "you got a plan" notification
   "gift_dialog", // gift dialog's link to the full page
   "cancel_page", // back from the cancel page
+  "pix_recover", // "your Pix expired" push or card (lib/billingRescue)
+  "renewal_rescue", // "your card was refused" push or card (lib/billingRescue)
   "link_other", // ?from= with a name not on this list (blog, email…)
   // The page reached with no door: a fresh load of /pro, by where it came from.
   "direct", // typed, bookmark, app shell — no referrer

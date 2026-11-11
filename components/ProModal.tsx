@@ -12,12 +12,14 @@ export interface ProModalProps {
   open: boolean;
   /** Which plan to open on, from whatever asked for the modal. */
   planId?: string | null;
+  /** The door it was opened from (see lib/proSourceAttribution), for the panel's context card. */
+  source?: string | null;
   onClose: () => void;
 }
 
 const subscribeNothing = () => () => {};
 
-export function ProModal({ open, planId, onClose }: ProModalProps) {
+export function ProModal({ open, planId, source, onClose }: ProModalProps) {
   const t = useT();
   const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
   // Held while the panel inside is creating a payment (see ProPanel's
@@ -88,6 +90,7 @@ export function ProModal({ open, planId, onClose }: ProModalProps) {
         <ProPanel
           isModal
           initialPlanId={planId ?? undefined}
+          source={source ?? null}
           onClose={guardedClose}
           onCheckoutLockChange={handleLockChange}
         />

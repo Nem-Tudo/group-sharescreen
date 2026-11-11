@@ -18,9 +18,11 @@ type ModalState = {
    * to find the picker to see the thing they just clicked about.
    */
   planId: string | null;
+  /** The door it was opened from, for the panel's context card (pro-door-context). */
+  source: ProSource | null;
 };
 
-let state: ModalState = { open: false, planId: null };
+let state: ModalState = { open: false, planId: null, source: null };
 const listeners = new Set<() => void>();
 
 function set(next: ModalState) {
@@ -35,16 +37,16 @@ function set(next: ModalState) {
  */
 export function openProModal(source: ProSource, planId?: string | null): void {
   noteProSource(source);
-  set({ open: true, planId: planId ?? null });
+  set({ open: true, planId: planId ?? null, source });
 }
 
 /** Closes the GoLive Pro modal. */
 export function closeProModal(): void {
   if (!state.open) return;
-  set({ open: false, planId: null });
+  set({ open: false, planId: null, source: null });
 }
 
-const SERVER_STATE: ModalState = { open: false, planId: null };
+const SERVER_STATE: ModalState = { open: false, planId: null, source: null };
 
 export function useProModal(): ModalState {
   return useSyncExternalStore(
