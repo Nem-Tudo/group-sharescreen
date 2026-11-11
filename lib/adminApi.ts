@@ -426,6 +426,34 @@ export async function setCloudflareTurnEnabled(enabled: boolean): Promise<Cloudf
   });
 }
 
+// The own (VPS) TURN servers, editable at runtime (see the API's ownTurn.ts).
+// Saving pushes the new list to every open tab live.
+export interface OwnTurnServer {
+  urls: string[];
+  username: string;
+  credential: string;
+  enabled: boolean;
+  label?: string;
+}
+
+export interface OwnTurnSetting {
+  servers: OwnTurnServer[];
+  /** A minted-credential server is also set from the environment. */
+  envConfigured: boolean;
+}
+
+export async function fetchOwnTurn(): Promise<OwnTurnSetting> {
+  return adminFetch<OwnTurnSetting>("/admin/turn/own");
+}
+
+export async function saveOwnTurn(servers: OwnTurnServer[]): Promise<OwnTurnSetting & { dropped: number }> {
+  return adminFetch<OwnTurnSetting & { dropped: number }>("/admin/turn/own", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ servers }),
+  });
+}
+
 // The ads (Monetag) kill switch (see the API's adsConfig.ts, which still calls
 // the field `adsterraEnabled`). Reading it needs no
 // admin rights — it is the same value every visitor's page already fetches to
