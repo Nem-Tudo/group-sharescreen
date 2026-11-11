@@ -46,9 +46,20 @@ export function adminPermissionFlag(permission: AdminPermission): string {
   return `${ADMIN_PERM_FLAG_PREFIX}${permission.toUpperCase()}`;
 }
 
+/**
+ * A push on the phone for every sale (see the API's saleNotifier.ts). Restricted
+ * like the admin flags: it says what everybody paid, so only ADMIN_MASTER hands it out.
+ */
+export const SALES_NOTIFY_FLAG = "SALES_NOTIFY";
+
 /** A flag only ADMIN_MASTER may add or remove. */
 export function isRestrictedAdminFlag(flag: string): boolean {
-  return flag === "ADMIN" || flag === "ADMIN_MASTER" || flag.startsWith(ADMIN_PERM_FLAG_PREFIX);
+  return (
+    flag === "ADMIN" ||
+    flag === "ADMIN_MASTER" ||
+    flag === SALES_NOTIFY_FLAG ||
+    flag.startsWith(ADMIN_PERM_FLAG_PREFIX)
+  );
 }
 
 /** What these flags allow. ADMIN_MASTER: everything. Not ADMIN: nothing. */
