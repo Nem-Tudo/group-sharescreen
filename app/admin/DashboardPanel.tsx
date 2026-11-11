@@ -4,6 +4,7 @@ import { StatsOverview } from "./StatsOverview";
 import { StreamStatsPanel } from "./StreamStatsPanel";
 import { ConnectionQualityPanel } from "./ConnectionQualityPanel";
 import { CloudflareTurnPanel } from "./CloudflareTurnPanel";
+import { TurnHealthPanel } from "./TurnHealthPanel";
 import { AnnouncementPanel } from "./AnnouncementPanel";
 import { PartnerAdsPanel } from "./PartnerAdsPanel";
 import { AffiliateProductsPanel } from "./AffiliateProductsPanel";
@@ -108,6 +109,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {/* Above the numbers: when the numbers say Cloudflare's network is
             the problem (or its bill is), this is what gets reached for. */}
         {can("turn") && <CloudflareTurnPanel />}
+        {can("turn") && <TurnHealthPanel />}
         {can("stats") && <ConnectionQualityPanel />}
       </Group>
     ),

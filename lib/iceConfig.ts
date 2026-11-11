@@ -187,6 +187,30 @@ export function turnProvider(url: string | null | undefined): TurnProvider | nul
   return null;
 }
 
+/** A TURN server for a health check to probe (see admin/TurnHealthPanel). */
+export interface TurnHealthTarget {
+  /** The first host of the entry — a stable label and React key. */
+  label: string;
+  provider: TurnProvider;
+  server: RTCIceServer;
+}
+
+/**
+ * Every TURN server the client would actually use right now, one entry each so
+ * a health check can test and report them separately. Mirrors what
+ * iceConfigFor/ownServers hand to a real connection: the API's own set when it
+ * has sent one, the build's static servers otherwise, plus Cloudflare's. The
+ * dynamic sets only appear once lib/iceServers.ts has loaded them (an account
+ * with the "dedicated_turn" entitlement), so run ensureIceServers first.
+ */
+export function turnHealthTargets(): TurnHealthTarget[] {
+  const labelOf = (server: RTCIceServer) => turnHost(urlsOf(server)[0] ?? "") ?? "TURN";
+  return [
+    ...ownServers().map((server) => ({ label: labelOf(server), provider: "own" as const, server })),
+    ...dynamicServers.map((server) => ({ label: labelOf(server), provider: "cloudflare" as const, server })),
+  ];
+}
+
 /**
  * Whether any TURN server is available — the build's own or Cloudflare's.
  *
