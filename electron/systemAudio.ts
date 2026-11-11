@@ -51,6 +51,7 @@ import path from "node:path";
 import type { WebContents } from "electron";
 import { getSystemAudioSettings, type SystemAudioSettings } from "./audioSettings";
 import { IPC, SYSTEM_AUDIO_FORMAT } from "./channels";
+import { endHelper } from "../lib/helperShutdown";
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -374,6 +375,8 @@ interface CaptureSource {
   queue: Buffer[];
   queued: number;
   lastDataAt: number;
+  /** Whether it has said READY, and so is reading its stdin (see endHelper). */
+  listening: boolean;
 }
 
 interface Capture {
@@ -572,7 +575,7 @@ function addSource(
     return;
   }
 
-  const source: CaptureSource = { pid, child, queue: [], queued: 0, lastDataAt: Date.now() };
+  const source: CaptureSource = { pid, child, queue: [], queued: 0, lastDataAt: Date.now(), listening: false };
   active.sources.set(pid, source);
 
   child.stdout.on("data", (data: Buffer) => {
@@ -594,6 +597,7 @@ function addSource(
   child.stderr.on("data", (data: Buffer) => {
     const text = data.toString();
     if (text.includes(READY_LINE)) {
+      source.listening = true;
       onReady?.(true);
       return;
     }
@@ -667,7 +671,7 @@ async function rescanSources(active: Capture) {
   for (const [pid, source] of active.sources) {
     if (wanted.has(pid)) continue;
     active.sources.delete(pid);
-    endHelper(source.child);
+    endHelper(source.child, source.listening);
   }
 }
 
@@ -816,7 +820,7 @@ export function stopSystemAudioCapture() {
   capture = null;
   if (active.rescan) clearInterval(active.rescan);
   active.detachTarget();
-  for (const source of active.sources.values()) endHelper(source.child);
+  for (const source of active.sources.values()) endHelper(source.child, source.listening);
   active.sources.clear();
 }
 
@@ -829,24 +833,4 @@ function endCapture(active: Capture) {
   const target = active.target;
   stopSystemAudioCapture();
   if (!target.isDestroyed()) target.send(IPC.systemAudioEnded);
-}
-
-function endHelper(child: ChildProcessWithoutNullStreams) {
-  // Closing stdin is the helper's documented shutdown signal (see its
-  // WatchStdin): it stops the audio client properly and exits on its own.
-  // kill() is the backstop for a helper that is already wedged, not the
-  // first resort — terminating it outright leaves WASAPI to clean up after
-  // the fact.
-  try {
-    child.stdin.end();
-  } catch {
-    // Already closed — the exit handler has this covered.
-  }
-  const forceKill = setTimeout(() => {
-    if (!child.killed) child.kill();
-  }, 1000);
-  // Node keeps the process alive for a pending timer, and a one-second delay
-  // on quit is a visible hang.
-  forceKill.unref?.();
-  child.once("exit", () => clearTimeout(forceKill));
 }
