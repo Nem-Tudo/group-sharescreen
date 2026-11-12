@@ -41,7 +41,8 @@ export function TurnUpsellTileMessage({ compact = false }: { compact?: boolean }
 
   if (!visible) return null;
   return (
-    <div className="flex max-w-xs flex-col items-center gap-1 px-3 text-center text-white">
+    // Not in the iOS app, which sells nothing (lib/storePolicy.ts).
+    <div data-sells="" className="flex max-w-xs flex-col items-center gap-1 px-3 text-center text-white">
       <p className="text-xs font-medium sm:text-sm">{t("turnUpsell.title")}</p>
       {/* A small tile only has room for the question and the button. */}
       {!compact && <p className="text-xs text-white/70">{t("turnUpsell.body")}</p>}
@@ -75,6 +76,7 @@ export default function TurnUpsellNotice() {
   if (!visible) return null;
   return (
     <div
+      data-sells=""
       role="status"
       className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-start gap-3 rounded-xl bg-blue-600 px-4 py-3 text-sm text-white shadow-lg"
     >

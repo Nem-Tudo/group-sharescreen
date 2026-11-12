@@ -74,7 +74,8 @@ export interface DesktopBridge {
   // exists" as the one thing that matters, never which platform string it
   // carries — see the grep-worthy absence of any `.platform === "win32"`
   // check anywhere in the site's own code.
-  readonly platform: "darwin" | "win32" | "linux" | "android";
+  // "ios" is the same Capacitor shell on an iPhone/iPad (ios/README.md).
+  readonly platform: "darwin" | "win32" | "linux" | "android" | "ios";
   /**
    * Reuse the last shared screen/window for the very next getDisplayMedia,
    * instead of opening the picker. Resolves whether there was one to reuse.
@@ -440,7 +441,21 @@ export function isDesktopApp(): boolean {
  */
 export function isMobileApp(): boolean {
   if (typeof window === "undefined") return false;
-  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+  if (!Capacitor.isNativePlatform()) return false;
+  const platform = Capacitor.getPlatform();
+  return platform === "android" || platform === "ios";
+}
+
+/**
+ * Specifically the iOS shell (ios/README.md). The one place the two phone apps
+ * have to behave differently on purpose is selling: inside an App Store app a
+ * digital plan may only be sold through Apple's in-app purchase, so the iOS
+ * app sells nothing at all (see lib/storePolicy.ts). Everything else asks
+ * isMobileApp(), which is true for both.
+ */
+export function isIOSApp(): boolean {
+  if (typeof window === "undefined") return false;
+  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
 }
 
 // Nonces come from the platform CSPRNG rather than Math.random: this value

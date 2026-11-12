@@ -31,7 +31,9 @@ function hasAppChrome(): boolean {
   return (
     typeof window !== "undefined" &&
     Capacitor.isNativePlatform() &&
-    Capacitor.getPlatform() === "android" &&
+    // Both phone apps carry it: android/…/AppChromePlugin.java and
+    // ios/App/App/AppChromePlugin.swift, same name and methods.
+    (Capacitor.getPlatform() === "android" || Capacitor.getPlatform() === "ios") &&
     Capacitor.isPluginAvailable("AppChrome")
   );
 }

@@ -70,3 +70,12 @@ next-env.d.ts
 /android/**/*.jks
 /android/app/src/main/assets/public
 /android/app/src/main/assets/capacitor.config.json
+
+# iOS shell (see ios/README.md). The Xcode project is committed; what
+# `cap sync ios` and Xcode generate is not, and neither are signing keys.
+/ios/App/build
+/ios/App/output
+/ios/**/xcuserdata
+/ios/**/*.p8
+/ios/**/*.p12
+/ios/**/*.mobileprovision

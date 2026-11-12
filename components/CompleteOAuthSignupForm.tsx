@@ -27,6 +27,8 @@ const linkButtonClass =
 const PROVIDER_LABEL: Record<OAuthProviderId, string> = {
   get discord() { return translate("completeOAuthSignupForm.discord"); },
   get google() { return translate("completeOAuthSignupForm.google"); },
+  // A brand name, the same in every language.
+  apple: "Apple",
 };
 
 // The second (and last) step of a *first* login with Discord/Google: the

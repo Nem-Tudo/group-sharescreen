@@ -6,6 +6,7 @@ import { PixIcon } from "@/components/icons";
 import { PixChargeModal } from "@/components/PixChargeModal";
 import type { PixCharge } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
+import { useSellsHere } from "@/lib/storePolicy";
 import { useAuth } from "@/lib/AuthContext";
 import { holdPaymentShake } from "@/lib/useShake";
 import {
@@ -24,7 +25,7 @@ import {
 
 const POLL_MS = 3000;
 
-export function PartnerCheckout({
+function PartnerCheckoutInner({
   order,
   amountLabel,
   methods,
@@ -198,4 +199,15 @@ export function PartnerCheckout({
       />
     </div>
   );
+}
+
+/**
+ * Pays for a partner order — but never inside the iOS app, which sells nothing
+ * (lib/storePolicy.ts). There the order can still be read; it just has no
+ * pay button.
+ */
+export function PartnerCheckout(props: Parameters<typeof PartnerCheckoutInner>[0]) {
+  const sells = useSellsHere();
+  if (!sells) return null;
+  return <PartnerCheckoutInner {...props} />;
 }

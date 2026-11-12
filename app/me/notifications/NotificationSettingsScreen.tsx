@@ -439,6 +439,7 @@ function TimeField({
  */
 function describeDevice(device: PushDevice): string {
   if (device.kind === "fcm") return "Android";
+  if (device.kind === "apns") return /iPad/.test(device.userAgent) ? "iPad" : "iPhone";
   const ua = device.userAgent;
   const os = /Windows/i.test(ua)
     ? "Windows"

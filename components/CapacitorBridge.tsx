@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { initCapacitorBridge } from "@/lib/capacitorBridge";
-import { isMobileApp } from "@/lib/desktop";
+import { isIOSApp, isMobileApp } from "@/lib/desktop";
 import { setSystemBarColors } from "@/lib/nativeApp";
 import { noteAppOpen } from "@/lib/appReview";
 
@@ -32,7 +32,10 @@ export function CapacitorBridge() {
     const root = document.documentElement;
     // For the few rules that only make sense inside the app — no tap flash,
     // no rubber-band scrolling (see app/globals.css).
-    root.dataset.appShell = "android";
+    // "android" or "ios" — the iOS value also hides everything marked
+    // data-sells (see lib/storePolicy.ts and app/globals.css); the inline
+    // script in app/layout.tsx sets it even earlier, before the first paint.
+    root.dataset.appShell = isIOSApp() ? "ios" : "android";
     const paint = () => {
       const dark = root.dataset.theme === "dark";
       setSystemBarColors(dark ? BAR_COLOR.dark : BAR_COLOR.light, dark);

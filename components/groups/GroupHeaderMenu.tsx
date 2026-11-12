@@ -50,6 +50,8 @@ export function GroupHeaderMenu() {
       {!isDesktopLayout && (
         <button
           type="button"
+          // Hidden in the iOS app, which sells nothing (lib/storePolicy.ts).
+          data-sells=""
           onClick={() => {
             close();
             trackEvent("pro_button_clicked", { offer: offer.label });

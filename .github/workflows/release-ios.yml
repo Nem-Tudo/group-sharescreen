@@ -1,0 +1,153 @@
+# Builds the iOS app from a release tag and uploads it to App Store Connect,
+# where it lands in TestFlight and can be submitted for review.
+#
+# A button in the Actions tab, like publish-store.yml, because every App Store
+# submission goes through review and most tags only need the site. Nothing here
+# submits for review: that stays a press in App Store Connect (see
+# ios/README.md, "Publicar uma versão").
+#
+# Needs these repository secrets (ios/README.md says where each comes from):
+#   APPLE_TEAM_ID            the 10-character team id.
+#   ASC_KEY_ID               an App Store Connect API key (role Admin, so
+#   ASC_ISSUER_ID            Xcode may create the distribution certificate and
+#   ASC_KEY_P8               profile itself) — its id, issuer and .p8 contents.
+
+name: Release iOS app
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, e.g. v1.1.0. Its package.json version becomes the App Store version."
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-release
+
+jobs:
+  build:
+    # Apple only accepts uploads built with a current Xcode/SDK, so the newest
+    # macOS image and the newest stable Xcode on it.
+    runs-on: macos-26
+
+    env:
+      TAG: ${{ inputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+
+      - name: Check the request and the secrets
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG holds package.json version $version"
+            exit 1
+          fi
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret $name is not set — see ios/README.md"
+              exit 1
+            fi
+          done
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt of 3), retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      # Writes capacitor.config.json and the plugin list (CapApp-SPM's
+      # Package.swift) into the Xcode project, from capacitor.config.ts and
+      # node_modules. Production URL: GOLIVE_APP_URL is never set here.
+      - name: Sync the Capacitor project
+        run: npx cap sync ios
+
+      - name: Write the App Store Connect key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          key="$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+
+      # The build number has to grow on every upload of the same version; the
+      # run number does, and never repeats.
+      - name: Archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      - name: Upload to App Store Connect
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "Uploaded $VERSION (${{ github.run_number }}). It shows in TestFlight after Apple processes it (10-30 min)."
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"

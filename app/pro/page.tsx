@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ProPanel } from "./ProPanel";
+import { SalesPageGate } from "@/components/NotSoldInApp";
 import { pageMetadata } from "@/lib/seo";
 import { translate } from "@/lib/i18n";
 
@@ -38,7 +39,9 @@ export default function ProPage() {
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
       <SiteHeader />
-      <ProPanel />
+      <SalesPageGate>
+        <ProPanel />
+      </SalesPageGate>
     </div>
   );
 }

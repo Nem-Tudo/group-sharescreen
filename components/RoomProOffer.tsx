@@ -126,6 +126,8 @@ export function RoomProOfferButton() {
     <Tooltip content={offer.tooltip} placement="bottom">
       <button
         type="button"
+        // Hidden in the iOS app, which sells nothing (lib/storePolicy.ts).
+        data-sells=""
         onClick={() => {
           trackEvent("pro_button_clicked", { offer: offer.label });
           offer.onPress("group_bar");

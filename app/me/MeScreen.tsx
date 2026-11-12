@@ -71,6 +71,7 @@ import {
   PARTNER_ADS_MODE_FEATURE,
 } from "@/lib/partnerAdsMode";
 import { ACCOUNT_DELETE_FEATURE } from "@/lib/accountDelete";
+import { useSellsHere } from "@/lib/storePolicy";
 import {
   NOTIFICATION_SETTINGS_BADGE,
   NOTIFICATION_SETTINGS_FEATURE,
@@ -102,6 +103,7 @@ export function MeScreen() {
   const state = useSignalingSelector(selectAccountMenu, shallow);
   const { account, points, logout } = useAuth();
   const pro = useProOffer("me_screen");
+  const sells = useSellsHere();
   const [mode, setMode] = useState<Mode>("home");
   const [nameInput, setNameInput] = useState("");
   const [oauthTicket, setOAuthTicket] = useState<Extract<OAuthResult, { kind: "ticket" }> | null>(null);
@@ -292,7 +294,12 @@ export function MeScreen() {
             />
           )
         )}
-        <Row href={pro.href} onClick={pro.onClick} icon={pro.Icon} iconClassName={pro.iconClassName} label={pro.label} />
+        {/* Not in the iOS app, which sells nothing (lib/storePolicy.ts). */}
+        {sells && (
+          <div data-sells className="contents">
+            <Row href={pro.href} onClick={pro.onClick} icon={pro.Icon} iconClassName={pro.iconClassName} label={pro.label} />
+          </div>
+        )}
         {settingsHub && (
           <Row
             onClick={() => openSettings("me")}

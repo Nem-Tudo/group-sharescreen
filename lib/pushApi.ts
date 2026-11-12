@@ -17,6 +17,8 @@ export interface PushConfig {
   enabled: boolean;
   webPush: boolean;
   fcm: boolean;
+  /** Whether the API holds an APNs key — the iOS app's only way in. */
+  apns?: boolean;
   vapidPublicKey: string;
   /** The kinds that can be silenced one by one — the API's own list. */
   kinds?: NotifyKind[];
@@ -36,7 +38,7 @@ export type NotifyKind =
 /** One device this account receives notifications on. */
 export interface PushDevice {
   id: string;
-  kind: "webpush" | "fcm";
+  kind: "webpush" | "fcm" | "apns";
   deviceId: string;
   userAgent: string;
   locale: string | null;
@@ -95,7 +97,7 @@ export function fetchPushConfig(): Promise<PushConfig | null> {
 
 /** Registers one endpoint against the signed-in account. */
 export async function registerPushSubscription(input: {
-  kind: "webpush" | "fcm";
+  kind: "webpush" | "fcm" | "apns";
   endpoint: string;
   keys?: { p256dh: string; auth: string };
   /** "native" when the Android shell draws its own — see lib/androidNotifications.ts. */

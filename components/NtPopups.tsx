@@ -17,6 +17,8 @@ import { MemberActionsModal } from "@/components/MemberActionsModal";
 import { CosmeticsStoreDialog } from "@/components/CosmeticsStoreDialog";
 import { GiftPlanDialog } from "@/components/GiftPlanDialog";
 import { GiftClaimDialog } from "@/components/GiftClaimDialog";
+import { NotSoldInAppNotice } from "@/components/NotSoldInApp";
+import { useSellsHere } from "@/lib/storePolicy";
 import { ThemeEditorDialog } from "@/components/ThemeEditorDialog";
 import { ThemeHubDialog } from "@/components/ThemeHubDialog";
 import { RoomThemePicker } from "@/components/RoomThemePicker";
@@ -41,10 +43,25 @@ import { AddBotDialog, BotAddLinkInterceptor, InviteDialog } from "@/components/
 // `customPopups` as a map of prop-less components; each popup component
 // actually receives `closePopup`/`popupstyles`/`data` from the library
 // itself, which it can't express here.
+/**
+ * A popup that sells (or redeems a plan bought elsewhere), as the iOS app shows
+ * it: a plain "this is part of Pro" — see lib/storePolicy.ts. Everywhere else,
+ * the popup itself.
+ */
+function notInIOSApp(Popup: ComponentType<Record<string, unknown>>): ComponentType {
+  function Gated(props: Record<string, unknown>) {
+    const sells = useSellsHere();
+    if (sells) return <Popup {...props} />;
+    const close = props.closePopup as ((hasAction?: boolean) => void) | undefined;
+    return <NotSoldInAppNotice onClose={() => close?.(true)} />;
+  }
+  return Gated as ComponentType;
+}
+
 const customPopups: Record<string, ComponentType> = {
   partner_reward: PartnerRewardModal as ComponentType,
   // "Anuncie aqui também!" — see components/PartnerPitchModal.tsx.
-  partner_pitch: PartnerPitchModal as ComponentType,
+  partner_pitch: notInIOSApp(PartnerPitchModal as ComponentType<Record<string, unknown>>),
   // Which partner ads a Pro subscriber sees, from the ad card itself.
   partner_ads_settings: PartnerAdsSettingsModal as ComponentType,
   // After a long broadcast ends — see lib/useStreamEndSummary.
@@ -57,8 +74,8 @@ const customPopups: Record<string, ComponentType> = {
   camera_effect_workshop: CameraEffectWorkshopPopup as ComponentType,
   member_actions: MemberActionsModal as ComponentType,
   cosmetics_store: CosmeticsStoreDialog as ComponentType,
-  gift_plan: GiftPlanDialog as ComponentType,
-  gift_claim: GiftClaimDialog as ComponentType,
+  gift_plan: notInIOSApp(GiftPlanDialog as ComponentType<Record<string, unknown>>),
+  gift_claim: notInIOSApp(GiftClaimDialog as ComponentType<Record<string, unknown>>),
   theme_editor: ThemeEditorDialog as ComponentType,
   theme_hub: ThemeHubDialog as ComponentType,
   room_theme: RoomThemePicker as ComponentType,

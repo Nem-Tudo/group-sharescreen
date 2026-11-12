@@ -122,7 +122,12 @@ export async function ensurePushRegistration(
   if (!config?.enabled) return false;
 
   const native = capacitorPush();
-  if (native) return registerNative(native, config.fcm, options.interactive === true);
+  if (native) {
+    // iOS hands the plugin an APNs device token, which the API sends to
+    // directly (sharescreen-api/server/apnsSender.ts); Android an FCM one.
+    const ios = Capacitor.getPlatform() === "ios";
+    return registerNative(native, ios ? config.apns === true : config.fcm, options.interactive === true, ios);
+  }
   return registerWeb(config.vapidPublicKey, options.interactive === true);
 }
 
@@ -131,7 +136,8 @@ export async function ensurePushRegistration(
 async function registerNative(
   plugin: CapacitorPushPlugin,
   fcmConfigured: boolean,
-  interactive: boolean
+  interactive: boolean,
+  ios = false
 ): Promise<boolean> {
   // No point asking Android for permission to deliver something this
   // deployment cannot send.
@@ -149,7 +155,7 @@ async function registerNative(
     }
     if (!granted) return false;
 
-    const native = hasNativeNotifications();
+    const native = !ios && hasNativeNotifications();
 
     // Idempotent on Android (creating a channel that exists is a no-op that
     // does *not* reset what the user changed about it), so this can run on
@@ -158,7 +164,7 @@ async function registerNative(
     // Not in a build that draws its own notifications: that one creates its
     // channels natively, with a ringtone for calls, and deletes the old call
     // channel this would otherwise put straight back.
-    for (const channel of native ? [] : ANDROID_CHANNELS) {
+    for (const channel of native || ios ? [] : ANDROID_CHANNELS) {
       try {
         await plugin.createChannel(channel);
       } catch {
@@ -175,6 +181,10 @@ async function registerNative(
         const token = typeof payload.value === "string" ? payload.value : "";
         if (!token) return;
         currentEndpoint = token;
+        if (ios) {
+          void registerPushSubscription({ kind: "apns", endpoint: token });
+          return;
+        }
         void registerPushSubscription({
           kind: "fcm",
           endpoint: token,

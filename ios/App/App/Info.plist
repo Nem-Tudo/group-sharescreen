@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CAPACITOR_DEBUG</key>
+	<string>$(CAPACITOR_DEBUG)</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>pt-BR</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>pt-BR</string>
+		<string>en</string>
+		<string>es</string>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>Go Live</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- The same golive:// scheme the desktop and Android apps register: the
+	     OAuth hand-back from the browser and "abrir no app" room links (see the
+	     site's lib/capacitorBridge.ts). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>me.nemtudo.golive</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>golive</string>
+			</array>
+		</dict>
+	</array>
+	<!-- HTTPS, WSS and WebRTC's DTLS/SRTP only: standard encryption, exempt
+	     from export documentation. Without this key every upload stops in App
+	     Store Connect asking the question by hand. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<!-- Permission prompts. These are the English fallbacks; the translated
+	     ones live in *.lproj/InfoPlist.strings. Apple rejects vague texts, so
+	     each one says what the access is for. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Go Live uses the camera to show your video to the people in your call, and only while you have the camera on.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Go Live uses the microphone so the people in your call can hear you, and only while your mic is on.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Go Live opens your photos only when you choose one to send in a chat or to use as your avatar.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Go Live saves to your photos only when you tap to save an image, clip or recording.</string>
+	<!-- audio: keeps a call audible with the app in the background or the
+	     screen locked. remote-notification: lets a push update the badge and
+	     clear a ring that ended. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<true/>
+</dict>
+</plist>

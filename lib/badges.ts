@@ -221,6 +221,7 @@ export function isMobileApp(): boolean {
   return (
     Capacitor.isNativePlatform() ||
     window.golive?.platform === "android" ||
+    window.golive?.platform === "ios" ||
     (typeof navigator !== "undefined" && /GoLiveMobile/i.test(navigator.userAgent))
   );
 }

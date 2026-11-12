@@ -7504,6 +7504,8 @@ function WatchRoomView({
       {!isDesktopLayout && (
         <button
           type="button"
+          // Hidden in the iOS app, which sells nothing (lib/storePolicy.ts).
+          data-sells=""
           onClick={() => {
             closeMenu();
             trackEvent("pro_button_clicked", { offer: proButton.label });
@@ -9491,6 +9493,7 @@ function WatchRoomView({
             <Tooltip content={proButton.tooltip} placement="bottom">
               <button
                 type="button"
+                data-sells=""
                 onClick={() => {
                   // Still one event, with which of the three was on screen —
                   // "the premium button was pressed" is the question, and

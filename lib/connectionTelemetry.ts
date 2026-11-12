@@ -33,7 +33,7 @@ import { signalingClient } from "./signalingClient";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getAccountToken } from "./accountApi";
 import { getStoredGuestToken } from "./guestToken";
-import { isDesktopApp, isMobileApp } from "./desktop";
+import { isDesktopApp, isIOSApp, isMobileApp } from "./desktop";
 import {
   getEffectiveForceRelayIce,
   getStoredShareBitrate,
@@ -125,7 +125,7 @@ export interface ConnectionQualityReport extends SessionSummary {
     cores: number | null;
     memoryGb: number | null;
     browser: string;
-    app: "web" | "desktop" | "android";
+    app: "web" | "desktop" | "android" | "ios";
   };
 }
 
@@ -358,7 +358,7 @@ class ConnectionTelemetry {
         cores: nav?.hardwareConcurrency || null,
         memoryGb: (nav as (Navigator & { deviceMemory?: number }) | undefined)?.deviceMemory ?? null,
         browser: browserOf(nav?.userAgent ?? ""),
-        app: isMobileApp() ? "android" : isDesktopApp() ? "desktop" : "web",
+        app: isIOSApp() ? "ios" : isMobileApp() ? "android" : isDesktopApp() ? "desktop" : "web",
       },
     };
   }

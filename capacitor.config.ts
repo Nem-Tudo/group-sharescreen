@@ -41,6 +41,24 @@ const config: CapacitorConfig = {
     // development (see electron:dev's GOLIVE_APP_URL=http://localhost:3000).
     cleartext: APP_URL.startsWith("http://"),
   },
+  // The iOS shell (ios/README.md). Same site, same bridge; what differs is
+  // native and lives in ios/App/App (GoLiveViewController keeps the page out
+  // of the notch, so the web view itself must not add insets of its own).
+  ios: {
+    contentInset: "never",
+    backgroundColor: "#09090b",
+    // Lets the API and the site's analytics tell the iOS app from Safari
+    // without waiting for the Capacitor bridge.
+    appendUserAgent: "GoLiveApp/ios",
+  },
+  plugins: {
+    PushNotifications: {
+      // With the app open the site already shows the message or the ring
+      // itself, over its socket — a system banner on top would be the same
+      // alert twice. (Android ignores this option.)
+      presentationOptions: [],
+    },
+  },
 };
 
 export default config;

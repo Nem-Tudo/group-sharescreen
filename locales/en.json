@@ -5925,5 +5925,11 @@
   "settingsHub.section.extras": "Extras and integrations",
   "discordRpc.rowOn": "On (showing your status on Discord)",
   "discordRpc.rowOff": "Off",
-  "discordRpc.rowConfigure": "Configure"
+  "discordRpc.rowConfigure": "Configure",
+  "storePolicy.proFeatureTitle": "GoLive Pro feature",
+  "storePolicy.proFeatureBody": "This feature is part of GoLive Pro.",
+  "storePolicy.pageTitle": "Not available in the app",
+  "storePolicy.pageBody": "This page is not available in the iPhone and iPad app.",
+  "storePolicy.ok": "Got it",
+  "storePolicy.home": "Back to home"
 }

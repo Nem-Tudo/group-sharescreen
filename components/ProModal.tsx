@@ -7,6 +7,8 @@ import { useT } from "@/lib/useI18n";
 import { useShake } from "@/lib/useShake";
 import { useFeature } from "@/lib/features";
 import { PRO_COMPARE_FEATURE, PRO_MODAL_LAYOUT_FEATURE } from "@/app/pro/PlanComparison";
+import { useSellsHere } from "@/lib/storePolicy";
+import { NotSoldInAppNotice } from "@/components/NotSoldInApp";
 
 export interface ProModalProps {
   open: boolean;
@@ -22,6 +24,7 @@ const subscribeNothing = () => () => {};
 export function ProModal({ open, planId, source, onClose }: ProModalProps) {
   const t = useT();
   const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
+  const sells = useSellsHere();
   // Held while the panel inside is creating a payment (see ProPanel's
   // onCheckoutLockChange): the dialog shakes and every way out — Escape, the
   // backdrop, the × — is refused until the API answers.
@@ -68,6 +71,28 @@ export function ProModal({ open, planId, source, onClose }: ProModalProps) {
   }, [open]);
 
   if (!onClient || !open) return null;
+
+  // The iOS app sells nothing (lib/storePolicy.ts): a lock still opens this,
+  // and gets a plain "this is part of Pro" instead of plans and prices.
+  if (!sells) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-sm"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("common.golivePro")}
+      >
+        <div
+          className="relative w-full max-w-sm rounded-2xl border border-zinc-200 bg-zinc-50 shadow-2xl dark:border-zinc-800 dark:bg-black"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <NotSoldInAppNotice onClose={onClose} />
+        </div>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div

@@ -154,7 +154,8 @@ export function StreamEndSummaryModal({
           ))}
         </div>
 
-        <div>
+        {/* The offer and its plans: not in the iOS app (lib/storePolicy.ts). */}
+        <div data-sells="">
           <p className="text-sm font-semibold">{t("streamSummary.offerTitle")}</p>
           <ul className="mt-2 flex flex-col gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             {perks.map(({ Icon, text }) => (
@@ -166,7 +167,7 @@ export function StreamEndSummaryModal({
           </ul>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div data-sells="" className="grid grid-cols-2 gap-2">
           {OFFERED_PLANS.map(({ id, titleKey, toneClass, iconId }) => {
             const { Icon, className } = PLAN_ICONS[iconId];
             return (

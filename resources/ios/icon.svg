@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1024" height="1024">
+  <!-- Redrawn from electron/build/icon.png (512px) so the App Store's 1024px
+       icon stays sharp. Opaque on purpose: Apple rejects an icon with alpha. -->
+  <defs>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="6" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="#0094FF"/>
+  <g fill="#fff" filter="url(#s)">
+    <path fill-rule="evenodd" d="M121 113 H392 A16 16 0 0 1 408 129 V346 A16 16 0 0 1 392 362 H121 A16 16 0 0 1 105 346 V129 A16 16 0 0 1 121 113 Z M136 145 V318 H377 V145 Z"/>
+    <path d="M217 360 H295 V370 Q296 373 300 378 L309 391 Q314 399 305 399 H207 Q198 399 203 391 L212 378 Q216 373 217 370 Z"/>
+  </g>
+</svg>

@@ -1292,6 +1292,28 @@ html[data-app-shell] body {
   overscroll-behavior-y: none;
 }
 
+/* The iOS app sells nothing (App Store rule 3.1.1 — see lib/storePolicy.ts):
+   every button or link that sells or leads to a sale carries data-sells. Set
+   by an inline script before the first paint, so it never flashes. */
+html[data-app-shell="ios"] [data-sells],
+html[data-app-shell="ios"] a[href="/pro"],
+html[data-app-shell="ios"] a[href^="/pro?"],
+html[data-app-shell="ios"] a[href^="/pro#"],
+html[data-app-shell="ios"] a[href^="/pro/"],
+html[data-app-shell="ios"] a[href^="/gift/"],
+html[data-app-shell="ios"] a[href^="/redeem"],
+html[data-app-shell="ios"] a[href^="/partner/new"] {
+  display: none !important;
+}
+
+/* What the iOS app shows in their place (components/NotSoldInApp). */
+[data-ios-only] {
+  display: none;
+}
+html[data-app-shell="ios"] [data-ios-only] {
+  display: contents;
+}
+
 /* A bottom sheet coming up from the edge — see components/MobileSheet. */
 @keyframes golive-sheet-in {
   from {

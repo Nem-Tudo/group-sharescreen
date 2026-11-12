@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FaDiscord } from "react-icons/fa";
+import { FaApple, FaDiscord } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 import {
   fetchOAuthProviders,
@@ -14,6 +14,8 @@ import {
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { useT } from "@/lib/useI18n";
+import { trackFeatureEvent } from "@/lib/features";
+import { APPLE_LOGIN_EVENTS, APPLE_LOGIN_FEATURE, useAppleLoginVisible } from "@/lib/appleLogin";
 import { translate } from "@/lib/i18n";
 
 // "Entrar com Discord/Google", wherever a login or signup form is shown.
@@ -41,6 +43,13 @@ const PROVIDER_STYLE: Record<
     className:
       "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 cursor-pointer",
     icon: <FcGoogle className="h-5 w-5" />,
+  },
+  // Apple's own rule for the button: black with the white logo (white on a
+  // dark page), never restyled into the other providers' look.
+  apple: {
+    className:
+      "border-black bg-black text-white hover:bg-zinc-800 dark:border-white dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer",
+    icon: <FaApple className="h-5 w-5" />,
   },
 };
 
@@ -77,11 +86,17 @@ export function OAuthButtons({
     return () => controller.abort();
   }, []);
 
+  const appleVisible = useAppleLoginVisible(Boolean(providers?.some((p) => p.id === "apple")));
+
   async function handleClick(provider: OAuthProviderId) {
     setError(null);
     setPending(provider);
+    if (provider === "apple") trackFeatureEvent(APPLE_LOGIN_EVENTS.click, { feature: APPLE_LOGIN_FEATURE });
     try {
       const result = await startOAuthLogin(provider);
+      if (provider === "apple" && result.kind !== "error") {
+        trackFeatureEvent(APPLE_LOGIN_EVENTS.done, { feature: APPLE_LOGIN_FEATURE });
+      }
       if (result.kind === "error") {
         // A popup the user closed themselves needs no error message — they
         // know what they did.
@@ -105,7 +120,12 @@ export function OAuthButtons({
 
   // `null` is "still loading", `[]` is "this deployment has none" — both
   // render nothing, so the form never flashes an empty divider.
-  if (!providers || providers.length === 0) return null;
+  // Apple first when shown, as its guidelines ask; hidden where it is not on
+  // yet (see lib/appleLogin.ts).
+  const shown = (providers ?? [])
+    .filter((provider) => provider.id !== "apple" || appleVisible)
+    .sort((a, b) => Number(b.id === "apple") - Number(a.id === "apple"));
+  if (shown.length === 0) return null;
 
   const divider = dividerLabel && (
     <div className="flex items-center gap-3">
@@ -120,7 +140,7 @@ export function OAuthButtons({
   return (
     <div className="flex flex-col gap-3">
       {dividerPosition === "above" && divider}
-      {providers.map((provider) => {
+      {shown.map((provider) => {
         const style = PROVIDER_STYLE[provider.id];
         return (
           <button

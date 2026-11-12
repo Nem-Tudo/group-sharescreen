@@ -11,6 +11,7 @@ import { UpdateAppButton } from "@/components/UpdateAppButton";
 import { useProOffer } from "@/components/ProOffer";
 import { useIsAppShell, useTabBarEnabled } from "@/lib/mobileShell";
 import { useT } from "@/lib/useI18n";
+import { useSellsHere } from "@/lib/storePolicy";
 import { translate } from "@/lib/i18n";
 
 // The site's top bar: everything GoLive offers besides the room form itself,
@@ -114,8 +115,12 @@ export function SiteHeader() {
   const { show: showBot } = useDiscordBotHidden(true);
 
   // Ahead of the app and the bot, where "Pro" has always sat.
+  // The iOS app sells nothing (lib/storePolicy.ts): no Pro row there. CSS
+  // hides it from the first paint (data-sells below); this drops it after.
+  const sells = useSellsHere();
   const secondary: SecondaryItem[] = [SECONDARY[0], proItem, ...SECONDARY.slice(1)].filter(
-    (item) => !(appShell && item.key === "app") && !(!showBot && item.key === "bot")
+    (item) =>
+      !(appShell && item.key === "app") && !(!showBot && item.key === "bot") && !(!sells && item.key === "pro")
   );
 
   return (
@@ -212,6 +217,7 @@ export function SiteHeader() {
                 title={label}
                 target={target}
                 className={className}
+                data-sells={key === "pro" ? "" : undefined}
               >
                 {inner}
               </Link>
@@ -222,6 +228,7 @@ export function SiteHeader() {
                 onClick={onClick}
                 title={label}
                 className={`${className} cursor-pointer`}
+                data-sells={key === "pro" ? "" : undefined}
               >
                 {inner}
               </button>

@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { noteProSource, proHref, type ProSource } from "@/lib/proSourceAttribution";
+import { sellsHere } from "@/lib/storePolicy";
 
 // Whether the Pro subscription modal is open, managed as a single global store
 // so any trigger in the app (room header, quality picker, user profile, etc.)
@@ -77,7 +78,9 @@ export function useOpenPro(): (source: ProSource, planId?: string | null) => voi
   const pathname = usePathname();
   const router = useRouter();
   return (source: ProSource, planId?: string | null) => {
-    if (pathname?.startsWith("/watch/")) {
+    // The iOS app has no /pro to go to (lib/storePolicy.ts): the modal there
+    // is a plain "this is part of Pro", wherever it was asked for.
+    if (pathname?.startsWith("/watch/") || !sellsHere()) {
       openProModal(source, planId);
       return;
     }

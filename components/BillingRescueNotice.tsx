@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSellsHere } from "@/lib/storePolicy";
 import { usePathname } from "next/navigation";
 import { MdClose, MdCreditCardOff, MdQrCode2 } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
@@ -40,6 +41,7 @@ type Kind = "rescue" | "pix";
 export function BillingRescueNotice() {
   const t = useT();
   const pathname = usePathname();
+  const sells = useSellsHere();
   const { account } = useAuth();
   const premium = account?.premium ?? null;
   const pixOn = useFeature(PIX_RECOVER_FEATURE, { track: false }).enabled;
@@ -73,7 +75,8 @@ export function BillingRescueNotice() {
     };
   }, [pathname]);
 
-  const hiddenHere = !pathname || pathname.startsWith("/pro") || pathname.startsWith("/admin");
+  // Never in the iOS app, which sells nothing (lib/storePolicy.ts).
+  const hiddenHere = !sells || !pathname || pathname.startsWith("/pro") || pathname.startsWith("/admin");
   let kind: Kind | null = null;
   if (account && !closed && !hiddenHere) {
     if (rescueOn && !snoozed && hasRefusedRenewal(premium)) kind = "rescue";

@@ -10,7 +10,11 @@ import { translate } from "@/lib/i18n";
 // for the result, and hands it back typed. Nothing here ever sees a client
 // secret, an authorization code, or a provider domain.
 
-export type OAuthProviderId = "discord" | "google";
+export type OAuthProviderId = "discord" | "google" | "apple";
+
+function isProviderId(value: string | null): value is OAuthProviderId {
+  return value === "discord" || value === "google" || value === "apple";
+}
 
 export type OAuthProvider = { id: OAuthProviderId; label: string };
 
@@ -94,13 +98,13 @@ export function parseOAuthFragment(hash: string): OAuthResult | null {
     return {
       kind: "token",
       token,
-      linked: linked === "discord" || linked === "google" ? linked : null,
+      linked: isProviderId(linked) ? linked : null,
       next,
     };
   }
   const ticket = params.get("ticket");
   const provider = params.get("provider");
-  if (ticket && (provider === "discord" || provider === "google")) {
+  if (ticket && isProviderId(provider)) {
     return {
       kind: "ticket",
       ticket,

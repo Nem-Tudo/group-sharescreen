@@ -34,7 +34,7 @@
 // exact same fallback rather than needing a native screen-capture path of
 // its own (see lib/useRoomMedia.ts's getScreenShareMode).
 
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { DesktopBridge } from "./desktop";
 import { desktopOAuthNonce } from "./desktop";
 import { closeTopLayer } from "./nativeApp";
@@ -60,6 +60,19 @@ interface PendingLogin {
 // custom scheme, so an unsolicited golive://oauth#... must not be accepted
 // unless its nonce names a login this module is actually waiting on.
 const pendingLogins = new Map<string, PendingLogin>();
+
+interface WebAuthPlugin {
+  start(options: { url: string; scheme: string }): Promise<{ url: string | null }>;
+  cancel(): Promise<void>;
+}
+
+// iOS only — see ios/App/App/WebAuthPlugin.swift for why a login there does
+// not go through @capacitor/browser like Android's does.
+const WebAuth = registerPlugin<WebAuthPlugin>("WebAuth");
+
+function hasWebAuth(): boolean {
+  return Capacitor.getPlatform() === "ios" && Capacitor.isPluginAvailable("WebAuth");
+}
 
 function settleLogin(nonce: string, fragment: string | null) {
   const pending = pendingLogins.get(nonce);
@@ -147,16 +160,28 @@ let initStarted = false;
 // there is nothing else guarding this call site.
 export async function initCapacitorBridge(): Promise<void> {
   if (initStarted || typeof window === "undefined") return;
-  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") return;
+  if (!Capacitor.isNativePlatform()) return;
+  const platform = Capacitor.getPlatform();
+  if (platform !== "android" && platform !== "ios") return;
   initStarted = true;
 
   const [{ App }, { Browser }] = await Promise.all([import("@capacitor/app"), import("@capacitor/browser")]);
 
-  App.addListener("appUrlOpen", ({ url }) => handleDeepLink(url));
+  App.addListener("appUrlOpen", ({ url }) => {
+    // iOS opens the login in an SFSafariViewController *over* the app, and a
+    // redirect to golive:// does not dismiss it the way Android's Custom Tab
+    // falls behind the app it hands back to. Closed here, or the person would
+    // be left looking at the provider's page with the login already done.
+    if (platform === "ios" && url.startsWith(`${PROTOCOL}://oauth`)) void Browser.close().catch(() => {});
+    handleDeepLink(url);
+  });
   // Registering this replaces Capacitor's own handling, which went back in the
   // WebView's history and, with none left, *finished the activity* — closing
-  // the app, and with it any call in progress. See handleBackButton.
-  App.addListener("backButton", ({ canGoBack }) => handleBackButton(canGoBack, () => void App.minimizeApp()));
+  // the app, and with it any call in progress. See handleBackButton. Android
+  // only: an iPhone has no back button.
+  if (platform === "android") {
+    App.addListener("backButton", ({ canGoBack }) => handleBackButton(canGoBack, () => void App.minimizeApp()));
+  }
   // A cold start *from* a golive:// link: the OS launches the app with the
   // URL already attached rather than firing appUrlOpen into a listener that
   // isn't registered yet — the exact counterpart of electron/main.ts reading
@@ -168,7 +193,7 @@ export async function initCapacitorBridge(): Promise<void> {
 
   const bridge: DesktopBridge = {
     appVersion: info?.version ?? "0.0.0",
-    platform: "android",
+    platform,
 
     startOAuth(startUrl, nonce) {
       // The renderer built this URL, but it is remote content — checked
@@ -187,11 +212,21 @@ export async function initCapacitorBridge(): Promise<void> {
         settleLogin(nonce, null);
         const timer = setTimeout(() => settleLogin(nonce, null), OAUTH_TIMEOUT_MS);
         pendingLogins.set(nonce, { resolve, timer });
+        if (hasWebAuth()) {
+          // iOS: ASWebAuthenticationSession (ios/App/App/WebAuthPlugin.swift)
+          // catches the golive:// redirect itself and hands it back here, so
+          // it never travels through appUrlOpen. Closing the sheet is a null.
+          void WebAuth.start({ url: startUrl, scheme: PROTOCOL })
+            .then(({ url }) => (url ? handleDeepLink(url) : settleLogin(nonce, null)))
+            .catch(() => settleLogin(nonce, null));
+          return;
+        }
         void Browser.open({ url: startUrl, toolbarColor: BRAND_COLOR }).catch(() => settleLogin(nonce, null));
       });
     },
 
     cancelOAuth(nonce) {
+      if (hasWebAuth()) void WebAuth.cancel().catch(() => {});
       settleLogin(nonce, null);
     },
 

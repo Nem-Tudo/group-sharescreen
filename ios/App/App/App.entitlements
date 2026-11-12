@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push Notifications capability. "production" because every build that
+	     leaves CI goes to TestFlight / the App Store, which only ever talk to
+	     the production APNs gateway. A build run from Xcode on a cable gets a
+	     sandbox token anyway (Xcode re-signs it with a development profile);
+	     the API retries a token the production gateway rejects against the
+	     sandbox one (see sharescreen-api/server/apnsSender.ts). -->
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Sign in with Apple capability, for the "Continuar com a Apple"
+	     button (App Review guideline 4.8). -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

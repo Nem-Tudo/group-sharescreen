@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FaDiscord } from "react-icons/fa";
+import { FaApple, FaDiscord } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 import {
   fetchOAuthProviders,
@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { useT } from "@/lib/useI18n";
+import { useAppleLoginVisible } from "@/lib/appleLogin";
 
 // Connect/disconnect Discord and Google on an account that already exists —
 // the path for everyone who registered with a username and password before
@@ -32,6 +33,7 @@ import { useT } from "@/lib/useI18n";
 const PROVIDER_ICON: Record<OAuthProviderId, React.ReactNode> = {
   discord: <FaDiscord className="h-5 w-5 text-[#5865F2]" />,
   google: <FcGoogle className="h-5 w-5" />,
+  apple: <FaApple className="h-5 w-5 text-black dark:text-white" />,
 };
 
 const rowButtonClass =
@@ -95,12 +97,19 @@ export function AccountConnections() {
     }
   }
 
+  // Apple only where it is on (lib/appleLogin.ts) — or already linked, which
+  // has to stay visible so it can be disconnected.
+  const appleVisible = useAppleLoginVisible(Boolean(providers?.some((p) => p.id === "apple")));
+  const visibleProviders = providers?.filter(
+    (provider) => provider.id !== "apple" || appleVisible || connections?.providers.includes("apple")
+  );
+
   // `null` is "still loading", `[]` is "this deployment has no provider
   // configured" — either way there's nothing to offer, so not even the
   // trigger appears.
-  if (!providers || providers.length === 0) return null;
+  if (!visibleProviders || visibleProviders.length === 0) return null;
 
-  const linkedCount = providers.filter(
+  const linkedCount = visibleProviders.filter(
     (provider) => connections?.providers.includes(provider.id)
   ).length;
 
@@ -140,7 +149,7 @@ export function AccountConnections() {
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
         {t("accountConnections.linkItToSignInWith")}
       </p>
-      {providers.map((provider) => {
+      {visibleProviders.map((provider) => {
         const linked = connections?.providers.includes(provider.id) ?? false;
         const busy = pending === provider.id;
         return (

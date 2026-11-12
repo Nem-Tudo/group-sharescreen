@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Go Live";
+"NSCameraUsageDescription" = "O Go Live usa a câmera para mostrar seu vídeo para as pessoas da chamada, e só enquanto a sua câmera estiver ligada.";
+"NSMicrophoneUsageDescription" = "O Go Live usa o microfone para as pessoas da chamada ouvirem você, e só enquanto o seu microfone estiver ligado.";
+"NSPhotoLibraryUsageDescription" = "O Go Live abre suas fotos só quando você escolhe uma para enviar no chat ou usar como avatar.";
+"NSPhotoLibraryAddUsageDescription" = "O Go Live salva nas suas fotos só quando você toca para salvar uma imagem, clipe ou gravação.";

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { translate } from "@/lib/i18n";
 import { PartnerWizard } from "./PartnerWizard";
+import { SalesPageGate } from "@/components/NotSoldInApp";
 
 export const metadata: Metadata = {
   get title() { return translate("partnerOrders.wizard.title"); },
@@ -14,9 +15,11 @@ export default function NewPartnerOrderPage() {
     <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
       <SiteHeader />
       {/* useSearchParams (?from=, ?package=) needs a boundary to render statically. */}
-      <Suspense>
-        <PartnerWizard />
-      </Suspense>
+      <SalesPageGate>
+        <Suspense>
+          <PartnerWizard />
+        </Suspense>
+      </SalesPageGate>
     </div>
   );
 }
