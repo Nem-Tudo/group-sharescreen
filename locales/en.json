@@ -5931,5 +5931,8 @@
   "storePolicy.pageTitle": "Not available in the app",
   "storePolicy.pageBody": "This page is not available in the iPhone and iPad app.",
   "storePolicy.ok": "Got it",
-  "storePolicy.home": "Back to home"
+  "storePolicy.home": "Back to home",
+  "socketIdle.title": "You were disconnected for inactivity",
+  "socketIdle.text": "To free up server space, people who aren't in a room are disconnected after a while without using the site. Messages, notifications and who's online are paused until you reconnect. Joining a room reconnects automatically.",
+  "socketIdle.reconnect": "Reconnect"
 }

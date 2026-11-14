@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
 import { StatusBanner } from "@/components/StatusBanner";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { SocketIdleNotice } from "@/components/SocketIdleNotice";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
 import { ForkWatermark } from "@/components/ForkWatermark";
 import { LastScreenRestorer } from "@/components/LastScreenRestorer";
@@ -406,6 +407,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                     unless the status feed reports an outage. */}
                 <StatusBanner />
                 <AnnouncementBanner />
+                {/* HOTFIX socket-limit — see the component. */}
+                <SocketIdleNotice />
                 {/* Floating ad, experiment-gated — see the component. */}
                 <MonetagInPagePush />
                 {children}

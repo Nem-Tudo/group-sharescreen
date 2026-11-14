@@ -1397,6 +1397,9 @@ class SignalingClient {
   // like the announcement banner, for a visitor who hasn't registered a name
   // yet and so has no desiredName of their own.
   private wantsConnection = false;
+  // HOTFIX socket-limit (see components/SocketIdleNotice.tsx): while true no
+  // socket is opened and nothing reconnects. Remove with that component.
+  private parked = false;
   // Backs REGISTER_ACK_TIMEOUT_MS.
   private registerAckTimer: ReturnType<typeof setTimeout> | null = null;
   // The socket a "registered" was last received on. Compared by identity, not
@@ -1621,6 +1624,7 @@ class SignalingClient {
 
   private ensureSocket() {
     if (typeof window === "undefined") return;
+    if (this.parked) return; // HOTFIX socket-limit
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -1699,7 +1703,7 @@ class SignalingClient {
   }
 
   private scheduleReconnect() {
-    if (this.reconnectTimer || (!this.desiredName && !this.wantsConnection)) return;
+    if (this.reconnectTimer || this.parked || (!this.desiredName && !this.wantsConnection)) return;
     // Jittered, and the jitter matters more than the backoff does.
     //
     // The reconnect that actually needs handling is not one client losing its
@@ -3249,6 +3253,38 @@ class SignalingClient {
     this.ensureSocket();
   }
 
+  // HOTFIX socket-limit — see components/SocketIdleNotice.tsx. Closes the
+  // socket of somebody who is not in a room and keeps it closed (no
+  // reconnect) until unpark(). Everything else (name, token) is kept, so
+  // unpark() comes back exactly as a reconnect would.
+  get isParked() {
+    return this.parked;
+  }
+
+  get isInRoom() {
+    return Boolean(this.desiredRoom || this.state.room);
+  }
+
+  park() {
+    if (this.parked || this.isInRoom) return;
+    this.parked = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) ws.close();
+    this.clearRegisterAck();
+    this.setState({ status: "closed" });
+  }
+
+  unpark() {
+    if (!this.parked) return;
+    this.parked = false;
+    this.retryNow();
+  }
+
   // Try again *now*, throwing away whatever backoff was pending.
   //
   // The automatic retry never stopped — but it backs off to one attempt every
@@ -3357,6 +3393,7 @@ class SignalingClient {
     obsToken?: string | null,
     obsTarget?: string | null
   ) {
+    this.unpark(); // HOTFIX socket-limit
     this.desiredRoom = room;
     this.isObsSourceJoin = isObsSource;
     this.obsSourceToken = obsToken ?? null;
