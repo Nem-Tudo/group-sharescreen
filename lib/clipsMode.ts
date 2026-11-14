@@ -35,7 +35,8 @@ export type TileExperiment =
   | "phoneCamera"
   | "multiCamera"
   | "partnerAdsCard"
-  | "avatarBuilder";
+  | "avatarBuilder"
+  | "remoteControl";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -216,6 +217,15 @@ const CONFIG: Record<
     tipKey: "sharescreen:avatarBuilderTipSeen",
     defaultOn: true,
   },
+  // "Controle remoto" (ver lib/remoteControl). Feature de *sala* (quem pede e
+  // quem é controlado caem juntos), então quem lê passa `room`. O interruptor
+  // é "Permitir pedidos de controle remoto", desligado por padrão: abre o
+  // computador da pessoa a pedidos, e isso só com ela escolhendo.
+  remoteControl: {
+    feature: "remote-control",
+    modeKey: "sharescreen:remoteControlMode",
+    tipKey: "sharescreen:remoteControlTipSeen",
+  },
   musicQueue: {
     feature: "room-music-queue",
     modeKey: "sharescreen:musicQueueMode",
@@ -341,6 +351,10 @@ export const TILE_EXPERIMENT_EVENTS = {
     open: "avatar_builder_open",
     tipOpen: "avatar_builder_tip_open", // abriu o editor pelo botão da dica
   },
+  remoteControl: {
+    modeOn: "rc_open_on",
+    modeOff: "rc_open_off",
+  },
   musicQueue: {
     // Nomes de "modo" aqui são a aba, não a ordem aleatória: o interruptor
     // desse experimento é o botão que abre a lista.
@@ -368,8 +382,12 @@ export const AVATAR_BUILDER_FEATURE = "avatar-builder";
 
 export const TIP_CLICK_EVENT = "new_feature_tip_click";
 
-export function trackTileExperiment(name: string, value?: number) {
-  trackFeatureEvent(name, value ? { value: Math.max(1, Math.round(value)) } : {});
+export function trackTileExperiment(name: string, value?: number, room?: string | null) {
+  trackFeatureEvent(name, {
+    ...(value ? { value: Math.max(1, Math.round(value)) } : {}),
+    // A room-target feature only counts what names the room.
+    ...(room ? { room } : {}),
+  });
 }
 
 const listeners = new Set<() => void>();
@@ -404,10 +422,10 @@ function write(key: string, value: string) {
   emit();
 }
 
-export function setTileExperimentMode(experiment: TileExperiment, on: boolean) {
+export function setTileExperimentMode(experiment: TileExperiment, on: boolean, room?: string | null) {
   write(CONFIG[experiment].modeKey, on ? "1" : "0");
   const events = TILE_EXPERIMENT_EVENTS[experiment];
-  trackTileExperiment(on ? events.modeOn : events.modeOff);
+  trackTileExperiment(on ? events.modeOn : events.modeOff, undefined, room);
 }
 
 /** The experiment and the person's switch together — what tiles check. */
@@ -439,9 +457,13 @@ function useRoomBlocked(experiment: TileExperiment): boolean {
   );
 }
 
-export function useTileExperiment(experiment: TileExperiment, options: { track?: boolean } = {}) {
+export function useTileExperiment(
+  experiment: TileExperiment,
+  options: { track?: boolean; room?: string | null } = {}
+) {
   const { feature, modeKey, defaultOn = false } = CONFIG[experiment];
-  const { enabled: available } = useFeature(feature, { track: options.track ?? false });
+  // `room` for an experiment whose feature targets rooms (see remoteControl).
+  const { enabled: available } = useFeature(feature, { track: options.track ?? false, room: options.room });
   const on = useSyncExternalStore(
     subscribe,
     () => {

@@ -30,6 +30,7 @@ await build({
     path.join(here, "call-overlay-preload.ts"),
     path.join(here, "toast-preload.ts"),
     path.join(here, "screen-pen-preload.ts"),
+    path.join(here, "remote-control-preload.ts"),
   ],
   outdir,
   bundle: true,

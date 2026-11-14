@@ -25,7 +25,7 @@ export const RoomToolsViewer = createContext<{
 // Where a video's picture actually is inside its element (object-contain), so
 // a note lands on the same spot of the shared screen for everybody, whatever
 // shape their tile is.
-function containRect(video: HTMLVideoElement | null, width: number, height: number): Rect {
+export function containRect(video: HTMLVideoElement | null, width: number, height: number): Rect {
   const vw = video?.videoWidth ?? 0;
   const vh = video?.videoHeight ?? 0;
   if (!vw || !vh || !width || !height) return { x: 0, y: 0, w: width, h: height };

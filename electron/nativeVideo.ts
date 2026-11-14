@@ -141,7 +141,37 @@ let lastSource: { id: string; displayId: string } | null = null;
  * this.
  */
 export function rememberSharedSource(source: DesktopCapturerSource): void {
+  const changed = lastSource !== null && lastSource.id !== source.id;
   lastSource = { id: source.id, displayId: source.display_id };
+  if (changed) for (const listener of sourceListeners) listener();
+}
+
+const sourceListeners = new Set<() => void>();
+
+/**
+ * Told when a share starts on a different surface than the one before.
+ * Remote control listens: the person controlling aims at the picture they
+ * see, and a session that kept going after the surface changed would map
+ * their clicks onto a screen they are not looking at.
+ */
+export function onSharedSourceChanged(listener: () => void): () => void {
+  sourceListeners.add(listener);
+  return () => {
+    sourceListeners.delete(listener);
+  };
+}
+
+/**
+ * The surface being shared, as the arguments golive-videocap and golive-input
+ * both take (`--monitor x y` or `--window hwnd`). Null before any share.
+ */
+export function sharedSourceArgs(): string[] | null {
+  return lastSource ? argsForSource(lastSource) : null;
+}
+
+/** The display a monitor share is on, as Electron names it; null for a window or before any share. */
+export function sharedDisplayId(): string | null {
+  return lastSource?.id.startsWith("screen:") && lastSource.displayId ? lastSource.displayId : null;
 }
 
 function argsForSource(source: { id: string; displayId: string }): string[] | null {

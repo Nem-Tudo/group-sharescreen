@@ -57,6 +57,7 @@ import { registerTileCommands } from "@/lib/tileCommands";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import { OwnStreamStatsOverlay } from "@/components/OwnStreamStatsOverlay";
 import { TurnUpsellTileMessage } from "@/components/TurnUpsellNotice";
+import { RemoteControlTileButton, RemoteControlTileLayer } from "@/components/RemoteControlTile";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip, Popover } from "@/components/Tooltip";
@@ -159,6 +160,7 @@ const VideoTileView = memo(function VideoTileView({
   onOrientationChange,
   tileId,
   mediaKey,
+  remoteControlPeerId,
   className = "",
 }: {
   stream: MediaStream;
@@ -311,6 +313,11 @@ const VideoTileView = memo(function VideoTileView({
   // The same for everybody in the room ("screen:<connection>"…) — which
   // media the screen notes and reactions are aimed at. Absent: neither.
   mediaKey?: string;
+  // "Controle remoto" (see lib/remoteControl.ts): the connection whose screen
+  // this tile shows, on someone else's main screen tile only. Gives the tile
+  // its "Pedir controle" button, the surface that drives their computer, and
+  // the "Fulano está controlando" label.
+  remoteControlPeerId?: string;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1070,6 +1077,7 @@ const VideoTileView = memo(function VideoTileView({
         }`}
       />
       {mediaKey && <AnnotationLayer annotationKey={mediaKey} videoRef={videoRef} focused={isSpotlighted || isHyperfocused || isFullscreen} />}
+      {remoteControlPeerId && <RemoteControlTileLayer peerId={remoteControlPeerId} videoRef={videoRef} />}
       {mediaKey && <ReactionFloats mediaKey={mediaKey} />}
       {isVideoLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
@@ -1238,6 +1246,7 @@ const VideoTileView = memo(function VideoTileView({
         } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}
         style={overlayRightOffset ? { right: "50px" } : undefined}
       >
+        {remoteControlPeerId && <RemoteControlTileButton peerId={remoteControlPeerId} />}
         {/* The room tools' buttons up here on a phone; from lg they sit in the
             bottom bar instead (see below). */}
         {mediaKey && !toolButtonsBelow && (

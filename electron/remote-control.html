@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Local file with no remote anything, same posture as call-overlay.html:
+         the avatar is an https URL from our CDN, the mark a data: URL. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+    />
+    <title>Go Live</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f0f13;
+        --border: #2b2b33;
+        --text: #fafafa;
+        --muted: #a1a1aa;
+        --blue: #2563eb;
+        --blue-hover: #3b82f6;
+        --red: #dc2626;
+        --red-hover: #ef4444;
+        --neutral: #27272a;
+        --neutral-hover: #3f3f46;
+      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      html, body { margin: 0; height: 100%; background: transparent; }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        color: var(--text);
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        user-select: none;
+        overflow: hidden;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        border: 0;
+        border-radius: 10px;
+        cursor: pointer;
+        color: #fff;
+        transition: background 120ms, opacity 120ms;
+      }
+      button:disabled { opacity: 0.45; cursor: default; }
+
+      /* ── Consent ─────────────────────────────────────────────────────── */
+      #consent {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+        animation: appear 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+      }
+      @keyframes appear {
+        from { opacity: 0; transform: scale(0.94) translateY(8px); }
+        to { opacity: 1; transform: none; }
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.2), transparent 65%);
+        -webkit-app-region: drag;
+      }
+      .logo { width: 18px; height: 18px; border-radius: 4px; flex: none; }
+      #brand { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+      #kindLabel {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      #who { display: flex; align-items: center; gap: 13px; padding: 16px 16px 6px; min-width: 0; }
+      .face { position: relative; width: 48px; height: 48px; flex: none; }
+      .face .initial, .face img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+      }
+      .face .initial {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--blue);
+        font-weight: 700;
+        font-size: 18px;
+      }
+      .face img { object-fit: cover; }
+      #names { min-width: 0; }
+      #name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #handle { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #question { padding: 6px 16px 0; font-size: 14px; }
+      #details { margin: 8px 16px 0; padding: 0; list-style: none; color: var(--muted); font-size: 12px; }
+      #details li { display: flex; gap: 6px; }
+      #details li::before { content: "•"; color: var(--blue-hover); }
+      #actions { display: flex; gap: 8px; padding: 14px 16px 16px; }
+      #actions button { flex: 1; padding: 10px 12px; }
+      #decline { background: var(--neutral); }
+      #decline:hover { background: var(--neutral-hover); }
+      #allow { background: var(--blue); }
+      #allow:not(:disabled):hover { background: var(--blue-hover); }
+
+      /* ── Banner ──────────────────────────────────────────────────────── */
+      #banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 7px 8px 7px 10px;
+        background: var(--bg);
+        border: 1px solid rgba(59, 130, 246, 0.6);
+        border-radius: 999px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(37, 99, 235, 0.18);
+        -webkit-app-region: drag;
+      }
+      #banner .face { width: 26px; height: 26px; }
+      #banner .face .initial { font-size: 12px; }
+      .dot {
+        width: 8px; height: 8px; border-radius: 50%; background: var(--red-hover); flex: none;
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes pulse { 50% { opacity: 0.35; } }
+      #bannerText { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #bannerText b { font-weight: 700; }
+      #hotkey { color: var(--muted); font-size: 11px; white-space: nowrap; }
+      kbd {
+        font: inherit;
+        padding: 1px 5px;
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+      }
+      #stop { -webkit-app-region: no-drag; background: var(--red); padding: 6px 14px; border-radius: 999px; }
+      #stop:hover { background: var(--red-hover); }
+    </style>
+  </head>
+  <body>
+    <section id="consent" hidden>
+      <header>
+        <img class="logo" alt="" hidden />
+        <span id="brand">Go Live</span>
+        <span id="kindLabel"></span>
+      </header>
+      <div id="who">
+        <div class="face"><span class="initial"></span><img alt="" hidden /></div>
+        <div id="names"><div id="name"></div><div id="handle"></div></div>
+      </div>
+      <div id="question"></div>
+      <ul id="details"></ul>
+      <div id="actions">
+        <button id="decline" type="button"></button>
+        <button id="allow" type="button" disabled></button>
+      </div>
+    </section>
+
+    <section id="banner" hidden>
+      <span class="dot"></span>
+      <div class="face"><span class="initial"></span><img alt="" hidden /></div>
+      <div id="bannerText"></div>
+      <span id="hotkey"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Esc</kbd></span>
+      <button id="stop" type="button"></button>
+    </section>
+
+    <script>
+      // The words live here, not in anything the page hands over: the page
+      // may ask for a session, but it does not get to say what the buttons
+      // say. {name} is put in as text, never as HTML.
+      const TEXT = {
+        pt: {
+          kindRequest: "Pedido de controle",
+          kindOffer: "Dar controle",
+          request: "quer controlar seu computador.",
+          offer: "vai poder controlar seu computador.",
+          details: [
+            "Mouse e teclado, na tela que você está compartilhando.",
+            "A pessoa não consegue mexer no Go Live nem em janelas de administrador.",
+            "Se você mexer no mouse, você tem prioridade.",
+            "Para parar a qualquer momento: Ctrl+Alt+Esc ou o botão Parar.",
+          ],
+          allow: "Permitir",
+          allowIn: "Permitir ({s})",
+          decline: "Recusar",
+          banner: "<b></b> está controlando este computador",
+          stop: "Parar",
+        },
+        en: {
+          kindRequest: "Control request",
+          kindOffer: "Give control",
+          request: "wants to control your computer.",
+          offer: "will be able to control your computer.",
+          details: [
+            "Mouse and keyboard, on the screen you are sharing.",
+            "They can't touch Go Live or administrator windows.",
+            "If you move your mouse, you take priority.",
+            "To stop at any time: Ctrl+Alt+Esc or the Stop button.",
+          ],
+          allow: "Allow",
+          allowIn: "Allow ({s})",
+          decline: "Decline",
+          banner: "<b></b> is controlling this computer",
+          stop: "Stop",
+        },
+        es: {
+          kindRequest: "Solicitud de control",
+          kindOffer: "Dar control",
+          request: "quiere controlar tu computadora.",
+          offer: "podrá controlar tu computadora.",
+          details: [
+            "Mouse y teclado, en la pantalla que estás compartiendo.",
+            "No puede tocar Go Live ni ventanas de administrador.",
+            "Si mueves tu mouse, tienes prioridad.",
+            "Para detener en cualquier momento: Ctrl+Alt+Esc o el botón Detener.",
+          ],
+          allow: "Permitir",
+          allowIn: "Permitir ({s})",
+          decline: "Rechazar",
+          banner: "<b></b> está controlando esta computadora",
+          stop: "Detener",
+        },
+      };
+      // A click already on its way when the window appears must not land on
+      // "Permitir" — the same reason browsers hold their permission prompts
+      // for a moment.
+      const ARM_DELAY_MS = 900;
+
+      function fillFace(root, data) {
+        const initial = root.querySelector(".initial");
+        const img = root.querySelector("img");
+        initial.textContent = (Array.from(data.name)[0] || "?").toUpperCase();
+        if (data.avatar) {
+          img.src = data.avatar;
+          img.hidden = false;
+          img.onerror = () => {
+            img.hidden = true;
+          };
+        }
+      }
+
+      function showConsent(data, t) {
+        const root = document.getElementById("consent");
+        root.hidden = false;
+        if (data.logo) {
+          const logo = root.querySelector(".logo");
+          logo.src = data.logo;
+          logo.hidden = false;
+        }
+        document.getElementById("kindLabel").textContent = data.kind === "offer" ? t.kindOffer : t.kindRequest;
+        fillFace(root, data);
+        document.getElementById("name").textContent = data.name;
+        document.getElementById("handle").textContent = data.handle ? "@" + data.handle : "";
+        document.getElementById("question").textContent = data.kind === "offer" ? t.offer : t.request;
+        const details = document.getElementById("details");
+        for (const line of t.details) {
+          const li = document.createElement("li");
+          li.textContent = line;
+          details.appendChild(li);
+        }
+        const allow = document.getElementById("allow");
+        const decline = document.getElementById("decline");
+        decline.textContent = t.decline;
+        let left = data.timeoutSeconds;
+        const label = () => {
+          allow.textContent = left > 0 && left <= 10 ? t.allowIn.replace("{s}", String(left)) : t.allow;
+        };
+        label();
+        setInterval(() => {
+          left -= 1;
+          label();
+        }, 1000);
+        setTimeout(() => {
+          allow.disabled = false;
+        }, ARM_DELAY_MS);
+        let answered = false;
+        const choose = (choice) => {
+          if (answered) return;
+          answered = true;
+          window.goliveRemoteControl.choose(choice);
+        };
+        allow.addEventListener("click", () => {
+          if (!allow.disabled) choose("allow");
+        });
+        decline.addEventListener("click", () => choose("decline"));
+        document.addEventListener("keydown", (event) => {
+          // Esc declines. Enter deliberately does nothing: a yes has to be a
+          // click on the button that says so.
+          if (event.key === "Escape") choose("decline");
+        });
+      }
+
+      function showBanner(data, t) {
+        const root = document.getElementById("banner");
+        root.hidden = false;
+        fillFace(root, data);
+        const text = document.getElementById("bannerText");
+        const [before, after] = t.banner.split("<b></b>");
+        const bold = document.createElement("b");
+        bold.textContent = data.name;
+        text.append(before, bold, after);
+        const stop = document.getElementById("stop");
+        stop.textContent = t.stop;
+        stop.addEventListener("click", () => window.goliveRemoteControl.choose("stop"));
+      }
+
+      window.goliveRemoteControl.data().then((data) => {
+        if (!data) return;
+        const t = TEXT[data.lang] || TEXT.pt;
+        document.documentElement.lang = data.lang === "en" ? "en" : data.lang === "es" ? "es" : "pt-BR";
+        if (data.mode === "consent") showConsent(data, t);
+        else showBanner(data, t);
+      });
+    </script>
+  </body>
+</html>

@@ -14,6 +14,7 @@ import {
   CAPTURE_PROTECTION_ARG,
   IPC,
   NATIVE_VIDEO_ARG,
+  REMOTE_CONTROL_ARG,
   SYSTEM_AUDIO_ARG,
   SYSTEM_AUDIO_FORMAT,
   VERSION_ARG,
@@ -423,6 +424,56 @@ contextBridge.exposeInMainWorld("golive", {
           return () => {
             ipcRenderer.off(IPC.systemAudioData, data);
             ipcRenderer.off(IPC.systemAudioEnded, ended);
+          };
+        },
+      }
+    : undefined,
+
+  // "Controle remoto" (see electron/remoteControl.ts and lib/remoteControl.ts).
+  // Absent unless this is Windows with golive-input shipped. request() only
+  // asks: the yes is a click in a window of the shell's own.
+  remoteControl: process.argv.includes(REMOTE_CONTROL_ARG)
+    ? {
+        request(info: unknown): Promise<unknown> {
+          const value = info && typeof info === "object" ? (info as Record<string, unknown>) : {};
+          return ipcRenderer.invoke(IPC.remoteControlRequest, {
+            kind: value.kind === "offer" ? "offer" : "request",
+            name: typeof value.name === "string" ? value.name : "",
+            handle: typeof value.handle === "string" ? value.handle : undefined,
+            avatar: typeof value.avatar === "string" ? value.avatar : undefined,
+            lang: typeof value.lang === "string" ? value.lang : "pt",
+          });
+        },
+        input(events: unknown): void {
+          // Plain objects of numbers, booleans and short strings, rebuilt so
+          // nothing else the page attached crosses over. main validates again.
+          if (!Array.isArray(events)) return;
+          const out: Record<string, unknown>[] = [];
+          for (const event of events.slice(0, 64)) {
+            if (!event || typeof event !== "object") continue;
+            const e = event as Record<string, unknown>;
+            const pick: Record<string, unknown> = { t: e.t };
+            for (const key of ["x", "y", "b", "dx", "dy"]) if (typeof e[key] === "number") pick[key] = e[key];
+            if (typeof e.d === "boolean") pick.d = e.d;
+            if (typeof e.c === "string") pick.c = e.c.slice(0, 32);
+            out.push(pick);
+          }
+          if (out.length) ipcRenderer.send(IPC.remoteControlInput, out);
+        },
+        pause(paused: unknown): void {
+          ipcRenderer.send(IPC.remoteControlPause, paused === true);
+        },
+        stop(): void {
+          ipcRenderer.send(IPC.remoteControlStop);
+        },
+        onEvent(callback: unknown): () => void {
+          if (typeof callback !== "function") return () => {};
+          const listener = (_event: unknown, data: unknown) => {
+            if (data && typeof data === "object") (callback as (data: unknown) => void)(data);
+          };
+          ipcRenderer.on(IPC.remoteControlEvent, listener);
+          return () => {
+            ipcRenderer.off(IPC.remoteControlEvent, listener);
           };
         },
       }

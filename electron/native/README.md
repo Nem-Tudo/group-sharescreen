@@ -1,11 +1,13 @@
 # Native helpers
 
-Two small Win32 executables, built the same way and for the same reasons (see
+Three small Win32 executables, built the same way and for the same reasons (see
 "Why it is an executable" in the header of `src/audiocap.cpp`):
 
 - **golive-audiocap** — system audio without GoLive in it. Most of this file.
 - **golive-videocap** — the screen captured and encoded on the GPU; see
-  [the section at the end](#golive-videocap).
+  [its section](#golive-videocap).
+- **golive-input** — the mouse and keyboard for "Controle remoto"; see
+  [the section at the end](#golive-input).
 
 # golive-audiocap
 
@@ -336,3 +338,43 @@ headers included), so every change goes through
 | `lib/nativeVideoFrames.ts`         | Record reader, SPS/PPS keeper, bitrate target        |
 | `lib/nativeVideoCapture.ts`        | Stand-in tracks, the swap, preview, bitrate control  |
 | `lib/useRoomMedia.ts`              | Swaps the track after the picker; per-peer attach    |
+
+# golive-input
+
+"Controle remoto": moves the mouse and presses keys on this computer for the
+person in the room it was handed to. Started by `electron/remoteControl.ts`
+only after the person at the computer clicked "Permitir" in the app's own
+window, and stopped with the session. The full contract — arguments, the
+stdin commands, what it prints — is the header of `src/input.cpp`.
+
+## What keeps it safe
+
+- **Nothing stays pressed.** Every key and button it pressed is released when
+  it exits for any reason it can see: stdin closing, `q`, three seconds
+  without a `p` ping from the shell, the hotkey, the shared surface going
+  away.
+- **The person at the computer wins.** Low-level hooks watch the real mouse
+  and keyboard (events Windows marks `LL*_INJECTED` are ignored); real input
+  pauses the remote one for 750 ms.
+- **Ctrl+Alt+Esc on the real keyboard stops it**, and the same keys sent from
+  afar do not — the injected flag tells them apart.
+- **GoLive's own windows can't be touched.** Clicks, wheel turns and keys
+  aimed at a window of `--protect-pid` (Electron's main process, which owns
+  every top-level window) are dropped, so the prompt, the banner and the room
+  are out of reach of the person controlling.
+- **Windows' own line stays.** `asInvoker`, no `uiAccess`: elevated windows
+  and the UAC prompt can't be reached, and Ctrl+Alt+Del can't be injected.
+
+## Defender
+
+A program that injects input is the first thing heuristic scanners look hard
+at — the section on golive-audiocap above applies with more force. It is a
+separate executable for exactly that reason: if it is quarantined, remote
+control goes and the share keeps working. Signing the binaries is the fix.
+
+## Building
+
+Same as the others: `node electron/native/build.mjs`, normally done by
+`.github/workflows/build-audiocap.yml`, which commits `bin/golive-input.exe`
+with its `.sha256`. Until that has run, the shell does not offer remote
+control at all (`isRemoteControlAvailable` checks for the file).

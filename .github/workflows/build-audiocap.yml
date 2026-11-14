@@ -78,7 +78,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          for exe in electron/native/bin/golive-audiocap.exe electron/native/bin/golive-videocap.exe; do
+          for exe in electron/native/bin/golive-audiocap.exe electron/native/bin/golive-videocap.exe electron/native/bin/golive-input.exe; do
             test -s "$exe"
             # No mode argument, so each must reject the arguments and exit 2
             # (EXIT_BAD_ARGS) rather than crash or hang. `set -e` would kill
@@ -102,7 +102,7 @@ jobs:
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- electron/native/bin/golive-audiocap.exe electron/native/bin/golive-audiocap.exe.sha256             electron/native/bin/golive-videocap.exe electron/native/bin/golive-videocap.exe.sha256
+          git add -- electron/native/bin/golive-audiocap.exe electron/native/bin/golive-audiocap.exe.sha256             electron/native/bin/golive-videocap.exe electron/native/bin/golive-videocap.exe.sha256 electron/native/bin/golive-input.exe electron/native/bin/golive-input.exe.sha256
           # A rebuild that produced identical binaries is the normal outcome
           # of touching build.mjs or this workflow, and has nothing to commit.
           if git diff --staged --quiet; then

@@ -303,6 +303,27 @@ export const IPC = {
   /** canvas -> main: how many marks it holds and whether undo/redo apply. */
   screenPenCanvasInfo: "golive:screen-pen:canvas-info",
 
+  // ── Controle remoto (see remoteControl.ts) ─────────────────────────────
+  /**
+   * renderer -> main (invoke): somebody in the room wants to control this
+   * computer, or this person wants to hand it over. Main asks in a window of
+   * its own and answers with RemoteControlConsent. The page can only ask: the
+   * yes is a click in that window, never something the page can say.
+   */
+  remoteControlRequest: "golive:remote-control:request",
+  /** renderer -> main: a batch of RemoteControlInput from the person controlling. */
+  remoteControlInput: "golive:remote-control:input",
+  /** renderer -> main: hold the input (true) while the connection is down, or resume. */
+  remoteControlPause: "golive:remote-control:pause",
+  /** renderer -> main: the session is over. */
+  remoteControlStop: "golive:remote-control:stop",
+  /** main -> renderer: RemoteControlEvent. */
+  remoteControlEvent: "golive:remote-control:event",
+  /** consent/banner window -> main (invoke): what to show. */
+  remoteControlWindowData: "golive:remote-control:window-data",
+  /** consent/banner window -> main: the button that was pressed. */
+  remoteControlWindowChoose: "golive:remote-control:window-choose",
+
   // ─── Discord Rich Presence ──────────────────────────────────────────────────
   /** renderer -> main: update Discord Rich Presence state. */
   discordRpcUpdate: "golive:discord-rpc:update",
@@ -462,6 +483,11 @@ export const SYSTEM_AUDIO_ARG = "--golive-system-audio-exclusion";
 // nativeVideo.ts). Whether the machine can actually run it is a separate
 // question, answered by the probe.
 export const NATIVE_VIDEO_ARG = "--golive-native-video";
+
+// Present when remote control can run here: Windows, with golive-input.exe
+// shipped (see remoteControl.ts). The preload exposes `remoteControl` only
+// then, so the site's check is "does the function exist".
+export const REMOTE_CONTROL_ARG = "--golive-remote-control";
 
 /**
  * How well this machine can keep the window out of captures: "full" or
@@ -652,4 +678,72 @@ export interface PickerChoice {
      */
     opened?: boolean;
   };
+}
+
+// ─── Controle remoto ─────────────────────────────────────────────────────────
+
+/** The languages the consent window and the banner are written in. */
+export type RemoteControlLang = "pt" | "en" | "es";
+
+export interface RemoteControlRequestInfo {
+  /**
+   * "request": they asked to control. "offer": this person is handing control
+   * to them. Same window, different sentence — and the same click needed.
+   */
+  kind: "request" | "offer";
+  name: string;
+  handle?: string;
+  /** https only; anything else is dropped. */
+  avatar?: string;
+  lang: RemoteControlLang;
+}
+
+export type RemoteControlConsent =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed";
+    };
+
+/**
+ * One input event, as the page hands it over. Coordinates are 0..65535 across
+ * the shared picture. Keys travel as KeyboardEvent.code; main turns them into
+ * scan codes with a closed table (remoteControlKeys.ts) and drops the rest.
+ */
+export type RemoteControlInput =
+  | { t: "m"; x: number; y: number }
+  | { t: "b"; b: number; d: boolean; x: number; y: number }
+  | { t: "w"; dx: number; dy: number }
+  | { t: "k"; c: string; d: boolean };
+
+export type RemoteControlEndReason =
+  | "page"
+  | "banner"
+  | "tray"
+  | "hotkey"
+  | "gone"
+  | "helper"
+  | "idle"
+  | "navigated"
+  | "source-changed";
+
+export type RemoteControlEvent =
+  | { type: "ended"; reason: RemoteControlEndReason }
+  /** The person at the computer moved the mouse or typed; remote input paused for a moment. */
+  | { type: "local" }
+  /** A click or key was dropped, and why. */
+  | { type: "blocked"; why: "golive" | "covered" | "elevated" };
+
+/** What the consent window and the banner draw from. */
+export interface RemoteControlWindowData {
+  mode: "consent" | "banner";
+  kind: RemoteControlRequestInfo["kind"];
+  name: string;
+  handle: string | null;
+  avatar: string | null;
+  lang: RemoteControlLang;
+  /** Seconds the consent window waits before answering "no" by itself. */
+  timeoutSeconds: number;
+  /** The GoLive mark, as a data URL (see main's overlayLogo). */
+  logo: string | null;
 }

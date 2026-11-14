@@ -45,6 +45,7 @@ import {
   CAPTURE_PROTECTION_ARG,
   IPC,
   NATIVE_VIDEO_ARG,
+  REMOTE_CONTROL_ARG,
   SYSTEM_AUDIO_ARG,
   VERSION_ARG,
   type NativeVideoStartOptions,
@@ -76,6 +77,7 @@ import {
   setInputHookEnabled,
 } from "./inputHook";
 import { createScreenPen } from "./screenPen";
+import { createRemoteControl, isRemoteControlAvailable } from "./remoteControl";
 import { createCoverWatch } from "./windowCover";
 import { getDiscordRpc, type DiscordActivity } from "./discordRpc";
 import { createStoreDesktopShortcutOnce } from "./storeShortcut";
@@ -1056,6 +1058,19 @@ function reportWindowBackground() {
   mainWindow.webContents.send(IPC.windowBackground, isMainWindowBackground());
 }
 
+// "Controle remoto" (see remoteControl.ts). At module level rather than with
+// the other features in the ready handler because the window's navigation
+// handlers and the tray menu, both defined out here, have to reach it.
+const remoteControl = createRemoteControl({
+  canHideFromViewers: captureProtectionLevel() === "full",
+  send: (event) => mainWindow?.webContents.send(IPC.remoteControlEvent, event),
+  onActiveChange: () => {
+    refreshTrayMenu();
+    tray?.setToolTip(remoteControl.isActive() ? "Go Live — controle remoto ativo" : "Go Live");
+  },
+  logo: () => overlayLogo(),
+});
+
 function createWindow(initialUrl: string = APP_URL) {
   mainWindow = new BrowserWindow({
     width: 1660,
@@ -1098,6 +1113,7 @@ function createWindow(initialUrl: string = APP_URL) {
         `${VERSION_ARG}${app.getVersion()}`,
         ...(isSystemAudioExclusionSupported() ? [SYSTEM_AUDIO_ARG] : []),
         ...(isNativeVideoAvailable() ? [NATIVE_VIDEO_ARG] : []),
+        ...(isRemoteControlAvailable() ? [REMOTE_CONTROL_ARG] : []),
         ...(captureProtectionLevel() ? [`${CAPTURE_PROTECTION_ARG}${captureProtectionLevel()}`] : []),
       ],
       // No gesture needed for sound, like the Android app (Capacitor turns off
@@ -1213,6 +1229,9 @@ function createWindow(initialUrl: string = APP_URL) {
     // A page that reloads or leaves never says it is done being protected;
     // the one that loads next asks again for whatever it shows.
     if (captureProtected) setCaptureProtection(false);
+    // Nor is anybody on the other end of a remote control session any more:
+    // the data channel lived in that page.
+    remoteControl.pageGone();
   });
   mainWindow.webContents.on("devtools-opened", () => {
     if (captureProtected) mainWindow?.webContents.closeDevTools();
@@ -1220,6 +1239,7 @@ function createWindow(initialUrl: string = APP_URL) {
   // Windows forgets a window's taskbar buttons when it is hidden to the tray.
   mainWindow.on("show", applyCallControls);
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    remoteControl.pageGone();
     if (ringingCall) setCallRinging(null);
     if (callControls) {
       callControls = null;
@@ -1370,6 +1390,14 @@ addEventListener("online",go);
 function buildTrayMenu(): Menu {
   const settings = getBackgroundSettings();
   return Menu.buildFromTemplate([
+    // First, and only while it matters: the one way to end a remote control
+    // session that does not depend on the banner or the keyboard.
+    ...(remoteControl.isActive()
+      ? [
+          { label: "Parar controle remoto", click: () => remoteControl.stopFromTray() },
+          { type: "separator" as const },
+        ]
+      : []),
     {
       label: "Abrir Go Live",
       click: () => {
@@ -2367,6 +2395,10 @@ if (!gotLock) {
     // same "full" protection the protected rooms rely on.
     screenPen.registerIpc((sender) => Boolean(mainWindow && sender === mainWindow.webContents));
 
+    // "Controle remoto" — see remoteControl.ts. Only the main window's page
+    // may ask, and only the shell's own window can say yes.
+    remoteControl.registerIpc((sender) => Boolean(mainWindow && sender === mainWindow.webContents));
+
     ipcMain.on(IPC.pushToTalkSet, (_event, accelerator) => {
       // Released first, and unconditionally: a page that reloaded while the
       // key was down re-registers the same key on the way up, and without
@@ -2601,6 +2633,8 @@ if (!gotLock) {
     stopNativeVideo();
     releasePushToTalk();
     screenPen.destroy();
+    // Lets go of anything held and stops golive-input before the process goes.
+    remoteControl.destroy();
     inputHook.stop();
     globalShortcut.unregisterAll();
     getDiscordRpc().disconnect();

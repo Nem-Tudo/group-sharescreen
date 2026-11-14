@@ -1,5 +1,6 @@
 // Compiles the native helpers into bin/: the WASAPI capture helper
-// (src/audiocap.cpp) and the GPU screen capture helper (src/videocap.cpp).
+// (src/audiocap.cpp), the GPU screen capture helper (src/videocap.cpp) and
+// the remote control input helper (src/input.cpp).
 //
 // Runs as part of `npm run electron:build` on every platform, and is a
 // deliberate no-op on all of them except Windows: both are Windows APIs, the
@@ -79,6 +80,14 @@ const HELPERS = [
       "mfuuid.lib",
       "windowsapp.lib",
     ],
+  },
+  // input: SendInput and the low-level hooks are user32; dwmapi.lib is
+  // DwmGetWindowAttribute, for the shared window's visible frame.
+  {
+    name: "golive-input",
+    stem: "input",
+    flags: ["/std:c++17"],
+    libs: ["user32.lib", "dwmapi.lib"],
   },
 ].map((helper) => {
   const output = path.join(outdir, `${helper.name}.exe`);

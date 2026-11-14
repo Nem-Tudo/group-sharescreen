@@ -274,6 +274,28 @@ export interface DesktopBridge {
   };
 
   /**
+   * "Controle remoto": somebody in the room drives this computer (see
+   * lib/remoteControl.ts, the only caller, and electron/remoteControl.ts).
+   * Present only on Windows with the input helper shipped — its absence is the
+   * feature check. `request` only asks: the yes is a click in a window of the
+   * shell's own, which the page can neither draw nor press.
+   */
+  remoteControl?: {
+    request(info: {
+      kind: "request" | "offer";
+      name: string;
+      handle?: string;
+      avatar?: string;
+      lang: "pt" | "en" | "es";
+    }): Promise<RemoteControlConsent>;
+    input(events: RemoteControlInputEvent[]): void;
+    /** Holds the input (and lets go of every key) while the other side is reconnecting. */
+    pause(paused: boolean): void;
+    stop(): void;
+    onEvent(callback: (event: RemoteControlShellEvent) => void): () => void;
+  };
+
+  /**
    * Keeping the window out of screenshots and screen recorders, for protected
    * rooms and view-once files — see lib/captureProtection.ts, the only thing
    * that should touch this. "full" on Windows; "partial" on macOS, where
@@ -380,6 +402,27 @@ export interface DesktopBridge {
     ): () => void;
   };
 }
+
+/** The shell's answer to a remote control request — see electron/channels.ts. */
+export type RemoteControlConsent =
+  | { ok: true }
+  | { ok: false; reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed" };
+
+/** One input event for golive-input — see electron/channels.ts's RemoteControlInput. */
+export type RemoteControlInputEvent =
+  | { t: "m"; x: number; y: number }
+  | { t: "b"; b: number; d: boolean; x: number; y: number }
+  | { t: "w"; dx: number; dy: number }
+  | { t: "k"; c: string; d: boolean };
+
+/** See electron/channels.ts's RemoteControlEvent. */
+export type RemoteControlShellEvent =
+  | {
+      type: "ended";
+      reason: "page" | "banner" | "tray" | "hotkey" | "gone" | "helper" | "idle" | "navigated" | "source-changed";
+    }
+  | { type: "local" }
+  | { type: "blocked"; why: "golive" | "covered" | "elevated" };
 
 declare global {
   interface Window {

@@ -146,7 +146,14 @@ import type { MusicControlMode } from "@/lib/musicSource";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
-import { isDesktopApp, isMobileApp, armSavedShareSource } from "@/lib/desktop";
+import { isDesktopApp, isMobileApp, armSavedShareSource, getDesktopBridge } from "@/lib/desktop";
+import {
+  offerRemoteControl,
+  onRemoteControlDriving,
+  useRemoteControl,
+  useRemoteControlState,
+} from "@/lib/remoteControl";
+import { RemoteControlPrompt } from "@/components/RemoteControlTile";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { CallStage, type CallStagePerson } from "@/components/CallStage";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
@@ -349,6 +356,7 @@ import {
   MdSubtitles,
   MdTranslate,
   MdPhoneIphone,
+  MdMouse,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -386,7 +394,7 @@ import {
   THEME_EDITOR_PARAM,
   wantsThemeEditor,
 } from "@/lib/roomThemes";
-import { useT } from "@/lib/useI18n";
+import { useLocale, useT } from "@/lib/useI18n";
 import { RoomTour } from "@/components/RoomTour";
 import { useRoomTour } from "@/lib/roomTour";
 import { MobileSheet } from "@/components/MobileSheet";
@@ -3638,6 +3646,44 @@ function WatchRoomView({
   // header only: on a phone the button lives inside the extras menu, which
   // carries the "NOVO" badge instead.
   const roomToolsTip = useTileExperimentTip("roomTools", roomToolsAvailable && isWideLayout);
+
+  // "Controle remoto" (see lib/remoteControl). A room feature — whoever asks
+  // and whoever is asked land on the same side of it — and accounts only.
+  // Being controlled also takes the Windows app (its bridge is the check);
+  // controlling takes any browser.
+  const remoteControlBridge = Boolean(getDesktopBridge()?.remoteControl);
+  const remoteControlMode = useTileExperiment("remoteControl", { room: handle, track: Boolean(account) });
+  const remoteControlEnabled = remoteControlMode.available && Boolean(account);
+  const remoteControlHost = remoteControlEnabled && remoteControlBridge;
+  // Only one screen out: the shell maps clicks onto the surface that was
+  // picked last, and with several going out that is a guess.
+  const remoteControlSharing = Boolean(isSharing && localStream) && extraScreensActive === 0;
+  const remoteControlLang = useLocale();
+  useRemoteControl({
+    room: handle,
+    enabled: remoteControlEnabled,
+    hostEnabled: remoteControlBridge,
+    open: remoteControlMode.on,
+    sharingScreen: remoteControlSharing,
+    forceRelay: forceRelayIce,
+    lang: remoteControlLang,
+  });
+  const remoteControlState = useRemoteControlState();
+  // The NOVO badge goes once somebody's computer has actually been controlled.
+  const remoteControlHostActive = remoteControlState.host?.phase === "active";
+  useEffect(() => {
+    if (remoteControlHostActive) markFeatureUsed("remote-control");
+  }, [remoteControlHostActive]);
+  // Taking control brings that screen to the front: driving somebody's
+  // computer from a thumbnail is not driving it. Once, on the way in — what
+  // the person does with the layout afterwards is theirs.
+  useEffect(
+    () =>
+      onRemoteControlDriving((hostId) => {
+        setSpotlightId(tileId("screen", hostId));
+      }),
+    []
+  );
   const raisedHandIds = useMemo(() => new Set(toolHands.map((h) => h.id)), [toolHands]);
   const selfHandRaised = Boolean(state.selfUserId && raisedHandIds.has(state.selfUserId));
   // Everybody else here, once per person — for "pessoas escolhidas".
@@ -5388,6 +5434,18 @@ function WatchRoomView({
             : translate("watch.watchRoom.onlyTheRoomSOwnerAnd2"),
       onOpenProfile: () => setProfileUserId(peer.userId as string),
       onSendMessage: account && peer.userId !== state.selfUserId ? () => openDirectMessages(peer.userId) : undefined,
+      // "Dar controle do meu PC": while this person shares one screen from the
+      // app, to somebody else with an account who is a person in the room.
+      onGiveRemoteControl:
+        remoteControlHost &&
+        remoteControlSharing &&
+        !remoteControlState.host &&
+        !peer.isGuest &&
+        !peer.role &&
+        peer.id !== state.selfId &&
+        peer.userId !== state.selfUserId
+          ? () => void offerRemoteControl(peer)
+          : undefined,
       volume: peerVolumes[volumeKey] ?? 1,
       muted: micsMuted || mutedPeerIds.has(peer.id) || isPeerSilenced(peer),
       onVolumeChange: (v) => setPeerVolume(volumeKey, v),
@@ -6210,6 +6268,7 @@ function WatchRoomView({
           onVisibilityChange={(visible) => qualityNegotiator.setHidden("screen", peerId, !visible)}
           onStopWatching={() => stopWatchingPeer(peerId)}
           connectionStats={{ channel: "screen", originId: peerId }}
+          remoteControlPeerId={remoteControlEnabled ? peerId : undefined}
           orientation={peerOrientation(peerId, "screen")}
           onDoubleClick={doubleClickFocus ? () => toggleSpotlight(id) : undefined}
           onFocus={() => toggleSpotlight(id)}
@@ -7326,6 +7385,23 @@ function WatchRoomView({
     />
   );
 
+  // "Permitir pedidos de controle remoto" (see lib/remoteControl). In "Mais
+  // opções" with the room's other settings: it is about this computer and
+  // this room, not about any one control. Off by default — it opens the
+  // computer to requests — and each request is still asked in the app's own
+  // window. One definition, rendered wherever the settings live.
+  const remoteControlToggle = remoteControlHost && (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.remoteControlMode")}
+      badge={<NewBadge id="remote-control" />}
+      active={remoteControlMode.on}
+      onToggle={() => setTileExperimentMode("remoteControl", !remoteControlMode.on, handle)}
+      hint={translate("watch.watchRoom.remoteControlModeHint")}
+      activeIcon={<MdMouse className="h-4 w-4" />}
+      inactiveIcon={<MdMouse className="h-4 w-4 opacity-50" />}
+    />
+  );
+
   // "Microfone estéreo": only in the mic's panel — it is a setting of the
   // microphone, and nowhere else would anybody look for it.
   const stereoMicToggle = stereoMicMode.available && (
@@ -7756,6 +7832,7 @@ function WatchRoomView({
           {autoJoinToggle}
           <OpenRoomsInAppToggle />
           {forceRelayRows}
+          {remoteControlToggle}
         </>
       )}
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
@@ -11153,12 +11230,16 @@ function WatchRoomView({
           on the experiment — see lib/gpuShareSurvey.ts. */}
       <GpuShareSurveyModal />
 
+      {/* "Fulano te deu o controle", and the short notices of remote control. */}
+      {remoteControlEnabled && <RemoteControlPrompt />}
+
       {settingsCallSlot &&
         createPortal(
           <>
             {noiseSuppressionToggle}
             {autoJoinToggle}
             {forceRelayRows}
+            {remoteControlToggle}
           </>,
           settingsCallSlot
         )}

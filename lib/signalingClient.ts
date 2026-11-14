@@ -187,6 +187,12 @@ export type PeerInfo = {
   // server's connectionDevice). Null/undefined for a desktop browser, which
   // keeps the plain dot.
   presenceDevice?: PresenceDevice | null;
+  // "Controle remoto" (see lib/remoteControl.ts). `rc`: this peer takes
+  // requests to control their computer. `rcBy`: who is controlling it now,
+  // as that peer's own client announced it — shown to the whole room.
+  // Undefined from a server that predates them, read as off / nobody.
+  rc?: boolean;
+  rcBy?: { id: string; userId: string; name: string | null } | null;
 };
 
 /**
@@ -2179,6 +2185,22 @@ class SignalingClient {
                   // See PeerInfo.adPaused. An older server never sends it,
                   // which reads as false and leaves the tile alone.
                   adPaused: msg.adPaused === true,
+                }
+              : p
+          ),
+        });
+        break;
+      case "peer-remote-control":
+        this.setState({
+          peers: this.state.peers.map((p) =>
+            p.id === msg.id
+              ? {
+                  ...p,
+                  rc: msg.rc === true,
+                  rcBy:
+                    msg.rcBy && typeof msg.rcBy === "object"
+                      ? (msg.rcBy as { id: string; userId: string; name: string | null })
+                      : null,
                 }
               : p
           ),

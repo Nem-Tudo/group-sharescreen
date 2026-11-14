@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { MdBlock, MdCheck, MdChatBubbleOutline, MdMic, MdMicOff, MdPersonOutline, MdPersonRemove } from "react-icons/md";
+import { MdBlock, MdCheck, MdChatBubbleOutline, MdMic, MdMicOff, MdMouse, MdPersonOutline, MdPersonRemove } from "react-icons/md";
 import { FaCrown } from "react-icons/fa";
 import { signalingClient } from "@/lib/signalingClient";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
@@ -73,6 +73,10 @@ export type MemberActions = {
   // own row, or the caller has nowhere to put a profile/DM).
   onOpenProfile?: () => void;
   onSendMessage?: () => void;
+  // "Dar controle do meu PC" (see lib/remoteControl.ts): only when this
+  // viewer shares their screen from the app and the remote control
+  // experiment is on. The shell asks again in a window of its own.
+  onGiveRemoteControl?: () => void;
   // This listener's own dial for them — never sent anywhere, just how loud
   // they play locally. Omitted where there is no audio to turn down (your own
   // row, or a peer this client isn't receiving audio from).
@@ -125,6 +129,7 @@ export function MemberActionsMenu({
     blockedReason,
     onOpenProfile,
     onSendMessage,
+    onGiveRemoteControl,
     volume,
     muted,
     onVolumeChange,
@@ -211,6 +216,19 @@ export function MemberActionsMenu({
           >
             <MdChatBubbleOutline className={menuIcon} />
             {t("groups.memberMenu.sendMessage")}
+          </button>
+        )}
+        {onGiveRemoteControl && (
+          <button
+            type="button"
+            onClick={() => {
+              onGiveRemoteControl();
+              onDone();
+            }}
+            className={menuItem}
+          >
+            <MdMouse className={menuIcon} />
+            {t("remoteControl.give")}
           </button>
         )}
 

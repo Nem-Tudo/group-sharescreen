@@ -64,6 +64,7 @@ files:
   - electron/toast.html
   - electron/screen-pen.html
   - electron/screen-pen-toolbar.html
+  - electron/remote-control.html
   - package.json
   - "!node_modules/**/*"
   # Linux sets the window icon from a file at runtime rather than from the
@@ -116,6 +117,7 @@ win:
       filter:
         - golive-audiocap.exe
         - golive-videocap.exe
+        - golive-input.exe
     # The system-wide shortcut hook (see electron/inputHook.ts). Copied as
     # real files for the same reason as the helpers above — a native .node
     # cannot load from inside app.asar — and laid out as a node_modules tree
