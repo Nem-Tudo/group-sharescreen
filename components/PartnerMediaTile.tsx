@@ -61,7 +61,7 @@ export function PartnerMediaTile({
 
         if (partner.id) {
           signalingClient.reportPartnerClick(partner.id, "card");
-          if (partner.product) trackProductClick();
+          if (partner.product) trackProductClick(partner.product.interests);
           else trackPartnerClick("tile");
           // Not asked again once collected — the server would only refuse it.
           if (clickRewardAppliesTo(partner, "card") && !hasClaimedPartnerReward(partner.id, "click")) {
@@ -119,6 +119,7 @@ export function PartnerMediaTile({
           buttonBackgroundColor: partner.buttonBackgroundColor,
           buttonTextColor: partner.buttonTextColor,
           isProduct: Boolean(partner.product),
+          productInterests: partner.product?.interests,
           clickRewardPoints: clickRewardAppliesTo(partner, "video")
             ? partner.clickRewardPoints
             : null,

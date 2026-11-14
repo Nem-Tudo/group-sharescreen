@@ -22,6 +22,9 @@ import { AFFILIATE_PRODUCTS_FEATURE, formatProductPrice } from "@/lib/affiliateP
 import { formatLocale } from "@/lib/i18n";
 import { useT } from "@/lib/useI18n";
 import { PartnerMediaDrop } from "./PartnerMediaDrop";
+import { AffiliateInterestChips, interestLabel } from "./AffiliateInterestChips";
+import { AffiliateShopeePanel } from "./AffiliateShopeePanel";
+import { AFFILIATE_PERSONALIZED_FEATURE } from "@/lib/affiliateInterests";
 
 const STATS_POLL_INTERVAL_MS = 3000;
 
@@ -64,6 +67,9 @@ export function AffiliateProductsPanel() {
   const { openPopup } = useNtPopups();
   const [products, setProducts] = useState<AffiliateProduct[] | undefined>(undefined);
   const [stats, setStats] = useState<AffiliateProductList["stats"]>({});
+  const [shopee, setShopee] = useState<AffiliateProductList["shopee"]>(undefined);
+  const [shopeeConfigured, setShopeeConfigured] = useState(false);
+  const [interests, setInterests] = useState<string[]>([]);
   const [adsPercent, setAdsPercent] = useState(100);
   // The slider's own position, apart from what is saved: polling must not drag
   // it back while somebody is moving it.
@@ -92,6 +98,8 @@ export function AffiliateProductsPanel() {
     setProducts(data.products);
     setStats(data.stats);
     setAdsPercent(data.adsPercent);
+    setShopee(data.shopee);
+    setShopeeConfigured(Boolean(data.shopeeConfigured));
     if (!initialLoadDone.current) {
       setAdsInput(data.adsPercent);
       initialLoadDone.current = true;
@@ -129,6 +137,7 @@ export function AffiliateProductsPanel() {
     setWeight(1);
     setEnabled(true);
     setAutoUpdatePrice(false);
+    setInterests([]);
     setError(null);
     setImportError(null);
   }
@@ -155,6 +164,7 @@ export function AffiliateProductsPanel() {
     setWeight(p.weight);
     setEnabled(p.enabled);
     setAutoUpdatePrice(Boolean(p.autoUpdatePrice));
+    setInterests(p.interests ?? []);
     setError(null);
     setImportError(null);
   }
@@ -180,6 +190,8 @@ export function AffiliateProductsPanel() {
         note: found.note,
         shipping: found.shipping,
       }));
+      // The title's guess, only into an empty pick: never over the admin's own.
+      if (found.interests?.length) setInterests((prev) => (prev.length ? prev : found.interests ?? []));
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Não consegui ler esse link.");
     } finally {
@@ -213,6 +225,7 @@ export function AffiliateProductsPanel() {
         weight,
         enabled,
         autoUpdatePrice,
+        interests,
         rewardVideoUrl: videoUrl || null,
         rewardPoints: videoUrl ? Number(form.rewardPoints) : null,
       };
@@ -315,8 +328,12 @@ export function AffiliateProductsPanel() {
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Produtos de afiliados</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         Entram em rotação no mesmo espaço dos anúncios acima. Só aparecem para quem está no experiment{" "}
-        <code>{AFFILIATE_PRODUCTS_FEATURE}</code> (aba Features).
+        <code>{AFFILIATE_PRODUCTS_FEATURE}</code> (aba Features). Para quem também está no lado &quot;on&quot; de{" "}
+        <code>{AFFILIATE_PERSONALIZED_FEATURE}</code>, o produto é escolhido pelos interesses marcados nele e pelas
+        categorias das salas onde a pessoa passa tempo (guardadas só no navegador dela).
       </p>
+
+      <AffiliateShopeePanel shopee={shopee} configured={shopeeConfigured} onList={applyList} />
 
       <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
         <div className="flex items-center justify-between gap-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -391,6 +408,19 @@ export function AffiliateProductsPanel() {
                       +{p.rewardPoints} pts por vídeo
                     </span>
                   )}
+                  {p.source === "shopee" && (
+                    <span className="shrink-0 rounded-full bg-[#EE4D2D] px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Shopee auto
+                    </span>
+                  )}
+                  {(p.interests ?? []).map((id) => (
+                    <span
+                      key={id}
+                      className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                    >
+                      {interestLabel(id)}
+                    </span>
+                  ))}
                   <span className="shrink-0 text-zinc-500 dark:text-zinc-400">peso {p.weight}</span>
                   <label className="flex shrink-0 cursor-pointer items-center gap-1 font-semibold text-zinc-700 dark:text-zinc-300">
                     <input
@@ -686,6 +716,15 @@ export function AffiliateProductsPanel() {
                 className={inputClass}
               />
             </div>
+          </div>
+
+          <div>
+            <p className={labelClass}>Interesses (para quem esse produto é)</p>
+            <AffiliateInterestChips value={interests} onChange={setInterests} />
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              São as categorias de sala. Quem passa tempo em salas dessas categorias vê este produto mais vezes. Sem
+              nenhum, ele continua aparecendo, só não é favorecido para ninguém.
+            </p>
           </div>
 
           <div>

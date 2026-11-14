@@ -1,5 +1,6 @@
 "use client";
 
+import { useRoomInterestTracking, useShareInterestTracking } from "@/lib/affiliateInterests";
 import {
   Fragment,
   useCallback,
@@ -2357,6 +2358,11 @@ function WatchRoomView({
   // Which of my transmissions are being recorded — "screen", "camera", or a
   // file slot, as the recorder's tile names it — for the red frame.
   const recordedChannels = new Set(recordingNotices.flatMap((n) => n.channels));
+  // Minutes in this room's category, into this browser's own interest profile
+  // for the personalised affiliate products (see lib/affiliateInterests).
+  useRoomInterestTracking(state.roomCategory);
+  // ...and minutes broadcasting a recognised game or app (lib/shareInterest).
+  useShareInterestTracking(localStream);
   // The tile experiments, "Modo clipes" and "Gravação" (see lib/clipsMode).
   // Tracked here, where their switches are shown, rather than in every tile.
   const clipsMode = useTileExperiment("clips", { track: true });

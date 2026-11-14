@@ -841,19 +841,62 @@ export type AffiliateProduct = {
   autoUpdatePrice?: boolean;
   priceCheckedAt?: number | null;
   priceCheckError?: string | null;
+  // Room categories it is for: what the personalised pick matches against.
+  interests?: string[];
+  // One price a day, the last 30 days (t = start of the day).
+  priceHistory?: { t: number; p: number }[];
+  // "shopee" = made and kept up to date by the Shopee sync.
+  source?: "manual" | "shopee";
+  externalId?: string | null;
+  // The same link with the personalised side's sub id.
+  personalizedUrl?: string | null;
+  lastSeenAt?: number | null;
 };
 
 export type AffiliateProductInput = Omit<
   AffiliateProduct,
-  "id" | "createdAt" | "reportToken" | "priceCheckedAt" | "priceCheckError"
+  | "id"
+  | "createdAt"
+  | "reportToken"
+  | "priceCheckedAt"
+  | "priceCheckError"
+  | "priceHistory"
+  | "source"
+  | "externalId"
+  | "personalizedUrl"
+  | "lastSeenAt"
 >;
 export type ImportedAffiliateProduct = Pick<
   AffiliateProduct,
-  "title" | "description" | "imageUrl" | "store" | "price" | "originalPrice" | "currency" | "badge" | "note" | "shipping"
+  | "title"
+  | "description"
+  | "imageUrl"
+  | "store"
+  | "price"
+  | "originalPrice"
+  | "currency"
+  | "badge"
+  | "note"
+  | "shipping"
+  | "interests"
 >;
+// The Shopee sync's settings (the API's ShopeeSyncConfig). Credentials are env-only.
+export type ShopeeSyncConfig = {
+  enabled: boolean;
+  autoEnable: boolean;
+  perKeyword: number;
+  keywords: Record<string, string[]>;
+  lastSyncAt: number | null;
+  lastSyncError: string | null;
+  lastSyncSummary: string | null;
+  runningSince: number | null;
+};
 export type AffiliateProductList = {
   products: AffiliateProduct[];
   adsPercent: number;
+  shopee?: ShopeeSyncConfig;
+  // Whether the API has the Shopee credentials in its env.
+  shopeeConfigured?: boolean;
   // The same numbers as an ad's: the API counts both under the same stats.
   stats: Record<string, PartnerStats>;
 };
@@ -898,6 +941,16 @@ export async function setAffiliateAdsPercent(adsPercent: number): Promise<number
     body: JSON.stringify({ adsPercent }),
   });
   return data.adsPercent;
+}
+
+export async function saveShopeeSync(
+  input: Partial<Pick<ShopeeSyncConfig, "enabled" | "autoEnable" | "perKeyword" | "keywords">>
+): Promise<AffiliateProductList> {
+  return adminFetch("/admin/affiliate-shopee", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+export async function startShopeeSync(): Promise<void> {
+  await adminFetch("/admin/affiliate-shopee/sync", { method: "POST" });
 }
 
 export async function importAffiliateProduct(url: string): Promise<ImportedAffiliateProduct> {

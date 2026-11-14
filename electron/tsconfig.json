@@ -23,5 +23,5 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["main.ts", "preload.ts", "picker-preload.ts", "channels.ts", "updater.ts", "../lib/desktop.ts"]
+  "include": ["main.ts", "preload.ts", "picker-preload.ts", "channels.ts", "updater.ts", "../lib/desktop.ts", "../lib/shareInterest.ts"]
 }

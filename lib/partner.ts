@@ -89,6 +89,9 @@ export type PartnerProductInfo = {
   badge: string;
   note: string;
   shipping: string;
+  // Room categories the product is for (see lib/affiliateInterests). Absent
+  // from an API that predates them.
+  interests?: string[];
 };
 
 export type PartnerCardData = {
@@ -174,12 +177,18 @@ export async function fetchPartner(
   /** Only ads this identity can still collect points from (see lib/partnerAdsMode). */
   rewardsOnly = false,
   /** Let affiliate products into the roll (the experiment's side, see lib/affiliateProducts). */
-  withProducts = false
+  withProducts = false,
+  /** The personalised side of affiliate-personalized: its flag and this browser's hint (lib/affiliateInterests). */
+  personalization: { interests: string | null } | null = null
 ): Promise<PartnerCardData | null> {
   const params = new URLSearchParams();
   if (currentId) params.set("current", currentId);
   if (rewardsOnly) params.set("rewards", "unclaimed");
   if (withProducts) params.set("products", "1");
+  if (withProducts && personalization) {
+    params.set("p13n", "1");
+    if (personalization.interests) params.set("interests", personalization.interests);
+  }
   const search = params.toString();
   const query = search ? `?${search}` : "";
   // The token only when it matters: it is what tells the API whose claims to

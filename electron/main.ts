@@ -67,6 +67,7 @@ import {
 // no React, no imports, nothing that touches `window` at load time — so it
 // bundles into the main process without dragging the app in with it.
 import { desktopOAuthNonce } from "../lib/desktop";
+import { classifyShareTitle, type ShareInterest } from "../lib/shareInterest";
 import { initAutoUpdater } from "./updater";
 import {
   createInputHook,
@@ -364,6 +365,20 @@ interface PickResult {
  * shortcut cannot silently arm every future share.
  */
 let reuseSavedSourceOnce = false;
+
+/**
+ * What the window of the latest share is about — "gameplay" for a game,
+ * "musica" for Spotify, null for a whole screen or a title that says nothing
+ * (lib/shareInterest.ts). The page asks for it (IPC.shareInterest) to feed its
+ * own interest profile for the personalised affiliate products, and gets the
+ * category alone: the title stays in this process, like the saved source.
+ */
+let lastShareInterest: ShareInterest | null = null;
+
+function noteSharedSource(source: DesktopCapturerSource) {
+  rememberSharedSource(source);
+  lastShareInterest = source.id.startsWith("window:") ? classifyShareTitle(source.name) : null;
+}
 
 /**
  * The saved source, matched against what is actually open now — or null.
@@ -700,6 +715,7 @@ function installShareSourceHandlers() {
     reuseSavedSourceOnce = source !== null;
     return reuseSavedSourceOnce;
   });
+  ipcMain.handle(IPC.shareInterest, () => lastShareInterest);
 }
 
 function installDisplayMediaHandler() {
@@ -803,7 +819,7 @@ function installDisplayMediaHandler() {
           const savedSource = await resolveSavedShareSource();
           if (savedSource) {
             // Nothing about reusing a source changes what the audio may be.
-            rememberSharedSource(savedSource);
+            noteSharedSource(savedSource);
             answer(withAudio(savedSource));
             return;
           }
@@ -850,7 +866,7 @@ function installDisplayMediaHandler() {
         }
         // The surface a GPU capture would be started on, if the page asks for
         // one next (see nativeVideo.ts).
-        rememberSharedSource(source);
+        noteSharedSource(source);
         answer(withAudio(source));
       })().catch((err) => {
         // Anything that went wrong on the way to an answer — the source list

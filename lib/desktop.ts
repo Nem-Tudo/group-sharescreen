@@ -86,6 +86,12 @@ export interface DesktopBridge {
    */
   readonly useSavedShareSource?: () => Promise<boolean>;
   /**
+   * What the window being shared is about ("gameplay", "musica"...), worked
+   * out from its title in the shell (lib/shareInterest.ts) — never the title
+   * itself. Null for a whole screen or an unknown app. Absent on older builds.
+   */
+  readonly sharedSourceInterest?: () => Promise<string | null>;
+  /**
    * Opens `startUrl` in the user's *real* browser and resolves with the URL
    * fragment the OAuth flow eventually hands back through the app's custom
    * protocol — or null if it was cancelled or timed out.

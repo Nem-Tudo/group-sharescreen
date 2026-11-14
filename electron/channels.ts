@@ -278,6 +278,12 @@ export const IPC = {
    * screen. A one-shot: main clears it on the first request that reads it.
    */
   shareUseSaved: "golive:share:use-saved",
+  /**
+   * renderer -> main: the category of the window being shared now (see
+   * lib/shareInterest.ts), or null. Only the category: the window's title
+   * never crosses to the page.
+   */
+  shareInterest: "golive:share:interest",
 
   // ── Desenhar na tela (see screenPen.ts) ────────────────────────────────
   /** renderer -> main: the feature on or off for this person, and its words. */

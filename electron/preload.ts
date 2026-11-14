@@ -302,6 +302,14 @@ contextBridge.exposeInMainWorld("golive", {
   },
 
   /**
+   * The category of the window being shared (lib/shareInterest.ts), or null.
+   * Never the title: that is classified on the other side and stays there.
+   */
+  sharedSourceInterest(): Promise<string | null> {
+    return ipcRenderer.invoke(IPC.shareInterest) as Promise<string | null>;
+  },
+
+  /**
    * The push-to-talk key, as an accelerator — "" turns it off. Separate from
    * setGlobalShortcuts because this key is not an action that fires: the
    * shell follows it down and up (see main.ts's push-to-talk section).

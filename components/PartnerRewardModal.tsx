@@ -99,6 +99,9 @@ export type PartnerRewardPopupData = {
   // An affiliate product rather than an ad: counted under its own experiment
   // events (see lib/affiliateProducts), and an empty button label is "Ver oferta".
   isProduct?: boolean;
+  // The product's tags, for its click to count toward this browser's profile
+  // (lib/affiliateInterests).
+  productInterests?: string[];
   // The admin panel's preview: the same popup, but nothing it does counts —
   // no stats reported, no points claimed, nothing saved in this browser — and
   // the player starts unlocked so the admin can scrub through the video.
@@ -145,6 +148,7 @@ export function PartnerRewardModal({
     hasExtendedDescription,
     extendedDescription: givenExtendedDescription,
     isProduct = false,
+    productInterests,
     preview = false,
   },
 }: {
@@ -692,7 +696,7 @@ export function PartnerRewardModal({
             onClick={() => {
               if (preview) return;
               signalingClient.reportPartnerClick(partnerId, "video");
-              if (isProduct) trackProductClick();
+              if (isProduct) trackProductClick(productInterests);
               else trackPartnerClick("video");
               // Fire-and-forget next to the navigation — the link opens in a
               // new tab, so nothing is racing an unload here.

@@ -15,6 +15,7 @@ import { hasUnclaimedPartnerReward, usePartnerAdsMode } from "./partnerAdsMode";
 import { usePartnerCreative } from "./partnerSchedule";
 import { isPageHidden, onPageHiddenChange } from "./pageHidden";
 import { trackProductImpression, useAffiliateProductsFeature } from "./affiliateProducts";
+import { interestQuery, useAffiliatePersonalizedFeature } from "./affiliateInterests";
 
 const ROTATE_INTERVAL_MS = 3 * 60 * 1000;
 // The longest the first fetch waits to learn whether this person gets products
@@ -64,6 +65,18 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   useEffect(() => {
     withProductsRef.current = productsFeature.enabled;
   }, [productsFeature.enabled]);
+  // Which product, for someone who gets products at all: exposure only then,
+  // since for anybody else the experiment changes nothing on screen.
+  const personalizedFeature = useAffiliatePersonalizedFeature({ track: slotOnScreen && productsFeature.enabled });
+  const personalizedRef = useRef(personalizedFeature.enabled);
+  useEffect(() => {
+    personalizedRef.current = personalizedFeature.enabled;
+  }, [personalizedFeature.enabled]);
+  // Read at each fetch rather than once: the profile grows while the room is open.
+  const personalization = useCallback(
+    () => (personalizedRef.current ? { interests: interestQuery() } : null),
+    []
+  );
 
   // The first fetch waits for that answer. Auth is still resolving when this
   // mounts, so asking straight away would never include products, and somebody
@@ -71,21 +84,22 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   // rotation. A latch, so an account refresh later on cannot refetch the slot.
   const [featureGateOpen, setFeatureGateOpen] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => setFeatureGateOpen(true), productsFeature.ready ? 0 : FEATURE_WAIT_MS);
+    const ready = productsFeature.ready && personalizedFeature.ready;
+    const timer = setTimeout(() => setFeatureGateOpen(true), ready ? 0 : FEATURE_WAIT_MS);
     return () => clearTimeout(timer);
-  }, [productsFeature.ready]);
+  }, [productsFeature.ready, personalizedFeature.ready]);
 
   // Initial HTTP fetch
   useEffect(() => {
     if (fetchKind === "none" || !featureGateOpen) return;
     const controller = new AbortController();
-    fetchPartner(controller.signal, null, fetchKind === "rewards", withProductsRef.current)
+    fetchPartner(controller.signal, null, fetchKind === "rewards", withProductsRef.current, personalization())
       .then(applyServedPartner)
       .catch(() => {
         applyServedPartner(null);
       });
     return () => controller.abort();
-  }, [applyServedPartner, fetchKind, featureGateOpen]);
+  }, [applyServedPartner, fetchKind, featureGateOpen, personalization]);
 
   // Rotation timer
   const currentIdRef = useRef<string | null>(null);
@@ -96,13 +110,19 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
   const rotate = useCallback(
     (signal: AbortSignal) => {
       if (fetchKindRef.current === "none") return;
-      fetchPartner(signal, currentIdRef.current, fetchKindRef.current === "rewards", withProductsRef.current)
+      fetchPartner(
+        signal,
+        currentIdRef.current,
+        fetchKindRef.current === "rewards",
+        withProductsRef.current,
+        personalization()
+      )
         .then(applyServedPartner)
         .catch(() => {
           // Keep whatever is currently on screen
         });
     },
-    [applyServedPartner]
+    [applyServedPartner, personalization]
   );
 
   // "Only the ones that pay points": the ad on screen is shown for as long as
@@ -223,7 +243,7 @@ export function usePartnerAd({ visible = true }: { visible?: boolean } = {}) {
       if (reportedServeRef.current === serve) return;
       reportedServeRef.current = serve;
       signalingClient.reportPartnerView(id!);
-      if (isProduct) trackProductImpression();
+      if (isProduct) trackProductImpression(serve!.product?.interests);
       else trackPartnerImpression();
     }
     maybeReport();

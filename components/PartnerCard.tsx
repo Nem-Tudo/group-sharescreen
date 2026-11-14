@@ -538,7 +538,7 @@ export function PartnerCard({
     // swapped out for the house ad via showingHouseAd.
     if (showingRealAd && data.id) {
       signalingClient.reportPartnerClick(data.id);
-      if (data.product) trackProductClick();
+      if (data.product) trackProductClick(data.product.interests);
       else trackPartnerClick(spot);
     }
     // Fire-and-forget alongside the navigation: the link opens in a new tab,
@@ -590,6 +590,7 @@ export function PartnerCard({
             buttonBackgroundColor: data.buttonBackgroundColor,
             buttonTextColor: data.buttonTextColor,
             isProduct: Boolean(data.product),
+            productInterests: data.product?.interests,
             clickRewardPoints: clickRewardAppliesTo(data, "video")
               ? data.clickRewardPoints
               : null,

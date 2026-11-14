@@ -2,6 +2,7 @@
 
 import { trackFeatureEvent, useFeature } from "./features";
 import { formatLocale } from "./i18n";
+import { noteProductClick, noteProductImpression } from "./affiliateInterests";
 
 // Affiliate products in the partner slot: things sold elsewhere, shown in
 // rotation with the paid ads and linked through an affiliate link (the API's
@@ -34,12 +35,16 @@ export function useAffiliateProductsFeature(options: { track?: boolean } = {}) {
   return useFeature(AFFILIATE_PRODUCTS_FEATURE, { track: options.track ?? false });
 }
 
-export function trackProductImpression() {
+/** `interests`: the product's tags, for the personalised experiment's own counts. */
+export function trackProductImpression(interests?: string[]) {
   trackFeatureEvent(AFFILIATE_PRODUCT_EVENTS.impression);
+  noteProductImpression(interests);
 }
 
-export function trackProductClick() {
+/** `interests`: the product's tags, which also go into this browser's profile. */
+export function trackProductClick(interests?: string[]) {
   trackFeatureEvent(AFFILIATE_PRODUCT_EVENTS.click);
+  noteProductClick(interests);
 }
 
 export function trackProductVideoOpen() {
