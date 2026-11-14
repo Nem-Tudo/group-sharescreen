@@ -5933,6 +5933,6 @@
   "storePolicy.ok": "Entendido",
   "storePolicy.home": "Volver al inicio",
   "socketIdle.title": "Te desconectamos por inactividad",
-  "socketIdle.text": "Para liberar espacio en el servidor, quien no está en una sala se desconecta tras un rato sin usar el sitio. Los mensajes, las notificaciones y quién está en línea quedan en pausa hasta que te reconectes. Entrar a una sala te reconecta automáticamente.",
+  "socketIdle.text": "Esto es temporal, solo mientras el sitio está en mantenimiento: quien no está en una sala se desconecta tras un rato sin usar el sitio. Los mensajes, las notificaciones y quién está en línea quedan en pausa hasta que te reconectes. Entrar a una sala te reconecta automáticamente.",
   "socketIdle.reconnect": "Reconectar"
 }
