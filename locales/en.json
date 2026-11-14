@@ -5934,5 +5934,7 @@
   "storePolicy.home": "Back to home",
   "socketIdle.title": "You were disconnected for inactivity",
   "socketIdle.text": "This is temporary, only while the site is under maintenance: people who aren't in a room are disconnected after a while without using the site. Messages, notifications and who's online are paused until you reconnect. Joining a room reconnects automatically.",
-  "socketIdle.reconnect": "Reconnect"
+  "socketIdle.reconnect": "Reconnect",
+  "admin.socketIdlePanel.title": "Disconnect people who aren't using the site (socket hotfix)",
+  "admin.socketIdlePanel.description": "When on, anyone not in a room is disconnected after 3 min with the tab in the background or 20 min without touching the page, and sees a maintenance notice with a button to reconnect. Applies right away to every open tab. Turning it off reconnects those who were disconnected (as soon as the tab is visible). Saved in the database."
 }

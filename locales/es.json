@@ -5934,5 +5934,7 @@
   "storePolicy.home": "Volver al inicio",
   "socketIdle.title": "Te desconectamos por inactividad",
   "socketIdle.text": "Esto es temporal, solo mientras el sitio está en mantenimiento: quien no está en una sala se desconecta tras un rato sin usar el sitio. Los mensajes, las notificaciones y quién está en línea quedan en pausa hasta que te reconectes. Entrar a una sala te reconecta automáticamente.",
-  "socketIdle.reconnect": "Reconectar"
+  "socketIdle.reconnect": "Reconectar",
+  "admin.socketIdlePanel.title": "Desconectar a quien no está usando el sitio (hotfix de sockets)",
+  "admin.socketIdlePanel.description": "Activado, quien no está en una sala se desconecta tras 3 min con la pestaña en segundo plano o 20 min sin tocar la página, y ve un aviso de mantenimiento con un botón para reconectar. Se aplica al instante en todas las pestañas abiertas. Desactivarlo reconecta a los desconectados (en cuanto la pestaña esté visible). Se guarda en la base de datos."
 }

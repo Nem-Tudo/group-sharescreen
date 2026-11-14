@@ -409,6 +409,20 @@ export async function setAntiSpamEnabled(enabled: boolean): Promise<boolean> {
 // Whether Cloudflare's TURN is handed out (see the API's cloudflareTurn.ts).
 // `configured` is false when the API has no Cloudflare credentials at all, in
 // which case the switch has nothing to act on.
+// HOTFIX socket-limit — the live on/off of components/SocketIdleNotice.tsx
+// (see the API's socketIdleHotfix.ts).
+export async function fetchSocketIdle(): Promise<{ enabled: boolean }> {
+  return adminFetch<{ enabled: boolean }>("/admin/socket-idle");
+}
+
+export async function setSocketIdleEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return adminFetch<{ enabled: boolean }>("/admin/socket-idle", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export interface CloudflareTurnSetting {
   enabled: boolean;
   configured: boolean;

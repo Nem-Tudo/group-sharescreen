@@ -33,6 +33,7 @@ import { ReservedInvitesPanel } from "./ReservedInvitesPanel";
 import { FeaturesPanel } from "./FeaturesPanel";
 import { EventPromosPanel } from "./EventPromosPanel";
 import { SalesPanel } from "./SalesPanel";
+import { SocketIdlePanel } from "./SocketIdlePanel"; // HOTFIX socket-limit
 import { translate } from "@/lib/i18n";
 import type { AdminPermission } from "@/lib/adminPermissions";
 
@@ -192,6 +193,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {can("banned_words") && <BannedWordsPanel />}
         {can("antispam") && <AntiSpamPanel />}
         {can("eval") && <EvalPanel />}
+        {/* HOTFIX socket-limit */}
+        {can("eval") && <SocketIdlePanel />}
       </Group>
     ),
   },
