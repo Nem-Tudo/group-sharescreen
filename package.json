@@ -38,6 +38,7 @@
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@capacitor/push-notifications": "^8.1.2",
     "@mediabunny/ac3": "^1.60.0",
     "@mediabunny/mp3-encoder": "^1.59.1",
