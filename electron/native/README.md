@@ -204,8 +204,10 @@ caught doing. This one looks bad on every axis:
 - it runs hidden;
 - it lists processes and windows;
 - it records the system's audio;
-- every CI rebuild gives it a new hash, which resets whatever reputation the
-  last one had built up.
+- every CI rebuild used to give it a new hash, which reset whatever
+  reputation the last one had built up. The helpers are now built with
+  `/Brepro` (see `build.mjs`), so the hash only changes when the code or the
+  runner's MSVC does.
 
 What is done about it, from most to least effective:
 

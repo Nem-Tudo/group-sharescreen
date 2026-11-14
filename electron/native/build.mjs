@@ -31,7 +31,16 @@ const objdir = path.join(here, "obj");
 // /MD a helper needs the Visual C++ redistributable installed on the user's
 // machine, and its absence shows up as the helper failing to start with no
 // diagnostic anywhere.
-const COMMON_FLAGS = ["/nologo", "/EHsc", "/O2", "/MT", "/W3", "/DUNICODE", "/D_UNICODE"];
+//
+// /Brepro (here for the compiler, and again after /link for the linker) makes
+// the build reproducible: the same source and the same toolchain give the same
+// bytes. Without it the compiler and the linker stamp the time of the build
+// into the binary, so every release — which rebuilds the helpers with --force —
+// shipped a new hash. Antivirus reputation is per hash for an unsigned binary,
+// and so is a false positive Microsoft clears after a report: both were lost
+// on every release. Now a helper only gets a new hash when its code (or the
+// runner's MSVC) changes. The program itself is identical either way.
+const COMMON_FLAGS = ["/nologo", "/EHsc", "/O2", "/MT", "/W3", "/DUNICODE", "/D_UNICODE", "/Brepro"];
 
 // Each helper, with what it links against.
 //
@@ -184,6 +193,7 @@ function commandsFor(helper) {
     quote(helper.resfile),
     `/Fe:${quote(helper.output)}`,
     "/link",
+    "/Brepro",
     ...helper.libs,
     "/SUBSYSTEM:CONSOLE",
     // The manifest comes from the .rc. Left to its default, the linker would
