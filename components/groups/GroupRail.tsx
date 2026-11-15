@@ -36,12 +36,16 @@ import {
   MdVideocam,
   MdVolumeUp,
 } from "react-icons/md";
+import { NewBadge } from "@/components/NewBadge";
+import { GlobeIcon } from "@/components/icons";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { nameMatches, searchWords, setGroupsHomeQuery } from "@/components/groups/groupSearch";
 import { copyText } from "@/lib/clipboard";
-import { groupPath } from "@/lib/groupLinks";
+import { GROUPS_ROOMS_PATH, groupPath } from "@/lib/groupLinks";
+import { GROUPS_ROOMS_FEATURE, noteGroupsRoomsSource } from "@/lib/groupsRooms";
+import { useFeature } from "@/lib/features";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import type { GroupSummary } from "@/lib/groupsApi";
 import { useGroupVoiceSession } from "@/lib/groupVoiceSession";
@@ -99,8 +103,17 @@ function mentionLabel(t: ReturnType<typeof useT>, mentions: number): string {
     : t("groups.homeGroupsPanel.mentionsMentions", { mentions });
 }
 
-export function GroupRail({ activeGroupId }: { activeGroupId: string | null }) {
+export function GroupRail({
+  activeGroupId,
+  roomsActive = false,
+}: {
+  activeGroupId: string | null;
+  /** The public rooms are the page (experiment "groups-rooms") — their tile is the lit one. */
+  roomsActive?: boolean;
+}) {
   const t = useT();
+  // The tile is where the experiment shows itself, so this is the exposure.
+  const roomsTab = useFeature(GROUPS_ROOMS_FEATURE).enabled;
   const { groups } = useMyGroups();
   const navigation = useGroupNavigation();
   const voice = useGroupVoiceSession();
@@ -466,7 +479,7 @@ export function GroupRail({ activeGroupId }: { activeGroupId: string | null }) {
             onArrowDown={() => scrollRef.current?.querySelector<HTMLElement>("[data-rail-group]")?.focus()}
           />
           <RailTile
-            active={activeGroupId === null}
+            active={activeGroupId === null && !roomsActive}
             showName={showNames}
             label={t("groups.groupSwitcher.allGroups")}
             href="/groups"
@@ -476,6 +489,23 @@ export function GroupRail({ activeGroupId }: { activeGroupId: string | null }) {
               </span>
             }
           />
+          {/* Every public room open right now — see GroupsRoomsView. */}
+          {roomsTab && (
+            <RailTile
+              active={roomsActive}
+              showName={showNames}
+              label={t("groups.roomsTab.title")}
+              href={GROUPS_ROOMS_PATH}
+              onClick={() => noteGroupsRoomsSource("rail")}
+              badge={<NewBadge id={GROUPS_ROOMS_FEATURE} />}
+              face={
+                <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                  <GlobeIcon className="h-5 w-5" />
+                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-zinc-950" />
+                </span>
+              }
+            />
+          )}
           {totalMentions > 0 && (
             <RailTile
               showName={showNames}
@@ -669,6 +699,7 @@ function RailTile({
   active = false,
   href,
   onClick,
+  badge,
 }: {
   face: ReactNode;
   label: string;
@@ -676,7 +707,10 @@ function RailTile({
   showName: boolean;
   active?: boolean;
   href?: string;
+  /** With `href`, runs before the navigation. */
   onClick?: () => void;
+  /** Beside the name, e.g. a NewBadge. */
+  badge?: ReactNode;
 }) {
   const className = `${tileBase} ${
     active ? "bg-zinc-100 dark:bg-zinc-900" : "hover:bg-zinc-100/70 dark:hover:bg-zinc-900/70"
@@ -685,14 +719,23 @@ function RailTile({
     <>
       <span className="shrink-0">{face}</span>
       <TileText show={showName}>
-        <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</span>
+          {badge}
+        </span>
         {sublabel && <span className="truncate text-xs text-red-600 dark:text-red-400">{sublabel}</span>}
       </TileText>
       <ActiveBar active={active} />
     </>
   );
   const tile = href ? (
-    <GroupLink href={href} aria-label={label} aria-current={active ? "page" : undefined} className={className}>
+    <GroupLink
+      href={href}
+      onClick={onClick}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={className}
+    >
       {body}
     </GroupLink>
   ) : (

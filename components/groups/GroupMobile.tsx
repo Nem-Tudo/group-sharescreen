@@ -94,9 +94,9 @@ export function GroupMobileBar({
       )}
 
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        {kind === "home" ? (
+        {kind === "home" || kind === "rooms" ? (
           <h1 className="truncate px-1 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            {t("common.groups")}
+            {kind === "rooms" ? t("groups.roomsTab.title") : t("common.groups")}
           </h1>
         ) : kind === "group" ? (
           <GroupSwitcher

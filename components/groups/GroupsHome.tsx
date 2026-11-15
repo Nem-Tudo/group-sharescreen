@@ -8,6 +8,10 @@ import { MdAdd, MdChevronRight, MdClose, MdSearch } from "react-icons/md";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
+import { NewBadge } from "@/components/NewBadge";
+import { GlobeIcon } from "@/components/icons";
+import { useFeature } from "@/lib/features";
+import { GROUPS_ROOMS_FEATURE, noteGroupsRoomsSource } from "@/lib/groupsRooms";
 import { PublicGroupsDirectory } from "@/components/groups/PublicGroupsDirectory";
 import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { useGroupNavigation } from "@/lib/groupNavigation";
@@ -20,10 +24,11 @@ import {
   usePendingExploreRequest,
 } from "@/components/groups/groupSearch";
 import { useAuth } from "@/lib/AuthContext";
-import { groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
+import { GROUPS_ROOMS_PATH, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
+import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { translate } from "@/lib/i18n";
 
 // /groups — every group this person is in, and the two ways to get another.
@@ -142,6 +147,8 @@ export function GroupsHome() {
           </p>
         )}
 
+        <LiveRoomsRow />
+
         <div className="relative mt-6">
           <MdSearch className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" />
           <input
@@ -235,6 +242,34 @@ export function GroupsHome() {
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * The way to every public room open right now (experiment "groups-rooms"), on a
+ * phone — from lg up it is a tile on the rail beside this page (see GroupRail).
+ */
+function LiveRoomsRow() {
+  const { t } = useI18n();
+  const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
+  // Counted only where it is the way in: on a wide screen the rail's tile is.
+  const { enabled } = useFeature(GROUPS_ROOMS_FEATURE, { track: !isWide });
+  if (!enabled || isWide) return null;
+  return (
+    <GroupLink href={GROUPS_ROOMS_PATH} onClick={() => noteGroupsRoomsSource("home")} className={`${rowClass} mt-4`}>
+      <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        <GlobeIcon className="h-5 w-5" />
+        <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-zinc-950" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{t("groups.roomsTab.title")}</span>
+          <NewBadge id={GROUPS_ROOMS_FEATURE} />
+        </span>
+        <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">{t("groups.roomsTab.rowHint")}</span>
+      </span>
+      <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400" />
+    </GroupLink>
   );
 }
 

@@ -8356,6 +8356,7 @@ function WatchRoomView({
           hasAccount={Boolean(account)}
           allowOn={remoteControlMode.on}
           onSetAllow={(on) => setTileExperimentMode("remoteControl", on, handle)}
+          onRequestAccount={() => setAccountModal("create")}
         />
       )}
     </>

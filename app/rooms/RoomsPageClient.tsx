@@ -3,12 +3,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { MdGroups } from "react-icons/md";
-import {
-  fetchPublicRoomDirectory,
-  roomActivity,
-  type PublicGroupRoom,
-  type PublicRoom,
-} from "@/lib/roomsApi";
+import { fetchPublicRoomDirectory, roomActivity } from "@/lib/roomsApi";
+import { roomMatches, sortRooms, type ListedRoom } from "@/lib/roomDirectory";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupName } from "@/components/groups/GroupName";
 import { groupPath } from "@/lib/groupLinks";
@@ -38,33 +34,7 @@ const SORT_OPTIONS = [
 
 type SortValue = (typeof SORT_OPTIONS)[number]["value"];
 
-// One entry of the list: a public room, or a public group's call — the second
-// carries its group and room, and is opened through the group (see the
-// server's /rooms `groupRooms`). Both share every counter the list sorts on,
-// so they sort together rather than in two lists.
-type ListedRoom = PublicRoom & {
-  group?: PublicGroupRoom["group"];
-  channel?: PublicGroupRoom["channel"];
-};
-
 const DEFAULT_SORT: SortValue = "mic";
-
-function sortRooms(rooms: ListedRoom[], sort: SortValue): ListedRoom[] {
-  // Every ordering falls back to people, then to the older room first — the
-  // same last resort the server's own /rooms ordering uses, so a list of
-  // rooms sitting at zero doesn't reshuffle itself on every poll.
-  const primary = (room: ListedRoom): number => {
-    if (sort === "mic") return roomActivity(room, "micCount");
-    if (sort === "screen") return roomActivity(room, "screenCount");
-    return room.peopleCount;
-  };
-  return [...rooms].sort(
-    (a, b) =>
-      primary(b) - primary(a) ||
-      b.peopleCount - a.peopleCount ||
-      a.createdAt - b.createdAt
-  );
-}
 
 function formatActiveFor(createdAt: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
@@ -141,16 +111,7 @@ export function RoomsPageClient() {
   // not of whatever happens to be typed in the search box.
   const filtered = useMemo(
     () =>
-      sortRooms(rooms ?? [], sort).filter((r) => {
-        const needle = search.trim().toLowerCase();
-        if (!needle) return true;
-        // A group's call is found by its room's name or its group's, never
-        // by the internal handle nobody sees.
-        if (r.group && r.channel) {
-          return r.channel.name.toLowerCase().includes(needle) || r.group.name.toLowerCase().includes(needle);
-        }
-        return r.handle.toLowerCase().includes(needle);
-      }),
+      sortRooms(rooms ?? [], sort).filter((r) => roomMatches(r, search)),
     [rooms, sort, search]
   );
 

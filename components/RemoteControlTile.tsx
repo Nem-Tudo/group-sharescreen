@@ -27,6 +27,8 @@ import {
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
   MdContentPaste,
+  MdInfoOutline,
+  MdVerifiedUser,
   MdMouse,
   MdSportsEsports,
 } from "react-icons/md";
@@ -847,7 +849,18 @@ function RemoteControlDemo() {
  * What turning requests on means, before it is on. Opened by the bar's
  * button; nothing changes until "Ativar".
  */
-function AllowRemoteControlDialog({ onConfirm, onClose }: { onConfirm: () => void; onClose: () => void }) {
+function AllowRemoteControlDialog({
+  onConfirm,
+  onClose,
+  block,
+  onRequestAccount,
+}: {
+  onConfirm: () => void;
+  onClose: () => void;
+  /** Why it cannot be turned on here, if it cannot: said in the dialog, with the way forward. */
+  block: "app" | "update" | "account" | null;
+  onRequestAccount?: () => void;
+}) {
   const t = useT();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -879,6 +892,15 @@ function AllowRemoteControlDialog({ onConfirm, onClose }: { onConfirm: () => voi
           </h2>
         </div>
         <RemoteControlDemo />
+        {/* The one thing to take away, before the details: turning this on
+            lets people *ask*. Nobody gets in without a "Permitir", each time. */}
+        <div className="mt-4 flex gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-50 p-3 text-sm dark:bg-emerald-500/10">
+          <MdVerifiedUser className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div>
+            <p className="font-semibold text-emerald-900 dark:text-emerald-200">{t("remoteControl.allowDialog.safeTitle")}</p>
+            <p className="text-emerald-800/90 dark:text-emerald-200/80">{t("remoteControl.allowDialog.safeText")}</p>
+          </div>
+        </div>
         <ul className="mt-4 flex flex-col gap-2.5 text-sm text-zinc-700 dark:text-zinc-300">
           {points.map((point) => (
             <li key={point} className="flex gap-2">
@@ -887,21 +909,52 @@ function AllowRemoteControlDialog({ onConfirm, onClose }: { onConfirm: () => voi
             </li>
           ))}
         </ul>
+        {/* Where it cannot be turned on: why, and what to do about it — in
+            place of "Ativar". */}
+        {block && (
+          <div className="mt-4 flex gap-2.5 rounded-xl border border-amber-500/40 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+            <MdInfoOutline className="mt-0.5 h-5 w-5 shrink-0" />
+            <p>{t(`remoteControl.allowDialog.blocked.${block}`)}</p>
+          </div>
+        )}
         <div className="mt-5 flex gap-2">
           <button
             type="button"
             onClick={onClose}
             className="flex-1 rounded-xl bg-zinc-100 px-3 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
           >
-            {t("common.cancel")}
+            {block === "update" ? t("remoteControl.allowDialog.gotIt") : t("common.cancel")}
           </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            {t("remoteControl.allowDialog.confirm")}
-          </button>
+          {block === "app" ? (
+            <a
+              href="/download"
+              target="_blank"
+              rel="noopener"
+              onClick={onClose}
+              className="flex flex-1 items-center justify-center rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              {t("remoteControl.allowDialog.download")}
+            </a>
+          ) : block === "account" ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onRequestAccount?.();
+              }}
+              className="flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              {t("remoteControl.allowDialog.signIn")}
+            </button>
+          ) : block === null ? (
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              {t("remoteControl.allowDialog.confirm")}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>,
@@ -927,6 +980,7 @@ export function RemoteControlDockButton({
   hasAccount,
   allowOn,
   onSetAllow,
+  onRequestAccount,
   className = "",
 }: {
   /** The Windows app, with the helper: the only place a computer can be controlled. */
@@ -937,6 +991,8 @@ export function RemoteControlDockButton({
   /** The "take requests" switch. */
   allowOn: boolean;
   onSetAllow: (on: boolean) => void;
+  /** "Entrar ou criar conta", from the dialog when there is no account. */
+  onRequestAccount?: () => void;
   className?: string;
 }) {
   const t = useT();
@@ -1095,7 +1151,8 @@ export function RemoteControlDockButton({
           <Tooltip content={label} wrapperClassName="flex">
             <button
               type="button"
-              disabled={hostBlock !== null}
+              // Never greyed out: where it cannot work here, the click opens
+              // the same dialog, which explains it and says what to do.
               onClick={() => {
                 click();
                 tipClicked();
@@ -1104,7 +1161,7 @@ export function RemoteControlDockButton({
               }}
               aria-pressed={on}
               aria-label={label}
-              className={`${base} disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`${base} ${
                 on ? "bg-blue-600 hover:bg-blue-700" : "bg-zinc-500 hover:bg-zinc-600 dark:bg-zinc-700 dark:hover:bg-zinc-600"
               }`}
             >
@@ -1115,6 +1172,8 @@ export function RemoteControlDockButton({
         )}
         {dialogOpen && (
           <AllowRemoteControlDialog
+            block={hostBlock}
+            onRequestAccount={onRequestAccount}
             onClose={() => setDialogOpen(false)}
             onConfirm={() => {
               setDialogOpen(false);

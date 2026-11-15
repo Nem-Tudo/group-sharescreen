@@ -28,6 +28,7 @@ import { GroupMemberMenuHost, GroupProfileHost } from "@/components/groups/Group
 import { GroupRail } from "@/components/groups/GroupRail";
 import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
 import { GroupsHome } from "@/components/groups/GroupsHome";
+import { GroupsRoomsPage } from "@/components/groups/GroupsRoomsView";
 import {
   GroupActions,
   GroupRoomsPanel,
@@ -471,7 +472,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               left, scrolled and all. */}
           {isWide && (
             <div className={railHidden ? "hidden" : "contents"}>
-              <GroupRail activeGroupId={groupId} />
+              <GroupRail activeGroupId={groupId} roomsActive={route?.kind === "rooms"} />
             </div>
           )}
           {/* The expanded messages, beside the groups. Always there from lg
@@ -617,6 +618,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
  */
 function GroupsView({ route }: { route: GroupsRoute | null }) {
   if (!route || route.kind === "home" || route.kind === "dms") return <GroupsHome />;
+  if (route.kind === "rooms") return <GroupsRoomsPage />;
   if (route.kind === "group") return <GroupIndex key={route.groupId} groupId={route.groupId} />;
   return <GroupRoom key={`${route.groupId}/${route.roomId}`} groupId={route.groupId} roomId={route.roomId} />;
 }
