@@ -17,7 +17,7 @@
 // click would not go through. The picture follows as fast as it can, but
 // pointing never waits for it.
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
 import {
   MdClose,
   MdFullscreen,
@@ -27,7 +27,9 @@ import {
   MdKeyboardArrowUp,
   MdMouse,
 } from "react-icons/md";
+import Tippy from "@tippyjs/react";
 import { Tooltip } from "@/components/Tooltip";
+import { useTileExperimentTip } from "@/lib/clipsMode";
 import { containRect } from "@/components/roomTools/AnnotationLayer";
 import { useT } from "@/lib/useI18n";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
@@ -418,7 +420,9 @@ export function RemoteControlTileLayer({
       // The pointer's shape is set on the element by the effect above and the
       // move handler, never here: a re-render (the latency ticking) would
       // otherwise put back the wrong one while over the black bars.
-      className={`absolute inset-0 z-30 outline-none ring-2 ring-inset ${focused ? "ring-blue-500" : "ring-blue-500/40"}`}
+      // rounded-[inherit]: the ring follows the tile's rounded corners instead
+      // of being clipped square by them.
+      className={`absolute inset-0 z-30 rounded-[inherit] outline-none ring-2 ring-inset ${focused ? "ring-blue-500" : "ring-blue-500/40"}`}
       onFocus={() => setFocused(true)}
       onBlur={(event) => {
         // Focus moving to the bar's own buttons is still this surface's.
@@ -480,7 +484,9 @@ export function RemoteControlTileLayer({
       <div
         data-rc-ui
         {...keepToPage}
-        className="absolute left-1/2 top-1.5 z-10 flex max-w-[95%] -translate-x-1/2 cursor-default flex-col items-center gap-1"
+        // Top right, out of the way of the title bars and tabs in the middle
+        // of their screen.
+        className="absolute right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] cursor-default flex-col items-end gap-1"
       >
         {collapsed ? (
           <button
@@ -504,19 +510,6 @@ export function RemoteControlTileLayer({
               </Tooltip>
             )}
             <span className="mx-0.5 h-4 w-px shrink-0 bg-white/15" />
-            {onToggleFullscreen && (
-              <BarButton
-                label={t(isFullscreen ? "remoteControl.bar.exitFullscreen" : "remoteControl.bar.fullscreen")}
-                active={isFullscreen}
-                onClick={() => {
-                  if (!isFullscreen) trackRemoteControlEvent(REMOTE_CONTROL_EVENTS.fullscreen);
-                  onToggleFullscreen();
-                  refocus();
-                }}
-              >
-                {isFullscreen ? <MdFullscreenExit className="h-4 w-4" /> : <MdFullscreen className="h-4 w-4" />}
-              </BarButton>
-            )}
             <div ref={menuRef} className="relative">
               <BarButton
                 label={t("remoteControl.bar.shortcuts")}
@@ -571,6 +564,21 @@ export function RemoteControlTileLayer({
               <MdClose className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{t("remoteControl.release")}</span>
             </button>
+            {/* Last, at the far right: the corner of the screen is where people
+                reach for fullscreen. */}
+            {onToggleFullscreen && (
+              <BarButton
+                label={t(isFullscreen ? "remoteControl.bar.exitFullscreen" : "remoteControl.bar.fullscreen")}
+                active={isFullscreen}
+                onClick={() => {
+                  if (!isFullscreen) trackRemoteControlEvent(REMOTE_CONTROL_EVENTS.fullscreen);
+                  onToggleFullscreen();
+                  refocus();
+                }}
+              >
+                {isFullscreen ? <MdFullscreenExit className="h-4 w-4" /> : <MdFullscreen className="h-4 w-4" />}
+              </BarButton>
+            )}
           </div>
         )}
         {hint && (
@@ -647,7 +655,50 @@ export function RemoteControlDockButton({
   // first one here agree.
   const finePointer = useSyncExternalStore(subscribeFinePointer, hasFinePointer, () => false);
 
+  // The blue "novo" tip, on this button only when it is the way *in*: the
+  // switch while sharing from the app, or "Pedir controle". Not over a
+  // session, where the button means "stop". Once, and not for people new to
+  // GoLive (see useTileExperimentTip).
+  const inSession = Boolean(host) || Boolean(controller && controller.phase !== "offered");
+  const canAsk = canRequest && finePointer && hosts.length > 0 && !controller;
+  const tip = useTileExperimentTip("remoteControl", enabled && !inSession && (canHost || canAsk));
+
   if (!enabled) return null;
+
+  const withTip = (node: ReactElement, text: string) => (
+    <Tippy
+      visible={tip.show}
+      placement="bottom"
+      interactive
+      theme="golive-panel"
+      appendTo={() => document.body}
+      content={
+        <span
+          role="status"
+          className="relative block w-64 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+        >
+          <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          <span className="flex items-start gap-2">
+            <span className="flex-1">{text}</span>
+            <button
+              type="button"
+              onClick={tip.dismiss}
+              aria-label={t("watch.watchRoom.clipsModeTipDismiss")}
+              className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+            >
+              ✕
+            </button>
+          </span>
+        </span>
+      }
+    >
+      <span className="flex">{node}</span>
+    </Tippy>
+  );
+  // Pressing what the tip points at, while it shows: counted, and it goes.
+  const tipClicked = () => {
+    if (tip.show) tip.clicked();
+  };
 
   // One event for every use of the button, whatever it did — the point is
   // whether people find it here at all.
@@ -706,12 +757,13 @@ export function RemoteControlDockButton({
   // Sharing from the app: the switch.
   if (canHost) {
     const label = allowOn ? t("remoteControl.dock.allowOn") : t("remoteControl.dock.allowOff");
-    return (
+    return withTip(
       <Tooltip content={label}>
         <button
           type="button"
           onClick={() => {
             click();
+            tipClicked();
             onToggleAllow();
           }}
           aria-pressed={allowOn}
@@ -720,7 +772,8 @@ export function RemoteControlDockButton({
         >
           <MdMouse className={`h-5 w-5 ${allowOn ? "" : "opacity-70"}`} />
         </button>
-      </Tooltip>
+      </Tooltip>,
+      t("watch.watchRoom.remoteControlTip")
     );
   }
 
@@ -733,12 +786,13 @@ export function RemoteControlDockButton({
   if (hosts.length === 1) {
     const only = hosts[0];
     const label = t("remoteControl.requestHint", { name: only.name });
-    return (
+    return withTip(
       <Tooltip content={label}>
         <button
           type="button"
           onClick={() => {
             click();
+            tipClicked();
             ask(only.id);
           }}
           aria-label={label}
@@ -746,15 +800,19 @@ export function RemoteControlDockButton({
         >
           <MdMouse className="h-5 w-5" />
         </button>
-      </Tooltip>
+      </Tooltip>,
+      t("watch.watchRoom.remoteControlTipRequest")
     );
   }
-  return (
+  return withTip(
     <div ref={listRef} className="relative flex">
       <Tooltip content={t("remoteControl.request")}>
         <button
           type="button"
-          onClick={() => setListOpen((open) => !open)}
+          onClick={() => {
+            tipClicked();
+            setListOpen((open) => !open);
+          }}
           aria-expanded={listOpen}
           aria-label={t("remoteControl.request")}
           className={`${base} bg-blue-600 hover:bg-blue-700`}
@@ -765,7 +823,7 @@ export function RemoteControlDockButton({
       {listOpen && (
         <div
           role="menu"
-          className="absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+          className="absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
         >
           {hosts.map((h) => (
             <button
@@ -785,7 +843,8 @@ export function RemoteControlDockButton({
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    t("watch.watchRoom.remoteControlTipRequest")
   );
 }
 

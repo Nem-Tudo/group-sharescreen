@@ -5940,6 +5940,8 @@
   "admin.socketIdlePanel.description": "When on, anyone not in a room is disconnected after 3 min with the tab in the background or 20 min without touching the page, and sees a maintenance notice with a button to reconnect. Applies right away to every open tab. Turning it off reconnects those who were disconnected (as soon as the tab is visible). Saved in the database.",
   "watch.watchRoom.remoteControlMode": "Allow remote control requests",
   "watch.watchRoom.remoteControlModeHint": "People in the room can ask to control the mouse and keyboard of the screen you share. Every request is confirmed in an app window, and Ctrl+Alt+Esc stops it at once.",
+  "watch.watchRoom.remoteControlTip": "New: remote control! Turn it on here so people in the room can ask to use your PC's mouse and keyboard. You confirm every request.",
+  "watch.watchRoom.remoteControlTipRequest": "New: remote control! Ask here to use the mouse and keyboard of whoever is sharing their screen.",
   "remoteControl.request": "Request control",
   "remoteControl.requestHint": "Ask to control {name}'s computer",
   "remoteControl.cancelRequest": "Cancel request",

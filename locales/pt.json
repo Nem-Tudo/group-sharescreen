@@ -5940,6 +5940,8 @@
   "admin.socketIdlePanel.description": "Ligado, quem não está numa sala é desconectado depois de 3 min com a aba em segundo plano ou 20 min sem mexer na página, e vê um aviso de manutenção com botão para reconectar. Vale na hora para todas as abas abertas. Desligar reconecta quem foi desconectado (assim que a aba estiver visível). Fica salvo no banco.",
   "watch.watchRoom.remoteControlMode": "Permitir pedidos de controle remoto",
   "watch.watchRoom.remoteControlModeHint": "Quem está na sala pode pedir para controlar o mouse e o teclado da tela que você compartilha. Cada pedido é confirmado numa janela do app, e Ctrl+Alt+Esc para na hora.",
+  "watch.watchRoom.remoteControlTip": "Novo: controle remoto! Ligue aqui para alguém da sala poder pedir para usar o mouse e o teclado do seu PC. Você confirma cada pedido.",
+  "watch.watchRoom.remoteControlTipRequest": "Novo: controle remoto! Peça aqui para usar o mouse e o teclado de quem está compartilhando a tela.",
   "remoteControl.request": "Pedir controle",
   "remoteControl.requestHint": "Pedir para controlar o computador de {name}",
   "remoteControl.cancelRequest": "Cancelar pedido",
