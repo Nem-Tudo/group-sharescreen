@@ -14,7 +14,11 @@ import { useT } from "@/lib/useI18n";
 // nothing: the plans opened on a generic pitch, and the thing they clicked was
 // nowhere on it. This names it first.
 
-/** The lock doors this card has words for (texts: proDoor.<door>.title/body). */
+/**
+ * The lock doors this card has words for (texts: proDoor.<door>.title/body).
+ * HAS A TWIN in the API's billingRescue.ts, which credits a sale through one of
+ * these doors to the experiment (door_ctx_buy): keep the two lists the same.
+ */
 export const DOOR_CONTEXT_DOORS: ReadonlySet<string> = new Set([
   "multi_screen",
   "multi_camera",

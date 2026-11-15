@@ -1,4 +1,5 @@
 import { trackFeatureEvent } from "@/lib/features";
+import { BILLING_RESCUE_EVENTS, PIX_RECOVER_FEATURE, RENEWAL_RESCUE_FEATURE } from "@/lib/billingRescue";
 
 // Which door somebody came through to the plans, so the sale can be credited
 // to it: the door leaves a mark here, the pay buttons report the mark, and the
@@ -118,6 +119,12 @@ export function noteProSource(source: ProSource) {
     // Storage refused: the open still counts, the sale goes to "unknown".
   }
   trackFeatureEvent(`prosrc_open.${source}`, { feature: PRO_SOURCE_FEATURE });
+  // The billing nudges' own column: the push opens the page with this door,
+  // and nothing else reports it (a push tap runs no code of ours).
+  if (source === "pix_recover") trackFeatureEvent(BILLING_RESCUE_EVENTS.pixOpen, { feature: PIX_RECOVER_FEATURE });
+  if (source === "renewal_rescue") {
+    trackFeatureEvent(BILLING_RESCUE_EVENTS.rescueOpen, { feature: RENEWAL_RESCUE_FEATURE });
+  }
 }
 
 /** The page's URL for a door; the page reads `from` back (noteProPageVisit). */

@@ -15,6 +15,9 @@ export const BILLING_RESCUE_EVENTS = {
   pixShown: "pix_recover_shown",
   pixClick: "pix_recover_click",
   pixClose: "pix_recover_close",
+  /** The plans opened from the push or the card (lib/proSourceAttribution). */
+  pixOpen: "pix_recover_open",
+  rescueOpen: "rescue_open",
   rescueShown: "rescue_shown",
   rescueCard: "rescue_card_click",
   rescuePix: "rescue_pix_click",
