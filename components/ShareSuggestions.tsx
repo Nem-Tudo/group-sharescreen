@@ -49,6 +49,8 @@ const VISIBLE = 5;
 /** How many conversations are read to build the list. */
 const RECENT = 12;
 const PANEL_WIDTH = 320;
+/** Roughly the panel with search and five rows; less room than this below the button opens it above. */
+const PANEL_MIN_HEIGHT = 360;
 
 type RowState = "idle" | "sending" | "sent";
 
@@ -167,18 +169,27 @@ export function ShareSuggestions({
   // whole answer, as it was before.
   if (candidates.length === 0 || !viewport) return null;
 
-  // Under the button, right edges aligned, kept inside the window. On a
+  // Under the button, right edges aligned, kept inside the window — or above
+  // it when the window has no room below (a button low on a short screen,
+  // like the invite field on the stage). Its height is capped to the side it
+  // opened on, so the list scrolls instead of running off the screen. On a
   // phone-width window, a sheet at the bottom instead.
   const narrow = viewport.w < 640;
-  const style: CSSProperties = narrow
-    ? { left: 8, right: 8, bottom: 8 }
-    : anchor
-      ? {
-          top: Math.min(anchor.bottom + 8, viewport.h - 120),
-          left: Math.max(8, Math.min(anchor.right - PANEL_WIDTH, viewport.w - PANEL_WIDTH - 8)),
-          width: PANEL_WIDTH,
-        }
-      : { top: 72, left: Math.max(8, (viewport.w - PANEL_WIDTH) / 2), width: PANEL_WIDTH };
+  const MARGIN = 8;
+  let style: CSSProperties;
+  if (narrow) {
+    style = { left: MARGIN, right: MARGIN, bottom: MARGIN, maxHeight: viewport.h - 2 * MARGIN };
+  } else if (anchor) {
+    const left = Math.max(MARGIN, Math.min(anchor.right - PANEL_WIDTH, viewport.w - PANEL_WIDTH - MARGIN));
+    const below = viewport.h - anchor.bottom - 2 * MARGIN;
+    const above = anchor.top - 2 * MARGIN;
+    style =
+      below >= PANEL_MIN_HEIGHT || below >= above
+        ? { top: anchor.bottom + MARGIN, left, width: PANEL_WIDTH, maxHeight: below }
+        : { bottom: viewport.h - anchor.top + MARGIN, left, width: PANEL_WIDTH, maxHeight: above };
+  } else {
+    style = { top: 72, left: Math.max(MARGIN, (viewport.w - PANEL_WIDTH) / 2), width: PANEL_WIDTH, maxHeight: viewport.h - 72 - MARGIN };
+  }
 
   const showSearch = candidates.length > VISIBLE;
 
@@ -188,7 +199,7 @@ export function ShareSuggestions({
       role="dialog"
       aria-label={t("shareSuggestions.title")}
       style={style}
-      className="fixed z-[60] flex max-h-[70vh] flex-col rounded-2xl border border-black/10 bg-white p-3 shadow-xl dark:border-white/10 dark:bg-zinc-950"
+      className="fixed z-[60] flex flex-col rounded-2xl border border-black/10 bg-white p-3 shadow-xl dark:border-white/10 dark:bg-zinc-950"
     >
       <div className="flex items-start justify-between gap-2 px-1">
         <div className="min-w-0">
