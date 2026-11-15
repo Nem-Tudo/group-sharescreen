@@ -1511,6 +1511,8 @@ export function GroupMenu({
   // theme is "Gerenciar grupo"'s.
   const isManager = managesAnything(detail);
   const canTheme = canManage(detail, "manageGroup");
+  const canInvite = canManage(detail, "createInvites");
+  const openInvite = () => void openPopup("group_invite", { data: { groupId: group.id, groupName: group.name } });
   const openBotExplorer = useOpenBotExplorer(detail);
   // Aura (Discord's server boost) — the way into it is here, so this is where
   // the exposure counts. The settings tab itself asks with track: false.
@@ -1551,6 +1553,11 @@ export function GroupMenu({
     openContextMenu(event, {
       title: group.name,
       entries: [
+        canInvite && {
+          label: t("common.invitePeople"),
+          icon: <MdPersonAdd className="h-4 w-4" />,
+          onSelect: openInvite,
+        },
         isManager && {
           label: t("groups.groupSidebar.settings"),
           icon: <MdSettings className="h-4 w-4" />,
@@ -1615,6 +1622,19 @@ export function GroupMenu({
       offset={[0, 6]}
       content={
         <div className="flex w-60 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+          {canInvite && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                openInvite();
+              }}
+              className={menuItemClass}
+            >
+              <MdPersonAdd className="h-4 w-4 opacity-70" />
+              {t("common.invitePeople")}
+            </button>
+          )}
           {isManager && (
             <button
               type="button"
