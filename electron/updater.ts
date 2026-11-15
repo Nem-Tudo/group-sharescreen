@@ -27,10 +27,13 @@ import path from "node:path";
 import { IPC } from "./channels";
 import { stopSystemAudioCapture } from "./systemAudio";
 
-// First check is delayed rather than immediate: launch is already busy
-// creating the window and loading the site, and an update that lands four
-// minutes late costs nobody anything.
-const FIRST_CHECK_DELAY_MS = 45_000;
+// First check a few seconds in, not at the very start: launch is busy
+// creating the window and loading the site, and the check is one small
+// request that can wait for that. It used to be 45 s, which on top of the
+// download meant the update button often had not shown up yet by the time
+// people looked for it — and someone who opens the app to see if there is an
+// update usually closes it again within a minute.
+const FIRST_CHECK_DELAY_MS = 5_000;
 // Long-running sessions are the norm for this app — a call left open all
 // afternoon — so re-checking matters, but rarely.
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
