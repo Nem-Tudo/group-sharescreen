@@ -193,6 +193,17 @@ export function getLocale(): Locale {
 }
 
 /**
+ * The language to ask the API for (lib/apiLocale.ts). Not gated: a request
+ * made before hydration finishes renders nothing on the server's HTML, so
+ * there is nothing to match — and an error toast from it should already be
+ * in the person's language.
+ */
+export function getRequestLocale(): Locale {
+  ensurePreference();
+  return resolved;
+}
+
+/**
  * Hands the real language over, once, after hydration. Called by I18nGate.
  *
  * Safe to call repeatedly; only the first call that actually changes the

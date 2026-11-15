@@ -456,7 +456,10 @@ export function PartnerRewardModal({
       // The server refuses a repeat claim with this same message whether it
       // was this browser or another session that collected it first —
       // either way there's nothing left here to unlock.
-      if (message.includes(t("partnerRewardModal.alreadyRedeemed"))) {
+      // The API answers in the site's language (see lib/apiLocale.ts), so
+      // the catalog's fragment matches it; case-insensitive because the
+      // fragment can open the sentence ("Ya canjeaste...").
+      if (message.toLowerCase().includes(t("partnerRewardModal.alreadyRedeemed").toLowerCase())) {
         setClaimed(true);
         markPartnerRewardClaimed(partnerId, "video");
       }

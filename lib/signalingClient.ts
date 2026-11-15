@@ -31,6 +31,7 @@ import { isUserMentionedInMessage, containsBroadcastMention } from "./chatMentio
 import { showNotification } from "./notifications";
 import { isObsClient } from "./browserEnv";
 import { getSignalingWsUrl } from "./roomsApi";
+import { withLocaleParam } from "./apiLocale";
 import { getGroupVoiceSession, setGroupVoiceSession } from "./groupVoiceSession";
 import { groupVoiceHandle } from "./groupLinks";
 import { refreshIceServers } from "./iceServers";
@@ -1635,7 +1636,9 @@ class SignalingClient {
       return;
     }
     this.setState({ status: "connecting" });
-    const ws = new WebSocket(getSignalingWsUrl());
+    // `lang` so the server's refusals ("Invalid room.") arrive in the site's
+    // language — see lib/apiLocale.ts.
+    const ws = new WebSocket(withLocaleParam(getSignalingWsUrl()));
     this.ws = ws;
 
     ws.onopen = () => {

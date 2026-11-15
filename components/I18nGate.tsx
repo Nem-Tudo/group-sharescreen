@@ -7,6 +7,12 @@ import {
   subscribeLocale,
   SERVER_LOCALE,
 } from "@/lib/i18n";
+import { installApiLocale } from "@/lib/apiLocale";
+
+// At module scope rather than in an effect: children's effects (and their
+// first API calls) run before this component's own, so the wrapper has to be
+// in place by the time anything below is even evaluated.
+installApiLocale();
 
 /**
  * Turns the language on once hydration is over, and re-renders everything

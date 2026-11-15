@@ -2844,7 +2844,7 @@
   "partnerMediaTile.watchTheVideoToEarnRewardpoints": "Ver el vídeo para ganar {rewardPoints} puntos",
   "partnerReport.couldNotLoadTheReportStatus": "No se pudo cargar el informe (estado {status})",
   "partnerReport.reportNotFound": "Informe no encontrado.",
-  "partnerRewardModal.alreadyRedeemed": "ya canjeó",
+  "partnerRewardModal.alreadyRedeemed": "ya canjeaste",
   "partnerRewardModal.chooseANameToJoinBefore": "Elige un nombre para entrar antes de canjear los puntos.",
   "partnerRewardModal.continueVideo": "Continuar vídeo",
   "partnerRewardModal.couldNotLoadTheVideo": "No se pudo cargar el vídeo.",
