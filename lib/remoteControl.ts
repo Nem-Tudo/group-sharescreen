@@ -61,6 +61,9 @@ import {
   ZONES,
   decode,
   encodeButton,
+  encodeButtonHere,
+  encodeRelative,
+  MAX_RELATIVE,
   encodeKey,
   encodeMove,
   encodePing,
@@ -95,6 +98,7 @@ export const REMOTE_CONTROL_EVENTS = {
   fullscreen: "rc_fullscreen", // the bar's fullscreen button
   dockClick: "rc_dock_click", // the button in the room's bottom bar
   block: "rc_block", // "Bloquear" in the prompt or the member menu
+  gameMode: "rc_game_mode", // "Modo jogo" turned on in the bar
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -401,12 +405,16 @@ function hostSend(buffer: ArrayBuffer) {
 function hostQueue(event: RemoteControlInputEvent) {
   const active = host;
   if (!active || active.paused) return;
-  // Only the newest move is worth sending.
-  if (event.t === "m") {
-    const last = active.queue[active.queue.length - 1];
-    if (last && last.t === "m") active.queue.pop();
+  const last = active.queue[active.queue.length - 1];
+  // Only the newest position is worth sending...
+  if (event.t === "m" && last && last.t === "m") active.queue.pop();
+  // ...while movements add up: every bit of one is aim.
+  if (event.t === "d" && last && last.t === "d") {
+    last.dx += event.dx;
+    last.dy += event.dy;
+  } else {
+    active.queue.push(event);
   }
-  active.queue.push(event);
   if (active.flushScheduled) return;
   active.flushScheduled = true;
   queueMicrotask(() => {
@@ -446,6 +454,12 @@ function hostOnMessage(raw: unknown) {
       return;
     case "button":
       hostQueue({ t: "b", b: event.b, d: event.d, x: event.x, y: event.y });
+      return;
+    case "relative":
+      hostQueue({ t: "d", dx: event.dx, dy: event.dy });
+      return;
+    case "buttonHere":
+      hostQueue({ t: "c", b: event.b, d: event.d });
       return;
     case "wheel":
       hostQueue({ t: "w", dx: event.dx, dy: event.dy });
@@ -1179,6 +1193,34 @@ export function sendRemoteButton(button: number, down: boolean, x: number, y: nu
   if (down) active.buttonsDown.add(button);
   else if (!active.buttonsDown.delete(button)) return;
   controllerSend(encodeButton(button, down, x, y));
+}
+
+/**
+ * "Modo jogo": the mouse as movement — what a game reads to aim and turn,
+ * where a place on the screen means nothing to it. Split into pieces the wire
+ * can carry; nothing is dropped.
+ */
+export function sendRemoteRelative(dx: number, dy: number) {
+  const active = controller;
+  if (!active || active.phase !== "active") return;
+  let restX = Math.round(dx);
+  let restY = Math.round(dy);
+  while (restX !== 0 || restY !== 0) {
+    const stepX = Math.max(-MAX_RELATIVE, Math.min(MAX_RELATIVE, restX));
+    const stepY = Math.max(-MAX_RELATIVE, Math.min(MAX_RELATIVE, restY));
+    controllerSend(encodeRelative(stepX, stepY));
+    restX -= stepX;
+    restY -= stepY;
+  }
+}
+
+/** "Modo jogo": a click where their pointer already is, without moving it. */
+export function sendRemoteButtonHere(button: number, down: boolean) {
+  const active = controller;
+  if (!active || active.phase !== "active" || button < 0 || button > 4) return;
+  if (down) active.buttonsDown.add(button);
+  else if (!active.buttonsDown.delete(button)) return;
+  controllerSend(encodeButtonHere(button, down));
 }
 
 export function sendRemoteWheel(dx: number, dy: number) {

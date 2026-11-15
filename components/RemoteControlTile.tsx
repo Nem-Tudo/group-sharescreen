@@ -26,6 +26,7 @@ import {
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
   MdMouse,
+  MdSportsEsports,
 } from "react-icons/md";
 import Tippy from "@tippyjs/react";
 import { Tooltip } from "@/components/Tooltip";
@@ -42,6 +43,8 @@ import {
   releaseRemoteKeys,
   requestRemoteControl,
   sendRemoteButton,
+  sendRemoteButtonHere,
+  sendRemoteRelative,
   sendRemoteCombo,
   sendRemoteKey,
   sendRemoteMove,
@@ -171,6 +174,45 @@ const SHORTCUTS: { id: string; keys: string[]; label: string }[] = [
 ];
 
 const BAR_COLLAPSED_KEY = "golive:remoteControl:barCollapsed";
+const GAME_MODE_KEY = "golive:remoteControl:gameMode";
+
+function readGameMode(): boolean {
+  try {
+    return window.localStorage.getItem(GAME_MODE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeGameMode(value: boolean) {
+  try {
+    window.localStorage.setItem(GAME_MODE_KEY, value ? "1" : "0");
+  } catch {
+    // Not remembered, then.
+  }
+}
+
+type LockableElement = HTMLElement & {
+  requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void;
+};
+
+/**
+ * The mouse held inside the surface, reporting movement. Raw movement where
+ * the browser has it — the mouse's own counts, not Windows' acceleration on
+ * top of the other computer's — and the ordinary kind where it does not.
+ */
+async function lockPointer(element: HTMLElement) {
+  const lockable = element as LockableElement;
+  try {
+    await lockable.requestPointerLock({ unadjustedMovement: true });
+  } catch {
+    try {
+      await lockable.requestPointerLock();
+    } catch {
+      // Refused (no gesture, or not allowed here): the next click asks again.
+    }
+  }
+}
 
 function readCollapsed(): boolean {
   try {
@@ -271,6 +313,31 @@ export function RemoteControlTileLayer({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const grabsKeys = canGrabRemoteKeys();
+  // "Modo jogo" (Parsec's approach): games aim with how far the mouse moved,
+  // and ignore where a pointer is put, so the mouse is held inside the
+  // surface (pointer lock) and only movement goes across. Remembered for
+  // next time, per viewer.
+  const [gameMode, setGameMode] = useState(readGameMode);
+  const [locked, setLocked] = useState(false);
+  const pendingDelta = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const sync = () => {
+      const now = document.pointerLockElement === surfaceRef.current && surfaceRef.current !== null;
+      setLocked(now);
+      // Let go of the mouse, let go of its buttons over there.
+      if (!now) releaseRemoteKeys();
+    };
+    document.addEventListener("pointerlockchange", sync);
+    return () => document.removeEventListener("pointerlockchange", sync);
+  }, []);
+
+  // Out of game mode, or out of the session: the mouse is this page's again.
+  useEffect(() => {
+    if ((!gameMode || !driving) && document.pointerLockElement === surfaceRef.current && surfaceRef.current) {
+      document.exitPointerLock();
+    }
+  }, [gameMode, driving]);
 
   // Into the surface as soon as it is yours, so the first key already goes there.
   useEffect(() => {
@@ -405,9 +472,22 @@ export function RemoteControlTileLayer({
         ? t("remoteControl.localActive", { name: mine.hostName ?? "?" })
         : mine.blocked
           ? t(`remoteControl.blocked.${mine.blocked.why}`)
-          : !focused
-            ? t("remoteControl.clickToType")
-            : null;
+          : gameMode && !locked
+            ? t("remoteControl.game.clickToLock")
+            : !focused
+              ? t("remoteControl.clickToType")
+              : !gameMode && mine.cursor === "none"
+                ? // The pointer vanished over there: very often a game.
+                  t("remoteControl.game.suggest")
+                : null;
+
+  const toggleGameMode = () => {
+    const next = !gameMode;
+    setGameMode(next);
+    writeGameMode(next);
+    if (next) trackRemoteControlEvent(REMOTE_CONTROL_EVENTS.gameMode);
+    refocus();
+  };
 
   const rtt = mine.rtt;
 
@@ -435,6 +515,19 @@ export function RemoteControlTileLayer({
       // A double-click is theirs (opening a file), not the tile's fullscreen.
       onDoubleClick={(event) => event.stopPropagation()}
       onPointerMove={(event) => {
+        if (locked) {
+          // Movement only, added up and sent once a frame.
+          pendingDelta.current.x += event.movementX;
+          pendingDelta.current.y += event.movementY;
+          if (frame.current !== null) return;
+          frame.current = requestAnimationFrame(() => {
+            frame.current = null;
+            const { x, y } = pendingDelta.current;
+            pendingDelta.current = { x: 0, y: 0 };
+            if (x !== 0 || y !== 0) sendRemoteRelative(x, y);
+          });
+          return;
+        }
         const point = position(event.clientX, event.clientY);
         const outside = point === null;
         if (outside !== outsideRef.current) {
@@ -455,6 +548,20 @@ export function RemoteControlTileLayer({
       onPointerDown={(event) => {
         if (event.pointerType === "touch") return;
         event.currentTarget.focus();
+        if (locked) {
+          const button = BUTTON_MAP[event.button];
+          if (button === undefined) return;
+          event.preventDefault();
+          sendRemoteButtonHere(button, true);
+          return;
+        }
+        // In game mode the first click takes the mouse, and is not a click
+        // over there: it would land wherever their pointer happens to be.
+        if (gameMode && mine.phase === "active") {
+          event.preventDefault();
+          void lockPointer(event.currentTarget);
+          return;
+        }
         const point = position(event.clientX, event.clientY);
         const button = BUTTON_MAP[event.button];
         if (!point || button === undefined) return;
@@ -465,6 +572,10 @@ export function RemoteControlTileLayer({
       onPointerUp={(event) => {
         const button = BUTTON_MAP[event.button];
         if (button === undefined) return;
+        if (locked) {
+          sendRemoteButtonHere(button, false);
+          return;
+        }
         const point = position(event.clientX, event.clientY) ?? { x: 0, y: 0 };
         sendRemoteButton(button, false, point.x, point.y);
       }}
@@ -553,6 +664,13 @@ export function RemoteControlTileLayer({
                 </div>
               )}
             </div>
+            <BarButton
+              label={t(gameMode ? "remoteControl.game.off" : "remoteControl.game.on")}
+              active={gameMode}
+              onClick={toggleGameMode}
+            >
+              <MdSportsEsports className="h-4 w-4" />
+            </BarButton>
             <BarButton label={t("remoteControl.bar.collapse")} onClick={toggleCollapsed}>
               <MdKeyboardArrowUp className="h-4 w-4" />
             </BarButton>

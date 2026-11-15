@@ -37,6 +37,10 @@
 //   b BTN D X Y        button BTN (0 left, 1 right, 2 middle, 3 back, 4 fwd)
 //                      down (D=1) or up (D=0), at X,Y
 //   w DX DY            wheel, in WHEEL_DELTA units (120 = one notch)
+//   d DX DY            "modo jogo": the mouse moved by DX,DY (-4000..4000),
+//                      as a real one does — what games read to aim. The
+//                      pointer is kept inside the shared surface.
+//   c BTN D            "modo jogo": button BTN down/up where the pointer is
 //   k SC EXT D         key by scan code SC (1..127), EXT=1 for the E0
 //                      prefixed ones (arrows, right Ctrl, ...), D=1 down
 //   r                  release everything this program is holding down
@@ -737,6 +741,48 @@ static void HandleLine(char* line) {
       const POINT point = ToDesktop(rect, n[2], n[3]);
       if (!PointAllowed(point)) return;
       MoveTo(point);
+      g_buttonsDown[button] = true;
+      SendButton(button, true);
+      return;
+    }
+    case 'd': {
+      if (count != 3 || !InRange(n[0], -4000, 4000) || !InRange(n[1], -4000, 4000)) return;
+      if (LocalHasPriority()) return;
+      // Movement, not a place: a relative SendInput reaches raw input — which
+      // is how games read the mouse — exactly like a hand on one. SetCursorPos
+      // (see MoveTo) never does, which is why aiming did nothing.
+      INPUT input = {};
+      input.type = INPUT_MOUSE;
+      input.mi.dx = static_cast<LONG>(n[0]);
+      input.mi.dy = static_cast<LONG>(n[1]);
+      input.mi.dwFlags = MOUSEEVENTF_MOVE;
+      SendOne(input);
+      // A game usually holds the pointer in place itself. When nothing does,
+      // it stays on the shared surface: past its edge is somewhere the other
+      // person cannot see.
+      POINT cursor;
+      if (GetCursorPos(&cursor)) {
+        POINT inside = cursor;
+        inside.x = std::min(std::max(inside.x, rect.left), rect.right - 1);
+        inside.y = std::min(std::max(inside.y, rect.top), rect.bottom - 1);
+        if (inside.x != cursor.x || inside.y != cursor.y) SetCursorPos(inside.x, inside.y);
+        ShowZone(ZoneAt(inside));
+      }
+      return;
+    }
+    case 'c': {
+      if (count != 3 || !InRange(n[0], 0, 4) || !InRange(n[1], 0, 1)) return;
+      const int button = static_cast<int>(n[0]);
+      if (n[1] == 0) {
+        // As with 'b': a release always goes through when this program pressed.
+        if (!g_buttonsDown[button]) return;
+        g_buttonsDown[button] = false;
+        SendButton(button, false);
+        return;
+      }
+      if (LocalHasPriority() || g_buttonsDown[button]) return;
+      POINT cursor;
+      if (!GetCursorPos(&cursor) || !PointAllowed(cursor)) return;
       g_buttonsDown[button] = true;
       SendButton(button, true);
       return;

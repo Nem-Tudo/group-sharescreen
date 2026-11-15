@@ -723,7 +723,11 @@ export type RemoteControlInput =
   | { t: "m"; x: number; y: number }
   | { t: "b"; b: number; d: boolean; x: number; y: number }
   | { t: "w"; dx: number; dy: number }
-  | { t: "k"; c: string; d: boolean };
+  | { t: "k"; c: string; d: boolean }
+  /** "Modo jogo": the mouse moved by this much, wherever the pointer is. */
+  | { t: "d"; dx: number; dy: number }
+  /** "Modo jogo": a button pressed or let go where the pointer already is. */
+  | { t: "c"; b: number; d: boolean };
 
 export type RemoteControlEndReason =
   | "page"

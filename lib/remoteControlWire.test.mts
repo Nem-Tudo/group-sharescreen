@@ -52,3 +52,18 @@ test("the shapes stay in the shell's order", async () => {
   const shell = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(shell, [...CURSORS]);
 });
+
+test("game mode's movement and in-place clicks round-trip, and an out-of-range one is refused", async () => {
+  const { encodeRelative, encodeButtonHere, MAX_RELATIVE, T_RELATIVE, VERSION } = await import("./remoteControlWire.ts");
+  assert.deepEqual(decode(encodeRelative(-37, 1200)), { t: "relative", dx: -37, dy: 1200 });
+  // Clamped on the way out rather than wrapped around an i16.
+  assert.deepEqual(decode(encodeRelative(99_999, -99_999)), { t: "relative", dx: MAX_RELATIVE, dy: -MAX_RELATIVE });
+  assert.deepEqual(decode(encodeButtonHere(1, true)), { t: "buttonHere", b: 1, d: true });
+  assert.equal(decode(encodeButtonHere(9, true)), null);
+  // Hand-made, past what this side would send: not taken.
+  const view = new DataView(new ArrayBuffer(6));
+  view.setUint8(0, VERSION);
+  view.setUint8(1, T_RELATIVE);
+  view.setInt16(2, MAX_RELATIVE + 1);
+  assert.equal(decode(view.buffer), null);
+});

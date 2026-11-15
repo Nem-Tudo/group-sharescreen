@@ -15,6 +15,11 @@ export const T_READY = 9; // host -> controller: taking input
 export const T_PONG = 10; // host -> controller: stamp u32, echoed from T_PING
 export const T_CURSOR = 11; // host -> controller: shape u8 (CURSORS)
 export const T_ZONE = 12; // host -> controller: zone u8 (ZONES)
+// "Modo jogo": the mouse as *movement*, the way games read it, rather than as
+// a place on the screen. Sent on the reliable channel — a lost delta is aim
+// that drifts, unlike a lost position, which the next one replaces.
+export const T_RELATIVE = 13; // dx i16, dy i16
+export const T_BUTTON_HERE = 14; // button u8, down u8 — a click where the pointer already is
 
 // Every type above was added without a version bump on purpose: a side that
 // does not know one decodes it as null and ignores it, and a stamp on a ping
@@ -87,6 +92,27 @@ export function encodeButton(button: number, down: boolean, x: number, y: number
   return view.buffer;
 }
 
+/** Largest movement one message carries; more is split across several. */
+export const MAX_RELATIVE = 4000;
+
+export function encodeRelative(dx: number, dy: number): ArrayBuffer {
+  const view = new DataView(new ArrayBuffer(6));
+  view.setUint8(0, VERSION);
+  view.setUint8(1, T_RELATIVE);
+  view.setInt16(2, Math.max(-MAX_RELATIVE, Math.min(MAX_RELATIVE, Math.round(dx))));
+  view.setInt16(4, Math.max(-MAX_RELATIVE, Math.min(MAX_RELATIVE, Math.round(dy))));
+  return view.buffer;
+}
+
+export function encodeButtonHere(button: number, down: boolean): ArrayBuffer {
+  const view = new DataView(new ArrayBuffer(4));
+  view.setUint8(0, VERSION);
+  view.setUint8(1, T_BUTTON_HERE);
+  view.setUint8(2, button);
+  view.setUint8(3, down ? 1 : 0);
+  return view.buffer;
+}
+
 export function encodeWheel(dx: number, dy: number): ArrayBuffer {
   const view = new DataView(new ArrayBuffer(6));
   view.setUint8(0, VERSION);
@@ -118,6 +144,8 @@ export function encodeSimple(type: number, extra?: number): ArrayBuffer {
 export type Decoded =
   | { t: "move"; seq: number; x: number; y: number }
   | { t: "button"; b: number; d: boolean; x: number; y: number }
+  | { t: "relative"; dx: number; dy: number }
+  | { t: "buttonHere"; b: number; d: boolean }
   | { t: "wheel"; dx: number; dy: number }
   | { t: "key"; c: string; d: boolean }
   | { t: "ping"; stamp: number | null }
@@ -145,6 +173,17 @@ export function decode(data: unknown): Decoded | null {
     }
     case T_WHEEL:
       return data.byteLength === 6 ? { t: "wheel", dx: view.getInt16(2), dy: view.getInt16(4) } : null;
+    case T_RELATIVE: {
+      if (data.byteLength !== 6) return null;
+      const dx = view.getInt16(2);
+      const dy = view.getInt16(4);
+      return Math.abs(dx) <= MAX_RELATIVE && Math.abs(dy) <= MAX_RELATIVE ? { t: "relative", dx, dy } : null;
+    }
+    case T_BUTTON_HERE: {
+      if (data.byteLength !== 4) return null;
+      const b = view.getUint8(2);
+      return b > 4 ? null : { t: "buttonHere", b, d: view.getUint8(3) === 1 };
+    }
     case T_KEY: {
       const length = view.getUint8(3);
       if (length < 1 || length > 32 || data.byteLength !== 4 + length) return null;

@@ -157,6 +157,19 @@ function toCommand(raw: unknown): string | null {
       const dy = read(event.dy);
       return dx === 0 && dy === 0 ? null : `w ${dx} ${dy}`;
     }
+    case "d": {
+      // "Modo jogo": movement, not a place. Clamped like the wire carries it.
+      const read = (value: unknown) =>
+        typeof value === "number" && Number.isFinite(value) ? Math.max(-4000, Math.min(4000, Math.round(value))) : 0;
+      const dx = read(event.dx);
+      const dy = read(event.dy);
+      return dx === 0 && dy === 0 ? null : `d ${dx} ${dy}`;
+    }
+    case "c": {
+      const button = event.b;
+      if (typeof button !== "number" || !Number.isInteger(button) || button < 0 || button > 4) return null;
+      return `c ${button} ${event.d === true ? 1 : 0}`;
+    }
     case "k": {
       if (typeof event.c !== "string" || event.c.length > 32) return null;
       const scan = scanCodeFor(event.c);
