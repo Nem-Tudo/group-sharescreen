@@ -9,10 +9,16 @@ import test, { type TestContext } from "node:test";
 
 let framesWritten = 0;
 const stamps: number[] = [];
+// When each frame was made — the moment the sink writes it. Measured here, not
+// by the test noticing afterwards: a test that polls with setTimeout(0) sees
+// each write a variable moment late, and that jitter alone made two writes 2 ms
+// apart look 1.5 ms apart now and then.
+const writtenAt: number[] = [];
 class FakeVideoFrame {
   constructor(_data: unknown, init: { timestamp: number }) {
     framesWritten += 1;
     stamps.push(init.timestamp);
+    writtenAt.push(performance.now());
   }
   close() {}
 }
@@ -101,19 +107,20 @@ test("a stand-in frame says when it was really captured, and time only goes forw
 test("a burst goes to the encoder spaced out, or WebRTC's frame rate limiter eats part of it", async (t) => {
   const { sink, encoded } = startSink(t);
   sink.setConnected(true);
-  const times: number[] = [];
   const base = framesWritten;
+  const first = writtenAt.length;
   sink.onNative(frame(true));
   for (let i = 0; i < 5; i += 1) sink.onNative(frame(false));
-  times.push(performance.now());
   while (framesWritten < base + 6) {
     const seen = framesWritten;
     encoded("delta");
     while (framesWritten === seen) await new Promise((resolve) => setTimeout(resolve, 0));
-    times.push(performance.now());
   }
+  const times = writtenAt.slice(first, first + 6);
+  // The sink keeps 2 ms (MIN_WRITE_GAP_MS); a hair under that is the clock's
+  // own rounding, not a burst getting through.
   for (let i = 1; i < times.length; i += 1) {
-    assert.ok(times[i] - times[i - 1] >= 1.5, `escritas a ${times[i] - times[i - 1]} ms uma da outra`);
+    assert.ok(times[i] - times[i - 1] >= 1.9, `escritas a ${times[i] - times[i - 1]} ms uma da outra`);
   }
 });
 
