@@ -20,6 +20,41 @@ export const T_ZONE = 12; // host -> controller: zone u8 (ZONES)
 // that drifts, unlike a lost position, which the next one replaces.
 export const T_RELATIVE = 13; // dx i16, dy i16
 export const T_BUTTON_HERE = 14; // button u8, down u8 — a click where the pointer already is
+// Permissions (see the shell's consent window): what the person at the
+// computer let through, and the clipboard when copying and pasting is one.
+export const T_CLIPBOARD = 15; // either way: UTF-8 text, up to MAX_CLIPBOARD_BYTES
+export const T_PERMS = 16; // host -> controller: bits u8 (PERM_*)
+
+export const PERM_MOUSE = 1;
+export const PERM_KEYBOARD = 2;
+export const PERM_CLIPBOARD = 4;
+/** Text copied across in one go, at most. Far under a data channel's message limit. */
+export const MAX_CLIPBOARD_BYTES = 64 * 1024;
+
+export interface RemoteControlPerms {
+  mouse: boolean;
+  keyboard: boolean;
+  clipboard: boolean;
+}
+
+export function encodePerms(perms: RemoteControlPerms): ArrayBuffer {
+  const bytes = new Uint8Array(3);
+  bytes[0] = VERSION;
+  bytes[1] = T_PERMS;
+  bytes[2] = (perms.mouse ? PERM_MOUSE : 0) | (perms.keyboard ? PERM_KEYBOARD : 0) | (perms.clipboard ? PERM_CLIPBOARD : 0);
+  return bytes.buffer;
+}
+
+/** Null when the text is too long to send — it is not cut, which would paste half of something. */
+export function encodeClipboard(text: string): ArrayBuffer | null {
+  const body = new TextEncoder().encode(text);
+  if (body.byteLength > MAX_CLIPBOARD_BYTES) return null;
+  const bytes = new Uint8Array(2 + body.byteLength);
+  bytes[0] = VERSION;
+  bytes[1] = T_CLIPBOARD;
+  bytes.set(body, 2);
+  return bytes.buffer;
+}
 
 // Every type above was added without a version bump on purpose: a side that
 // does not know one decodes it as null and ignores it, and a stamp on a ping
@@ -155,10 +190,22 @@ export type Decoded =
   | { t: "blocked"; why: RemoteControlBlocked }
   | { t: "cursor"; shape: RemoteControlCursor }
   | { t: "zone"; zone: RemoteControlZone }
+  | { t: "clipboard"; text: string }
+  | { t: "perms"; perms: RemoteControlPerms }
   | { t: "ready" };
 
 export function decode(data: unknown): Decoded | null {
-  if (!(data instanceof ArrayBuffer) || data.byteLength < 2 || data.byteLength > 64) return null;
+  if (!(data instanceof ArrayBuffer) || data.byteLength < 2) return null;
+  // The clipboard is the one message that carries more than a few bytes.
+  if (data.byteLength > 2 && new DataView(data).getUint8(1) === T_CLIPBOARD) {
+    if (new DataView(data).getUint8(0) !== VERSION || data.byteLength > 2 + MAX_CLIPBOARD_BYTES) return null;
+    try {
+      return { t: "clipboard", text: new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(data, 2)) };
+    } catch {
+      return null;
+    }
+  }
+  if (data.byteLength > 64) return null;
   const view = new DataView(data);
   if (view.getUint8(0) !== VERSION) return null;
   switch (view.getUint8(1)) {
@@ -210,6 +257,18 @@ export function decode(data: unknown): Decoded | null {
     case T_ZONE: {
       const zone = ZONES[data.byteLength === 3 ? view.getUint8(2) : -1];
       return zone ? { t: "zone", zone } : null;
+    }
+    case T_PERMS: {
+      if (data.byteLength !== 3) return null;
+      const bits = view.getUint8(2);
+      return {
+        t: "perms",
+        perms: {
+          mouse: (bits & PERM_MOUSE) !== 0,
+          keyboard: (bits & PERM_KEYBOARD) !== 0,
+          clipboard: (bits & PERM_CLIPBOARD) !== 0,
+        },
+      };
     }
     case T_READY:
       return { t: "ready" };

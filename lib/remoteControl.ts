@@ -70,13 +70,16 @@ import {
   encodePong,
   encodeSimple,
   encodeWheel,
+  encodeClipboard,
+  encodePerms,
   newer,
   type RemoteControlBlocked,
   type RemoteControlCursor,
   type RemoteControlZone,
+  type RemoteControlPerms,
 } from "./remoteControlWire";
 
-export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone };
+export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone, RemoteControlPerms };
 
 export const REMOTE_CONTROL_FEATURE = "remote-control";
 
@@ -294,6 +297,8 @@ export interface RemoteControlSnapshot {
     zone: RemoteControlZone;
     /** Round trip of the input connection, in ms; null until measured (or an older host). */
     rtt: number | null;
+    /** What the person there let through; null from a host app that does not say (mouse and keyboard, then). */
+    perms: RemoteControlPerms | null;
   } | null;
   /** A short message for the room to show once (refused, ended...). */
   notice: { key: string; name: string | null; at: number; seconds?: number } | null;
@@ -372,6 +377,8 @@ interface HostSession {
   /** The pointer's shape and the zone under it, as the helper last said (index, -1 unknown) — told again on a new connection. */
   cursor: number;
   zone: number;
+  /** What the person here let through (the shell's prompt and banner) — told to the other side. */
+  perms: RemoteControlPerms;
 }
 
 let host: HostSession | null = null;
@@ -467,6 +474,10 @@ function hostOnMessage(raw: unknown) {
     case "key":
       hostQueue({ t: "k", c: event.c, d: event.d });
       return;
+    case "clipboard":
+      // Onto this computer's clipboard — the shell checks the session allows it.
+      getDesktopBridge()?.remoteControl?.setClipboard?.(event.text);
+      return;
     case "ping":
       // A stamped ping is the other side measuring the round trip.
       if (event.stamp !== null) hostSend(encodePong(event.stamp));
@@ -498,6 +509,7 @@ function hostAttachChannel(active: HostSession, channel: RTCDataChannel) {
       // and what is under it, which the helper only reports when they change.
       if (active.cursor >= 0) hostSend(encodeSimple(T_CURSOR, active.cursor));
       if (active.zone >= 0) hostSend(encodeSimple(T_ZONE, active.zone));
+      hostSend(encodePerms(active.perms));
       // Told to the room once the connection is really up: before that,
       // nobody is controlling anything.
       hostAnnounce(active.peerId);
@@ -621,6 +633,19 @@ function hostShellEvent(event: RemoteControlShellEvent) {
     hostSend(encodeSimple(T_ZONE, index));
     return;
   }
+  if (event.type === "perms") {
+    // Changed on the banner, during the session.
+    if (!host) return;
+    host.perms = event.perms;
+    hostSend(encodePerms(event.perms));
+    return;
+  }
+  if (event.type === "clipboard") {
+    // Copied here; the shell only sends it while the session allows it.
+    const buffer = host ? encodeClipboard(event.text) : null;
+    if (buffer) hostSend(buffer);
+    return;
+  }
   if (event.type !== "ended") return;
   // The shell ended it: the banner, the tray, the hotkey, the helper...
   if (!host) return;
@@ -657,7 +682,15 @@ function endHost(reason: HostEndReason, options: { shellEnded?: boolean } = {}) 
   publish({ host: null });
 }
 
-function startHostSession(peerId: string, userId: string, name: string | null, kind: "request" | "offer") {
+const ALL_INPUT: RemoteControlPerms = { mouse: true, keyboard: true, clipboard: false };
+
+function startHostSession(
+  peerId: string,
+  userId: string,
+  name: string | null,
+  kind: "request" | "offer",
+  perms: RemoteControlPerms = ALL_INPUT
+) {
   const now = Date.now();
   const active: HostSession = {
     peerId,
@@ -680,6 +713,7 @@ function startHostSession(peerId: string, userId: string, name: string | null, k
     flushScheduled: false,
     cursor: -1,
     zone: -1,
+    perms,
   };
   active.connectTimer = setTimeout(() => {
     if (host === active && !active.input) endHost("timeout");
@@ -745,7 +779,7 @@ async function hostOnRequest(msg: Record<string, unknown>) {
     return answer(false, "unavailable");
   }
   track(REMOTE_CONTROL_EVENTS.granted);
-  startHostSession(from, userId, name, "request");
+  startHostSession(from, userId, name, "request", result.perms ?? ALL_INPUT);
   answer(true);
 }
 
@@ -764,7 +798,7 @@ export async function offerRemoteControl(peer: PeerInfo): Promise<void> {
     return;
   }
   track(REMOTE_CONTROL_EVENTS.granted);
-  startHostSession(peer.id, peer.userId, peer.name, "offer");
+  startHostSession(peer.id, peer.userId, peer.name, "offer", result.perms ?? ALL_INPUT);
   signalingClient.sendMessage({ type: "remote-control-offer", to: peer.id });
 }
 
@@ -800,6 +834,7 @@ interface ControllerSession {
   rtt: number | null;
   /** The host's picture is set to play with no added delay (see setLowLatency). */
   lowLatency: boolean;
+  perms: RemoteControlPerms | null;
 }
 
 let controller: ControllerSession | null = null;
@@ -823,6 +858,7 @@ function publishController() {
           cursor: active.cursor,
           zone: active.zone,
           rtt: active.rtt,
+          perms: active.perms,
         }
       : null,
   });
@@ -914,6 +950,15 @@ function controllerOnMessage(raw: unknown) {
       if (active.zone === event.zone) return;
       active.zone = event.zone;
       publishController();
+      return;
+    case "perms":
+      active.perms = event.perms;
+      // Taken away: what this side was holding is let go here too.
+      if (!event.perms.keyboard || !event.perms.mouse) releaseHeld(active);
+      publishController();
+      return;
+    case "clipboard":
+      writeLocalClipboard(event.text);
       return;
     case "local":
       active.localUntil = Date.now() + 1500;
@@ -1085,6 +1130,7 @@ function newController(hostId: string, hostUserId: string, hostName: string | nu
     zone: "ok",
     rtt: null,
     lowLatency: false,
+    perms: null,
   };
   // Stamped, so the host answers and the bar can show the round trip.
   active.pingTimer = setInterval(() => {
@@ -1180,9 +1226,73 @@ function controllerOnServerMessage(msg: Record<string, unknown>) {
 // The controller's input, from components/RemoteControlSurface.tsx. Positions
 // are 0..65535 across the host's picture.
 
+// ---------------------------------------------------------------------------
+// Copy and paste (when the person there allowed it)
+//
+// Their copies arrive as T_CLIPBOARD and go onto this computer's clipboard.
+// This side's go the other way at the moment they are needed: Ctrl+V (or
+// Shift+Insert) first reads this clipboard and sends it, and only then the
+// keys — held back meanwhile, in order — so what gets pasted over there is
+// what was copied here.
+
+let pasting = false;
+const heldBack: Array<[string, boolean]> = [];
+let pendingClipboardWrite: string | null = null;
+
+function mayUseMouse(active: ControllerSession): boolean {
+  return active.perms === null || active.perms.mouse;
+}
+
+function mayUseKeyboard(active: ControllerSession): boolean {
+  return active.perms === null || active.perms.keyboard;
+}
+
+function writeLocalClipboard(text: string) {
+  const write = () =>
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        if (pendingClipboardWrite === text) pendingClipboardWrite = null;
+      },
+      () => {
+        // Not focused, or not allowed right now: tried again when the page
+        // has the focus back.
+        pendingClipboardWrite = text;
+        window.addEventListener("focus", retryClipboardWrite, { once: true });
+      }
+    );
+  void write();
+}
+
+function retryClipboardWrite() {
+  const text = pendingClipboardWrite;
+  if (text !== null && controller) writeLocalClipboard(text);
+}
+
+function isPaste(active: ControllerSession, code: string): boolean {
+  const held = active.keysDown;
+  if (code === "KeyV") return held.has("ControlLeft") || held.has("ControlRight");
+  if (code === "Insert") return held.has("ShiftLeft") || held.has("ShiftRight");
+  return false;
+}
+
+async function sendLocalClipboard(active: ControllerSession) {
+  let text = "";
+  try {
+    text = await Promise.race([
+      navigator.clipboard.readText(),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("slow")), 1500)),
+    ]);
+  } catch {
+    // Not allowed or empty: the paste goes over with whatever is there.
+    return;
+  }
+  const buffer = text ? encodeClipboard(text) : null;
+  if (buffer && controller === active) controllerSend(buffer);
+}
+
 export function sendRemoteMove(x: number, y: number) {
   const active = controller;
-  if (!active || active.phase !== "active") return;
+  if (!active || active.phase !== "active" || !mayUseMouse(active)) return;
   active.seq = (active.seq + 1) & 0xffff;
   controllerSend(encodeMove(active.seq, x, y), true);
 }
@@ -1190,6 +1300,7 @@ export function sendRemoteMove(x: number, y: number) {
 export function sendRemoteButton(button: number, down: boolean, x: number, y: number) {
   const active = controller;
   if (!active || active.phase !== "active" || button < 0 || button > 4) return;
+  if (down && !mayUseMouse(active)) return;
   if (down) active.buttonsDown.add(button);
   else if (!active.buttonsDown.delete(button)) return;
   controllerSend(encodeButton(button, down, x, y));
@@ -1202,7 +1313,7 @@ export function sendRemoteButton(button: number, down: boolean, x: number, y: nu
  */
 export function sendRemoteRelative(dx: number, dy: number) {
   const active = controller;
-  if (!active || active.phase !== "active") return;
+  if (!active || active.phase !== "active" || !mayUseMouse(active)) return;
   let restX = Math.round(dx);
   let restY = Math.round(dy);
   while (restX !== 0 || restY !== 0) {
@@ -1218,6 +1329,7 @@ export function sendRemoteRelative(dx: number, dy: number) {
 export function sendRemoteButtonHere(button: number, down: boolean) {
   const active = controller;
   if (!active || active.phase !== "active" || button < 0 || button > 4) return;
+  if (down && !mayUseMouse(active)) return;
   if (down) active.buttonsDown.add(button);
   else if (!active.buttonsDown.delete(button)) return;
   controllerSend(encodeButtonHere(button, down));
@@ -1225,13 +1337,34 @@ export function sendRemoteButtonHere(button: number, down: boolean) {
 
 export function sendRemoteWheel(dx: number, dy: number) {
   const active = controller;
-  if (!active || active.phase !== "active") return;
+  if (!active || active.phase !== "active" || !mayUseMouse(active)) return;
   controllerSend(encodeWheel(dx, dy));
 }
 
 export function sendRemoteKey(code: string, down: boolean) {
+  // A paste on its way: everything after it waits its turn.
+  if (pasting) {
+    heldBack.push([code, down]);
+    return;
+  }
   const active = controller;
   if (!active || active.phase !== "active") return;
+  if (down && !mayUseKeyboard(active)) return;
+  if (down && active.perms?.clipboard && isPaste(active, code)) {
+    pasting = true;
+    void sendLocalClipboard(active).finally(() => {
+      pasting = false;
+      sendKeyNow(active, code, true);
+      const queued = heldBack.splice(0);
+      for (const [nextCode, nextDown] of queued) sendRemoteKey(nextCode, nextDown);
+    });
+    return;
+  }
+  sendKeyNow(active, code, down);
+}
+
+function sendKeyNow(active: ControllerSession, code: string, down: boolean) {
+  if (controller !== active || active.phase !== "active") return;
   if (down) active.keysDown.add(code);
   else if (!active.keysDown.delete(code)) return;
   const buffer = encodeKey(code, down);

@@ -20,9 +20,9 @@
 // crashing, the shared surface changing or going away, the helper exiting,
 // fifteen minutes without input, or the app quitting.
 
-import { app, BrowserWindow, ipcMain, screen, type WebContents } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, screen, type WebContents } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   IPC,
@@ -33,6 +33,8 @@ import {
   type RemoteControlEndReason,
   type RemoteControlEvent,
   type RemoteControlLang,
+  type RemoteControlLivePermissions,
+  type RemoteControlPermissions,
   type RemoteControlRequestInfo,
   type RemoteControlWindowData,
   type RemoteControlZone,
@@ -51,8 +53,8 @@ const IDLE_TIMEOUT_MS = 15 * 60_000;
 const RATE_PER_SECOND = 400;
 const MAX_BATCH = 64;
 const CONSENT_WIDTH = 420;
-const CONSENT_HEIGHT = 420;
-const BANNER_WIDTH = 560;
+const CONSENT_HEIGHT = 580;
+const BANNER_WIDTH = 760;
 const BANNER_HEIGHT = 64;
 
 function helperPath(): string {
@@ -84,20 +86,93 @@ interface Session {
   banner: BrowserWindow | null;
   /** Set by what ended it, so the helper's exit is not reported as a second reason. */
   ending: RemoteControlEndReason | null;
+  /** What the person here let through — the prompt's boxes, changed since from the banner. */
+  perms: RemoteControlPermissions;
+  clipboardTimer: NodeJS.Timeout | null;
+  /** The clipboard as last seen or set, so a change is told once and an echo never. */
+  lastClipboard: string;
+}
+
+// ── Permissions ──────────────────────────────────────────────────────────
+//
+// AnyDesk's model, cut to what fits here: the person being controlled ticks
+// what goes through in the prompt — mouse, keyboard, copy and paste, GoLive
+// itself — plus locking Windows when it ends. The boxes come back as they
+// were left next time. Mouse, keyboard and clipboard can be switched during
+// the session from the banner. Every one is enforced here, in the shell, not
+// on the page: an event the person did not allow never reaches golive-input,
+// and the clipboard is only ever read or written by this file.
+
+const PERMS_FILE = "remote-control.json";
+const DEFAULT_PERMS: RemoteControlPermissions = {
+  mouse: true,
+  keyboard: true,
+  clipboard: false,
+  app: false,
+  lockOnEnd: false,
+};
+const CLIPBOARD_POLL_MS = 500;
+const MAX_CLIPBOARD_BYTES = 64 * 1024;
+
+function readPerms(raw: unknown, fallback: RemoteControlPermissions): RemoteControlPermissions {
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const flag = (key: keyof RemoteControlPermissions) => (typeof value[key] === "boolean" ? (value[key] as boolean) : fallback[key]);
+  return {
+    mouse: flag("mouse"),
+    keyboard: flag("keyboard"),
+    clipboard: flag("clipboard"),
+    app: flag("app"),
+    lockOnEnd: flag("lockOnEnd"),
+  };
+}
+
+function permsPath(): string {
+  return path.join(app.getPath("userData"), PERMS_FILE);
+}
+
+function loadSavedPerms(): RemoteControlPermissions {
+  try {
+    return readPerms(JSON.parse(readFileSync(permsPath(), "utf8")), DEFAULT_PERMS);
+  } catch {
+    return { ...DEFAULT_PERMS };
+  }
+}
+
+function savePerms(perms: RemoteControlPermissions) {
+  try {
+    writeFileSync(permsPath(), JSON.stringify(perms));
+  } catch {
+    // Next time starts from the defaults, then.
+  }
+}
+
+function livePerms(perms: RemoteControlPermissions): RemoteControlLivePermissions {
+  return { mouse: perms.mouse, keyboard: perms.keyboard, clipboard: perms.clipboard };
+}
+
+/** Windows' own lock screen — "Bloquear o Windows quando a sessão acabar". */
+function lockWorkstation() {
+  try {
+    const rundll = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "rundll32.exe");
+    spawn(rundll, ["user32.dll,LockWorkStation"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  } catch {
+    // Nothing more to do; the session is over either way.
+  }
 }
 
 /**
- * What the person pressed in the prompt. "allow-app" is a yes that also lets
- * GoLive itself be controlled (the box ticked); "block-*" is a no that also
- * stops this person asking again, for an hour or for good.
+ * What the person pressed in the prompt: a yes with the boxes they ticked, or
+ * a no — "block-*" being a no that also stops this person asking again, for
+ * an hour or for good.
  */
-type ConsentChoice = "allow" | "allow-app" | "decline" | "block-hour" | "block-forever" | "timeout";
-const CONSENT_CHOICES = new Set<string>(["allow", "allow-app", "decline", "block-hour", "block-forever"]);
+type ConsentAnswer =
+  | { choice: "allow"; perms: RemoteControlPermissions }
+  | { choice: "decline" | "block-hour" | "block-forever" | "timeout" };
 
 interface PendingConsent {
   info: RemoteControlRequestInfo;
   window: BrowserWindow;
-  resolve: (choice: ConsentChoice) => void;
+  resolve: (answer: ConsentAnswer) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -255,6 +330,7 @@ export function createRemoteControl(options: {
         lang: info.lang,
         timeoutSeconds: Math.round(CONSENT_TIMEOUT_MS / 1000),
         logo: options.logo(),
+        perms: loadSavedPerms(),
       };
     }
     if (session && alive(session.banner) && sender === session.banner.webContents) {
@@ -267,6 +343,7 @@ export function createRemoteControl(options: {
         lang: session.lang,
         timeoutSeconds: 0,
         logo: options.logo(),
+        perms: session.perms,
       };
     }
     return null;
@@ -274,10 +351,10 @@ export function createRemoteControl(options: {
 
   // ── Consent ───────────────────────────────────────────────────────────
 
-  function askConsent(info: RemoteControlRequestInfo): Promise<ConsentChoice> {
+  function askConsent(info: RemoteControlRequestInfo): Promise<ConsentAnswer> {
     return new Promise((resolve) => {
       const window = createOverlay(CONSENT_WIDTH, CONSENT_HEIGHT, true, false);
-      const settle = (answer: ConsentChoice) => {
+      const settle = (answer: ConsentAnswer) => {
         if (!pending || pending.window !== window) return;
         clearTimeout(pending.timer);
         pending = null;
@@ -288,7 +365,7 @@ export function createRemoteControl(options: {
         info,
         window,
         resolve: settle,
-        timer: setTimeout(() => settle("timeout"), CONSENT_TIMEOUT_MS),
+        timer: setTimeout(() => settle({ choice: "timeout" }), CONSENT_TIMEOUT_MS),
       };
       window.once("ready-to-show", () => {
         // In the middle of monitor 1, where the ringing window appears too:
@@ -305,13 +382,13 @@ export function createRemoteControl(options: {
         });
         window.showInactive();
       });
-      window.on("closed", () => settle("decline"));
+      window.on("closed", () => settle({ choice: "decline" }));
       void window.loadFile(html);
     });
   }
 
   function cancelConsent() {
-    pending?.resolve("decline");
+    pending?.resolve({ choice: "decline" });
   }
 
   // ── Session ───────────────────────────────────────────────────────────
@@ -343,12 +420,60 @@ export function createRemoteControl(options: {
     }
   }
 
+  // ── Clipboard ───────────────────────────────────────────────────────────
+
+  /** Watches this computer's clipboard while the session allows it; text copied here goes across. */
+  function watchClipboard(active: Session) {
+    if (active.clipboardTimer) clearInterval(active.clipboardTimer);
+    active.clipboardTimer = null;
+    if (!active.perms.clipboard) return;
+    // What was already there stays here: only what is copied from now on is
+    // shared — an old password sitting on the clipboard is not.
+    active.lastClipboard = clipboard.readText();
+    active.clipboardTimer = setInterval(() => {
+      if (session !== active || !active.perms.clipboard) return;
+      const text = clipboard.readText();
+      if (text === active.lastClipboard) return;
+      active.lastClipboard = text;
+      if (!text || Buffer.byteLength(text, "utf8") > MAX_CLIPBOARD_BYTES) return;
+      options.send({ type: "clipboard", text });
+    }, CLIPBOARD_POLL_MS);
+  }
+
+  /** Text the person controlling copied, onto this computer's clipboard — when allowed. */
+  function setClipboardFromRemote(raw: unknown) {
+    const active = session;
+    if (!active || !active.perms.clipboard || typeof raw !== "string") return;
+    if (Buffer.byteLength(raw, "utf8") > MAX_CLIPBOARD_BYTES) return;
+    // Remembered first, so the watcher does not send it straight back.
+    active.lastClipboard = raw;
+    clipboard.writeText(raw);
+  }
+
+  /** A switch on the banner: mouse, keyboard or clipboard, during the session. */
+  function setLivePerm(key: unknown, on: boolean) {
+    const active = session;
+    if (!active || (key !== "mouse" && key !== "keyboard" && key !== "clipboard")) return;
+    if (active.perms[key] === on) return;
+    active.perms = { ...active.perms, [key]: on };
+    // Taken away: whatever it was holding down is let go.
+    if (!on && key !== "clipboard") write(active, "r\n");
+    if (key === "clipboard") watchClipboard(active);
+    savePerms(active.perms);
+    options.send({ type: "perms", perms: livePerms(active.perms) });
+  }
+
   function end(reason: RemoteControlEndReason) {
     const active = session;
     if (!active) return;
     session = null;
     active.ending = reason;
     clearInterval(active.pingTimer);
+    if (active.clipboardTimer) clearInterval(active.clipboardTimer);
+    active.clipboardTimer = null;
+    // Asked for in the prompt: however it ended — the button, the hotkey, the
+    // other side leaving, the app closing — the computer is left locked.
+    if (active.perms.lockOnEnd) lockWorkstation();
     if (active.idleTimer) clearTimeout(active.idleTimer);
     // "q" releases everything held and exits; closing stdin does the same if
     // the write cannot get through. The kill is for a helper that is stuck.
@@ -376,13 +501,13 @@ export function createRemoteControl(options: {
     }, IDLE_TIMEOUT_MS);
   }
 
-  function startHelper(info: RemoteControlRequestInfo, allowApp: boolean): Promise<RemoteControlConsent> {
+  function startHelper(info: RemoteControlRequestInfo, perms: RemoteControlPermissions): Promise<RemoteControlConsent> {
     const sourceArgs = sharedSourceArgs();
     if (!sourceArgs) return Promise.resolve({ ok: false, reason: "no-source" });
     let child: ChildProcessWithoutNullStreams;
     try {
       const args = [...sourceArgs, "--protect-pid", String(process.pid)];
-      if (allowApp) args.push("--allow-app");
+      if (perms.app) args.push("--allow-app");
       child = spawn(helperPath(), args, {
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
@@ -408,6 +533,9 @@ export function createRemoteControl(options: {
       idleTimer: null,
       banner: null,
       ending: null,
+      perms,
+      clipboardTimer: null,
+      lastClipboard: "",
     };
 
     return new Promise<RemoteControlConsent>((resolve) => {
@@ -441,8 +569,9 @@ export function createRemoteControl(options: {
             // (see RemoteControlTile); the real one, late in the picture,
             // only trails it. Out of the share for the session.
             setNativeVideoCursorHidden(true);
+            watchClipboard(active);
             options.onActiveChange();
-            resolve({ ok: true });
+            resolve({ ok: true, perms: livePerms(active.perms) });
           } else if (session !== active) {
             continue;
           } else if (line === "LOCAL") {
@@ -489,15 +618,19 @@ export function createRemoteControl(options: {
     // Not worth interrupting anybody for a session that could not start.
     if (!sharedSourceArgs()) return { ok: false, reason: "no-source" };
     const answer = await askConsent(info);
-    if (answer === "timeout") return { ok: false, reason: "timeout" };
-    if (answer === "block-hour" || answer === "block-forever") {
+    if (answer.choice === "timeout") return { ok: false, reason: "timeout" };
+    if (answer.choice === "block-hour" || answer.choice === "block-forever") {
       // The page keeps the block (see lib/remoteControl's blocks): it is
       // the one that knows who asked.
-      return { ok: false, reason: "declined", block: answer === "block-hour" ? "hour" : "forever" };
+      return { ok: false, reason: "declined", block: answer.choice === "block-hour" ? "hour" : "forever" };
     }
-    if (answer !== "allow" && answer !== "allow-app") return { ok: false, reason: "declined" };
+    if (answer.choice !== "allow") return { ok: false, reason: "declined" };
+    // A yes with nothing let through is not a session (the prompt does not
+    // allow it either).
+    if (!answer.perms.mouse && !answer.perms.keyboard) return { ok: false, reason: "declined" };
+    savePerms(answer.perms);
     if (session) return { ok: false, reason: "busy" };
-    return startHelper(info, answer === "allow-app");
+    return startHelper(info, answer.perms);
   }
 
   function input(raw: unknown) {
@@ -509,6 +642,10 @@ export function createRemoteControl(options: {
     let lines = "";
     for (const event of raw.slice(0, MAX_BATCH)) {
       if (active.tokens < 1) break;
+      // What was not allowed stops here. Keys are the keyboard; everything
+      // else — moves, buttons, the wheel, game mode — is the mouse.
+      const kind = event && typeof event === "object" ? (event as { t?: unknown }).t : null;
+      if (kind === "k" ? !active.perms.keyboard : !active.perms.mouse) continue;
       const command = toCommand(event);
       if (!command) continue;
       // A pointer move is worth dropping when the pipe is behind: only the
@@ -678,13 +815,25 @@ export function createRemoteControl(options: {
     });
     ipcMain.handle(IPC.remoteControlWindowData, (event) => windowData(event.sender));
     ipcMain.on(IPC.remoteControlWindowChoose, (event, raw: unknown) => {
+      const message = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : { choice: raw };
+      const choice = message.choice;
       if (pending && alive(pending.window) && event.sender === pending.window.webContents) {
-        pending.resolve(typeof raw === "string" && CONSENT_CHOICES.has(raw) ? (raw as ConsentChoice) : "decline");
+        if (choice === "allow") {
+          pending.resolve({ choice: "allow", perms: readPerms(message.perms, DEFAULT_PERMS) });
+        } else if (choice === "block-hour" || choice === "block-forever") {
+          pending.resolve({ choice });
+        } else {
+          pending.resolve({ choice: "decline" });
+        }
         return;
       }
-      if (session && alive(session.banner) && event.sender === session.banner.webContents && raw === "stop") {
-        end("banner");
+      if (session && alive(session.banner) && event.sender === session.banner.webContents) {
+        if (choice === "stop") end("banner");
+        else if (choice === "perm") setLivePerm(message.key, message.on === true);
       }
+    });
+    ipcMain.on(IPC.remoteControlClipboard, (event, raw: unknown) => {
+      if (fromApp(event.sender)) setClipboardFromRemote(raw);
     });
     onSharedSourceChanged(() => end("source-changed"));
     screen.on("display-removed", () => {

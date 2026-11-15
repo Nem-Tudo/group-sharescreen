@@ -67,3 +67,15 @@ test("game mode's movement and in-place clicks round-trip, and an out-of-range o
   view.setInt16(2, MAX_RELATIVE + 1);
   assert.equal(decode(view.buffer), null);
 });
+
+test("permissions and the clipboard round-trip, and an oversized paste is refused rather than cut", async () => {
+  const { encodePerms, encodeClipboard, MAX_CLIPBOARD_BYTES } = await import("./remoteControlWire.ts");
+  const perms = { mouse: false, keyboard: true, clipboard: true };
+  assert.deepEqual(decode(encodePerms(perms)), { t: "perms", perms });
+  const text = "senha? não — só um texto com acentos e emoji 🎮\nsegunda linha";
+  assert.deepEqual(decode(encodeClipboard(text)!), { t: "clipboard", text });
+  assert.equal(encodeClipboard("x".repeat(MAX_CLIPBOARD_BYTES + 1)), null);
+  // Big enough to have needed the clipboard's own size rule, under its limit.
+  const big = "y".repeat(MAX_CLIPBOARD_BYTES);
+  assert.equal((decode(encodeClipboard(big)!) as { text: string }).text.length, MAX_CLIPBOARD_BYTES);
+});

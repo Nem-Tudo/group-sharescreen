@@ -110,19 +110,26 @@
       #decline:hover { background: var(--neutral-hover); }
       #allow { background: var(--blue); }
       #allow:not(:disabled):hover { background: var(--blue-hover); }
-      #appRow {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        margin: 10px 16px 0;
-        padding: 8px 10px;
+      #permsTitle { margin: 12px 16px 6px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+      #perms {
+        margin: 0 16px;
         border: 1px solid var(--border);
         border-radius: 10px;
+        overflow: hidden;
+      }
+      .perm {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        padding: 7px 10px;
         font-size: 12px;
         cursor: pointer;
       }
-      #appRow input { margin: 2px 0 0; accent-color: var(--blue); flex: none; }
-      #appRow small { display: block; color: var(--muted); font-size: 11px; }
+      .perm + .perm { border-top: 1px solid var(--border); }
+      .perm:hover { background: rgba(255, 255, 255, 0.03); }
+      .perm input { margin: 2px 0 0; accent-color: var(--blue); flex: none; }
+      .perm small { display: block; color: var(--muted); font-size: 11px; }
+      #needOne { margin: 6px 16px 0; color: #fca5a5; font-size: 11px; }
       #blockRow { display: flex; align-items: center; gap: 6px; padding: 0 16px 14px; margin-top: -6px; font-size: 12px; }
       #blockToggle {
         background: none;
@@ -161,6 +168,23 @@
       #bannerText { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #bannerText b { font-weight: 700; }
       #hotkey { color: var(--muted); font-size: 11px; white-space: nowrap; }
+      /* The banner's switches: what is allowed right now, changeable here. */
+      #bannerPerms { display: flex; gap: 4px; -webkit-app-region: no-drag; }
+      #bannerPerms button {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--neutral);
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+      #bannerPerms button[aria-pressed="true"] { background: rgba(37, 99, 235, 0.25); color: var(--text); text-decoration: none; }
+      #bannerPerms button:hover { background: var(--neutral-hover); }
+      #bannerPerms svg { width: 13px; height: 13px; flex: none; }
       kbd {
         font: inherit;
         padding: 1px 5px;
@@ -185,9 +209,9 @@
       </div>
       <div id="question"></div>
       <ul id="details"></ul>
-      <label id="appRow"
-        ><input id="allowApp" type="checkbox" /><span><span id="appLabel"></span><small id="appHint"></small></span
-      ></label>
+      <div id="permsTitle"></div>
+      <div id="perms"></div>
+      <p id="needOne" hidden></p>
       <div id="actions">
         <button id="decline" type="button"></button>
         <button id="allow" type="button" disabled></button>
@@ -206,6 +230,7 @@
       <span class="dot"></span>
       <div class="face"><span class="initial"></span><img alt="" hidden /></div>
       <div id="bannerText"></div>
+      <div id="bannerPerms"></div>
       <span id="hotkey"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Esc</kbd></span>
       <button id="stop" type="button"></button>
     </section>
@@ -221,17 +246,24 @@
           request: "quer controlar seu computador.",
           offer: "vai poder controlar seu computador.",
           details: [
-            "Mouse e teclado, na tela que você está compartilhando.",
-            "A pessoa não consegue mexer no Go Live nem em janelas de administrador.",
+            "Na tela que você está compartilhando. Janelas de administrador ficam sempre de fora.",
             "Se você mexer no mouse, você tem prioridade.",
             "Para parar a qualquer momento: Ctrl+Alt+Esc ou o botão Parar.",
           ],
+          permsTitle: "O que a pessoa pode fazer",
+          perms: {
+            mouse: ["Usar o mouse", ""],
+            keyboard: ["Usar o teclado", ""],
+            clipboard: ["Copiar e colar entre os computadores", "Só texto, e só o que for copiado a partir de agora."],
+            app: ["Mexer no Go Live também", "Esta janela e o botão Parar, nunca."],
+            lockOnEnd: ["Bloquear o Windows quando a sessão acabar", "Pede sua senha para voltar a usar o computador."],
+          },
+          needOne: "Libere pelo menos o mouse ou o teclado.",
+          live: { mouse: "Mouse", keyboard: "Teclado", clipboard: "Copiar e colar" },
+          liveHint: "Clique para liberar ou bloquear durante a sessão",
           allow: "Permitir",
           allowIn: "Permitir ({s})",
           decline: "Recusar",
-          app: "Deixar mexer no Go Live também",
-          appHint: "Sem isso, a pessoa não consegue clicar nas janelas do Go Live. Nesta janela e no botão Parar, nunca.",
-          appDetail: "A pessoa também vai poder mexer no Go Live (menos nesta janela e no botão Parar).",
           blockToggle: "Bloquear pedidos dessa pessoa",
           blockLabel: "Bloquear:",
           blockHour: "Por 1 hora",
@@ -245,17 +277,24 @@
           request: "wants to control your computer.",
           offer: "will be able to control your computer.",
           details: [
-            "Mouse and keyboard, on the screen you are sharing.",
-            "They can't touch Go Live or administrator windows.",
+            "On the screen you are sharing. Administrator windows always stay out of reach.",
             "If you move your mouse, you take priority.",
             "To stop at any time: Ctrl+Alt+Esc or the Stop button.",
           ],
+          permsTitle: "What they can do",
+          perms: {
+            mouse: ["Use the mouse", ""],
+            keyboard: ["Use the keyboard", ""],
+            clipboard: ["Copy and paste between the computers", "Text only, and only what is copied from now on."],
+            app: ["Use Go Live too", "This window and the Stop button, never."],
+            lockOnEnd: ["Lock Windows when the session ends", "Your password is needed to use the computer again."],
+          },
+          needOne: "Allow at least the mouse or the keyboard.",
+          live: { mouse: "Mouse", keyboard: "Keyboard", clipboard: "Copy & paste" },
+          liveHint: "Click to allow or block during the session",
           allow: "Allow",
           allowIn: "Allow ({s})",
           decline: "Decline",
-          app: "Let them use Go Live too",
-          appHint: "Without this, they can't click Go Live's windows. This window and the Stop button, never.",
-          appDetail: "They will also be able to use Go Live (except this window and the Stop button).",
           blockToggle: "Block requests from this person",
           blockLabel: "Block:",
           blockHour: "For 1 hour",
@@ -269,17 +308,24 @@
           request: "quiere controlar tu computadora.",
           offer: "podrá controlar tu computadora.",
           details: [
-            "Mouse y teclado, en la pantalla que estás compartiendo.",
-            "No puede tocar Go Live ni ventanas de administrador.",
+            "En la pantalla que estás compartiendo. Las ventanas de administrador siempre quedan fuera.",
             "Si mueves tu mouse, tienes prioridad.",
             "Para detener en cualquier momento: Ctrl+Alt+Esc o el botón Detener.",
           ],
+          permsTitle: "Lo que puede hacer",
+          perms: {
+            mouse: ["Usar el mouse", ""],
+            keyboard: ["Usar el teclado", ""],
+            clipboard: ["Copiar y pegar entre las computadoras", "Solo texto, y solo lo que se copie a partir de ahora."],
+            app: ["Usar Go Live también", "Esta ventana y el botón Detener, nunca."],
+            lockOnEnd: ["Bloquear Windows cuando termine la sesión", "Se pedirá tu contraseña para volver a usar la computadora."],
+          },
+          needOne: "Permite al menos el mouse o el teclado.",
+          live: { mouse: "Mouse", keyboard: "Teclado", clipboard: "Copiar y pegar" },
+          liveHint: "Haz clic para permitir o bloquear durante la sesión",
           allow: "Permitir",
           allowIn: "Permitir ({s})",
           decline: "Rechazar",
-          app: "Dejar usar Go Live también",
-          appHint: "Sin esto, no puede hacer clic en las ventanas de Go Live. Esta ventana y el botón Detener, nunca.",
-          appDetail: "También podrá usar Go Live (excepto esta ventana y el botón Detener).",
           blockToggle: "Bloquear solicitudes de esta persona",
           blockLabel: "Bloquear:",
           blockHour: "Por 1 hora",
@@ -328,16 +374,42 @@
           li.textContent = line;
           details.appendChild(li);
         }
-        // "Também o Go Live": off unless ticked here, by the person at this
-        // computer — the page has no say in it. The line about Go Live in the
-        // list follows the box, so what it says is what will happen.
-        const allowApp = document.getElementById("allowApp");
-        document.getElementById("appLabel").textContent = t.app;
-        document.getElementById("appHint").textContent = t.appHint;
-        const appLine = details.children[1];
-        allowApp.addEventListener("change", () => {
-          appLine.textContent = allowApp.checked ? t.appDetail : t.details[1];
-        });
+        // What goes through: ticked here, by the person at this computer —
+        // the page has no say in any of it. They start as they were left last
+        // time (main keeps them).
+        const perms = Object.assign({}, data.perms);
+        document.getElementById("permsTitle").textContent = t.permsTitle;
+        const list = document.getElementById("perms");
+        for (const key of ["mouse", "keyboard", "clipboard", "app", "lockOnEnd"]) {
+          const row = document.createElement("label");
+          row.className = "perm";
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.checked = perms[key] === true;
+          box.addEventListener("change", () => {
+            perms[key] = box.checked;
+            updateAllow();
+          });
+          const text = document.createElement("span");
+          const [title, hint] = t.perms[key];
+          text.append(title);
+          if (hint) {
+            const small = document.createElement("small");
+            small.textContent = hint;
+            text.append(small);
+          }
+          row.append(box, text);
+          list.append(row);
+        }
+        const needOne = document.getElementById("needOne");
+        needOne.textContent = t.needOne;
+        let armed = false;
+        // A yes needs something to say yes to: the mouse, the keyboard, or both.
+        const updateAllow = () => {
+          const some = perms.mouse === true || perms.keyboard === true;
+          needOne.hidden = some;
+          allow.disabled = !armed || !some;
+        };
         const allow = document.getElementById("allow");
         const decline = document.getElementById("decline");
         decline.textContent = t.decline;
@@ -351,16 +423,18 @@
           label();
         }, 1000);
         setTimeout(() => {
-          allow.disabled = false;
+          armed = true;
+          updateAllow();
         }, ARM_DELAY_MS);
+        updateAllow();
         let answered = false;
-        const choose = (choice) => {
+        const choose = (choice, extra) => {
           if (answered) return;
           answered = true;
-          window.goliveRemoteControl.choose(choice);
+          window.goliveRemoteControl.choose(choice, extra);
         };
         allow.addEventListener("click", () => {
-          if (!allow.disabled) choose(allowApp.checked ? "allow-app" : "allow");
+          if (!allow.disabled) choose("allow", { perms });
         });
         decline.addEventListener("click", () => choose("decline"));
         // Blocking is about somebody asking; an offer is this person's own.
@@ -394,6 +468,35 @@
         const bold = document.createElement("b");
         bold.textContent = data.name;
         text.append(before, bold, after);
+        // The switches: mouse, keyboard, copy and paste — on or off right now,
+        // for the person here to change without ending the session.
+        const ICONS = {
+          mouse: "M12 2a6 6 0 0 0-6 6v8a6 6 0 0 0 12 0V8a6 6 0 0 0-6-6zm0 2a4 4 0 0 1 4 4v1h-3V4.13A4 4 0 0 1 12 4zm-1 .13V9H8V8a4 4 0 0 1 3-3.87zM8 11h8v5a4 4 0 0 1-8 0z",
+          keyboard: "M3 6h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm1 2v8h16V8zm2 1h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h2v2h-2zM7 13h10v2H7z",
+          clipboard: "M9 2h6a1 1 0 0 1 1 1v1h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V3a1 1 0 0 1 1-1zm1 2v2h4V4zM6 6v14h12V6h-2v2H8V6z",
+        };
+        const live = Object.assign({}, data.perms);
+        const holder = document.getElementById("bannerPerms");
+        for (const key of ["mouse", "keyboard", "clipboard"]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.title = t.liveHint;
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          svg.setAttribute("viewBox", "0 0 24 24");
+          svg.setAttribute("fill", "currentColor");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", ICONS[key]);
+          svg.append(path);
+          button.append(svg, t.live[key]);
+          const paint = () => button.setAttribute("aria-pressed", live[key] ? "true" : "false");
+          paint();
+          button.addEventListener("click", () => {
+            live[key] = !live[key];
+            paint();
+            window.goliveRemoteControl.choose("perm", { key, on: live[key] });
+          });
+          holder.append(button);
+        }
         const stop = document.getElementById("stop");
         stop.textContent = t.stop;
         stop.addEventListener("click", () => window.goliveRemoteControl.choose("stop"));

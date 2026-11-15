@@ -298,6 +298,8 @@ export interface DesktopBridge {
      * computer and come back as "key" events. Absent on an app from before it.
      */
     grabKeys?(on: boolean): void;
+    /** Text the person controlling copied, onto this computer's clipboard (if the session allows it). */
+    setClipboard?(text: string): void;
     onEvent(callback: (event: RemoteControlShellEvent) => void): () => void;
   };
 
@@ -410,8 +412,11 @@ export interface DesktopBridge {
 }
 
 /** The shell's answer to a remote control request — see electron/channels.ts. */
+/** What the person being controlled let through (see electron/channels.ts). */
+export type RemoteControlShellPermissions = { mouse: boolean; keyboard: boolean; clipboard: boolean };
+
 export type RemoteControlConsent =
-  | { ok: true }
+  | { ok: true; perms?: RemoteControlShellPermissions }
   | {
       ok: false;
       reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed";
@@ -440,7 +445,9 @@ export type RemoteControlShellEvent =
   | { type: "blocked"; why: "golive" | "covered" | "elevated" }
   | { type: "zone"; zone: "ok" | "golive" | "covered" | "elevated" }
   | { type: "cursor"; shape: string }
-  | { type: "key"; code: string; down: boolean };
+  | { type: "key"; code: string; down: boolean }
+  | { type: "perms"; perms: RemoteControlShellPermissions }
+  | { type: "clipboard"; text: string };
 
 declare global {
   interface Window {

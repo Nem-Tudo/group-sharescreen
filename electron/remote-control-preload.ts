@@ -14,9 +14,26 @@ contextBridge.exposeInMainWorld("goliveRemoteControl", {
   data(): Promise<RemoteControlWindowData | null> {
     return ipcRenderer.invoke(IPC.remoteControlWindowData);
   },
-  choose(choice: "allow" | "allow-app" | "decline" | "block-hour" | "block-forever" | "stop"): void {
-    if (["allow", "allow-app", "decline", "block-hour", "block-forever", "stop"].includes(choice)) {
-      ipcRenderer.send(IPC.remoteControlWindowChoose, choice);
+  // "allow" carries the boxes ticked in the prompt; "perm" is one switch on
+  // the banner during the session. Rebuilt from booleans only, so nothing else
+  // the window attached crosses over; main reads it all again anyway.
+  choose(
+    choice: "allow" | "decline" | "block-hour" | "block-forever" | "stop" | "perm",
+    extra?: { perms?: Record<string, unknown>; key?: string; on?: boolean }
+  ): void {
+    if (!["allow", "decline", "block-hour", "block-forever", "stop", "perm"].includes(choice)) return;
+    const message: Record<string, unknown> = { choice };
+    if (choice === "allow" && extra?.perms && typeof extra.perms === "object") {
+      const perms: Record<string, boolean> = {};
+      for (const key of ["mouse", "keyboard", "clipboard", "app", "lockOnEnd"]) {
+        if (typeof extra.perms[key] === "boolean") perms[key] = extra.perms[key] as boolean;
+      }
+      message.perms = perms;
     }
+    if (choice === "perm" && typeof extra?.key === "string") {
+      message.key = extra.key;
+      message.on = extra.on === true;
+    }
+    ipcRenderer.send(IPC.remoteControlWindowChoose, message);
   },
 });

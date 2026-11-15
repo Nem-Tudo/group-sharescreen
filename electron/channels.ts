@@ -324,6 +324,11 @@ export const IPC = {
    * this computer and come back as RemoteControlEvent "key".
    */
   remoteControlGrab: "golive:remote-control:grab",
+  /**
+   * renderer -> main: text the person controlling copied, to put on this
+   * computer's clipboard — only while the session allows the clipboard.
+   */
+  remoteControlClipboard: "golive:remote-control:clipboard",
   /** main -> renderer: RemoteControlEvent. */
   remoteControlEvent: "golive:remote-control:event",
   /** consent/banner window -> main (invoke): what to show. */
@@ -705,8 +710,31 @@ export interface RemoteControlRequestInfo {
   lang: RemoteControlLang;
 }
 
+/**
+ * What the person being controlled lets through, chosen in the consent window
+ * (and remembered there as the next time's defaults). mouse, keyboard and
+ * clipboard can also be changed during the session, from the banner.
+ */
+export interface RemoteControlPermissions {
+  mouse: boolean;
+  keyboard: boolean;
+  /** Copying and pasting text between the two computers, both ways. */
+  clipboard: boolean;
+  /** GoLive's own ordinary windows may be controlled too (golive-input --allow-app). */
+  app: boolean;
+  /** Windows is locked when the session ends, however it ends. */
+  lockOnEnd: boolean;
+}
+
+/** The part of the permissions the page and the other side need to know. */
+export interface RemoteControlLivePermissions {
+  mouse: boolean;
+  keyboard: boolean;
+  clipboard: boolean;
+}
+
 export type RemoteControlConsent =
-  | { ok: true }
+  | { ok: true; perms: RemoteControlLivePermissions }
   | {
       ok: false;
       reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed";
@@ -751,7 +779,11 @@ export type RemoteControlEvent =
   /** The pointer's shape changed, as a CSS cursor name (REMOTE_CONTROL_CURSORS). */
   | { type: "cursor"; shape: RemoteControlCursor }
   /** Controlling side: a system shortcut key kept from this computer (see IPC.remoteControlGrab). */
-  | { type: "key"; code: string; down: boolean };
+  | { type: "key"; code: string; down: boolean }
+  /** The banner changed what is allowed, during the session. */
+  | { type: "perms"; perms: RemoteControlLivePermissions }
+  /** Text copied on this computer during a session that allows the clipboard. */
+  | { type: "clipboard"; text: string };
 
 export const REMOTE_CONTROL_ZONES = ["ok", "golive", "covered", "elevated"] as const;
 export type RemoteControlZone = (typeof REMOTE_CONTROL_ZONES)[number];
@@ -787,4 +819,6 @@ export interface RemoteControlWindowData {
   timeoutSeconds: number;
   /** The GoLive mark, as a data URL (see main's overlayLogo). */
   logo: string | null;
+  /** The prompt: the boxes as last chosen. The banner: what is allowed now. */
+  perms: RemoteControlPermissions;
 }

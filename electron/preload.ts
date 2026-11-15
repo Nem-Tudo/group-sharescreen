@@ -469,6 +469,11 @@ contextBridge.exposeInMainWorld("golive", {
         grabKeys(on: unknown): void {
           ipcRenderer.send(IPC.remoteControlGrab, on === true);
         },
+        // Text the person controlling copied; main puts it on the clipboard
+        // only while the session allows copy and paste.
+        setClipboard(text: unknown): void {
+          if (typeof text === "string") ipcRenderer.send(IPC.remoteControlClipboard, text);
+        },
         stop(): void {
           ipcRenderer.send(IPC.remoteControlStop);
         },

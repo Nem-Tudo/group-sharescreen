@@ -26,6 +26,7 @@ import {
   MdKeyboard,
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
+  MdContentPaste,
   MdMouse,
   MdSportsEsports,
 } from "react-icons/md";
@@ -473,7 +474,12 @@ export function RemoteControlTileLayer({
         ? t("remoteControl.localActive", { name: mine.hostName ?? "?" })
         : mine.blocked
           ? t(`remoteControl.blocked.${mine.blocked.why}`)
-          : gameMode && !locked
+          : // What the person there let through, when it is not everything.
+            mine.perms && !mine.perms.mouse
+            ? t("remoteControl.perms.keyboardOnly")
+            : mine.perms && !mine.perms.keyboard
+              ? t("remoteControl.perms.mouseOnly")
+              : gameMode && !locked
             ? t("remoteControl.game.clickToLock")
             : !focused
               ? t("remoteControl.clickToType")
@@ -619,6 +625,13 @@ export function RemoteControlTileLayer({
             {rtt !== null && (
               <Tooltip content={t("remoteControl.bar.latency", { ms: rtt })} placement="bottom">
                 <span className={`shrink-0 px-1 tabular-nums ${latencyTone(rtt)}`}>{rtt} ms</span>
+              </Tooltip>
+            )}
+            {mine.perms?.clipboard && (
+              <Tooltip content={t("remoteControl.perms.clipboardOn")} placement="bottom">
+                <span className="flex shrink-0" aria-label={t("remoteControl.perms.clipboardOn")}>
+                  <MdContentPaste className="h-3.5 w-3.5 text-emerald-400" />
+                </span>
               </Tooltip>
             )}
             <span className="mx-0.5 h-4 w-px shrink-0 bg-white/15" />
