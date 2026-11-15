@@ -740,105 +740,166 @@ function subscribeFinePointer(onChange: () => void): () => void {
   return () => query?.removeEventListener("change", onChange);
 }
 
-// The demo's timeline, one 7 s loop: the prompt comes up and "Permitir" is
-// pressed; their pointer, with their name on it, comes in, clicks a button and
-// selects a line of text; then it all starts over. Plain CSS keyframes, so it
-// costs nothing to load and is sharp at any size. Still for anybody who asked
-// for less motion: the frame with the pointer on the button says enough.
+// The demo's timeline, one 9 s loop, in two halves side by side: Ana's desk
+// (her mouse and keyboard) and your screen. First the request comes up on
+// yours and you press "Permitir"; then her pointer, with her name on it,
+// follows her mouse across your screen, clicks a button and types into a
+// box — her keyboard lighting up with every key. Plain CSS keyframes: nothing
+// to load, sharp at any size, and still (on the frame of her pointer at the
+// button) for anybody who asked for less motion.
 const DEMO_CSS = `
-@keyframes rcd-prompt { 0%,2% { opacity:0; transform:translate(-50%,-46%) scale(.92) } 8%,24% { opacity:1; transform:translate(-50%,-50%) scale(1) } 30%,100% { opacity:0; transform:translate(-50%,-50%) scale(.96) } }
-@keyframes rcd-allow { 0%,17% { background:#2563eb } 19%,24% { background:#1d4ed8; transform:scale(.94) } 25%,100% { background:#2563eb; transform:none } }
-@keyframes rcd-tap { 0%,15% { opacity:0; transform:translate(18px,14px) } 17% { opacity:1; transform:translate(0,0) } 21% { opacity:1; transform:translate(0,0) scale(.85) } 25%,100% { opacity:0; transform:translate(0,0) } }
-@keyframes rcd-pointer { 0%,30% { opacity:0; left:8%; top:82% } 34% { opacity:1; left:12%; top:76% } 52% { left:56%; top:44% } 56% { left:56%; top:44% } 70% { left:22%; top:66% } 82% { left:58%; top:66% } 90% { opacity:1; left:58%; top:66% } 96%,100% { opacity:0; left:58%; top:66% } }
-@keyframes rcd-click { 0%,53% { transform:scale(1) } 55% { transform:scale(.8) } 58%,100% { transform:scale(1) } }
-@keyframes rcd-button { 0%,54% { background:rgba(255,255,255,.08); color:#a1a1aa } 56%,94% { background:#10b981; color:#fff } 100% { background:rgba(255,255,255,.08); color:#a1a1aa } }
-@keyframes rcd-select { 0%,70% { width:0 } 82%,92% { width:62% } 100% { width:0 } }
+@keyframes rcd-card { 0%,3% { opacity:0; transform:translate(-50%,-44%) scale(.9) } 9%,24% { opacity:1; transform:translate(-50%,-50%) scale(1) } 29%,100% { opacity:0; transform:translate(-50%,-50%) scale(.96) } }
+@keyframes rcd-allow { 0%,18% { filter:none } 19%,23% { filter:brightness(.8); transform:scale(.92) } 24%,100% { filter:none; transform:none } }
+@keyframes rcd-host { 0%,9% { opacity:0; left:88%; top:92% } 12% { opacity:1 } 18%,21% { opacity:1; left:66%; top:66% } 20% { transform:scale(.8) } 22% { transform:none } 26%,100% { opacity:0; left:66%; top:66% } }
+@keyframes rcd-pointer { 0%,30% { opacity:0; left:14%; top:78% } 33% { opacity:1; left:14%; top:78% } 46%,50% { left:63%; top:38% } 60%,90% { left:30%; top:66% } 92% { opacity:1 } 97%,100% { opacity:0; left:30%; top:66% } }
+@keyframes rcd-mouse { 0%,33% { transform:translate(-8px,7px) } 46%,50% { transform:translate(8px,-6px) } 60%,100% { transform:translate(-3px,3px) } }
+@keyframes rcd-press { 0%,47% { transform:scale(1) } 48% { transform:scale(.85) } 50%,100% { transform:scale(1) } }
+@keyframes rcd-button { 0%,48% { background:rgba(255,255,255,.1); color:#a1a1aa } 50%,94% { background:#10b981; color:#fff } 100% { background:rgba(255,255,255,.1); color:#a1a1aa } }
+@keyframes rcd-field { 0%,58% { box-shadow:none } 60%,94% { box-shadow:0 0 0 1.5px #3b82f6 } 100% { box-shadow:none } }
+@keyframes rcd-type { 0%,62% { width:0 } 82%,94% { width:100% } 100% { width:0 } }
+@keyframes rcd-caret { 0%,58% { opacity:0 } 60%,94% { opacity:1 } 100% { opacity:0 } }
+@keyframes rcd-blink { 50% { opacity:0 } }
+@keyframes rcd-key { 0%,100% { background:transparent } 50% { background:#3b82f6 } }
+@keyframes rcd-keys { 0%,62% { opacity:0 } 63%,82% { opacity:1 } 83%,100% { opacity:0 } }
 @media (prefers-reduced-motion: reduce) {
   .rcd * { animation:none !important }
-  .rcd-prompt { opacity:0 }
-  .rcd-pointer { opacity:1; left:56%; top:44% }
+  .rcd-card, .rcd-host, .rcd-keys { opacity:0 }
+  .rcd-pointer { opacity:1; left:63%; top:38% }
 }
 `;
 
-/** "How it works", shown: the top of the "Ativar o controle remoto?" dialog. */
-function RemoteControlDemo() {
+function DemoArrow({ fill, stroke }: { fill: string; stroke: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-full w-full drop-shadow">
+      <path d="M5 3l14 7-6 2-2 6z" fill={fill} stroke={stroke} strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/**
+ * "How it works", shown — at the top of the "Ativar o controle remoto?"
+ * dialog, and (smaller) in the blue "novo" tip on the bar's button.
+ */
+function RemoteControlDemo({ size = "lg" }: { size?: "sm" | "lg" }) {
   const t = useT();
-  const loop = "7s infinite";
+  const loop = "9s infinite";
+  const small = size === "sm";
   return (
     <div
       aria-hidden="true"
-      className="rcd relative mt-4 h-40 overflow-hidden rounded-xl border border-zinc-200 bg-gradient-to-br from-zinc-800 to-zinc-950 dark:border-zinc-800"
+      className={`rcd relative flex gap-2 overflow-hidden rounded-xl bg-gradient-to-br from-zinc-800 to-zinc-950 ${
+        small ? "h-28 p-2" : "mt-4 h-40 p-3"
+      }`}
     >
       <style>{DEMO_CSS}</style>
-      {/* Your shared screen: a window with a few lines and a button. */}
-      <div className="absolute inset-3 overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10">
-        <div className="flex items-center gap-1 border-b border-white/5 px-2 py-1.5">
+
+      {/* Ana's desk: her mouse moving, her keyboard lighting up as she types. */}
+      <div className="flex w-[30%] shrink-0 flex-col items-center justify-center gap-2 rounded-lg bg-white/[0.04] ring-1 ring-white/10">
+        <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-semibold text-white">Ana</span>
+        <div className="relative flex h-6 w-10 items-center justify-center">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-6 w-6 text-zinc-300"
+            style={{ animation: `rcd-mouse ${loop}` }}
+          >
+            <path
+              fill="currentColor"
+              d="M12 2a6 6 0 0 0-6 6v8a6 6 0 0 0 12 0V8a6 6 0 0 0-6-6zm0 2a4 4 0 0 1 4 4v1h-3V4.13A4 4 0 0 1 12 4zm-1 .13V9H8V8a4 4 0 0 1 3-3.87zM8 11h8v5a4 4 0 0 1-8 0z"
+            />
+          </svg>
+        </div>
+        {/* Her keyboard: plain keys, and over them a layer of lit ones that
+            only shows while she types. */}
+        <div className="relative">
+          <div className="grid grid-cols-5 gap-[2px]">
+            {Array.from({ length: 10 }, (_, i) => (
+              <span key={i} className="h-1.5 w-1.5 rounded-[1px] bg-white/10" />
+            ))}
+          </div>
+          <div className="rcd-keys absolute inset-0 grid grid-cols-5 gap-[2px]" style={{ animation: `rcd-keys ${loop}` }}>
+            {Array.from({ length: 10 }, (_, i) => (
+              <span
+                key={i}
+                className="h-1.5 w-1.5 rounded-[1px]"
+                style={i % 3 === 1 ? { animation: `rcd-key 0.36s ${i * 0.07}s infinite` } : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Your screen. */}
+      <div className="relative min-w-0 flex-1 overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10">
+        <div className="flex items-center gap-1 border-b border-white/5 px-2 py-1">
           <span className="h-1.5 w-1.5 rounded-full bg-red-400/80" />
           <span className="h-1.5 w-1.5 rounded-full bg-amber-400/80" />
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80" />
-          <span className="ml-2 h-1.5 w-16 rounded-full bg-white/10" />
+          <span className="ml-1.5 h-1 w-10 rounded-full bg-white/10" />
         </div>
-        <div className="flex flex-col gap-2 p-3">
+        <div className={`flex flex-col ${small ? "gap-1.5 p-2" : "gap-2 p-3"}`}>
           <span className="h-1.5 w-3/4 rounded-full bg-white/15" />
-          <span className="h-1.5 w-1/2 rounded-full bg-white/10" />
           <span
-            className="mt-1 ml-[46%] w-fit rounded-md px-2.5 py-1 text-[9px] font-semibold"
+            className="ml-[52%] w-fit rounded px-2 py-0.5 text-[8px] font-semibold"
             style={{ animation: `rcd-button ${loop}` }}
           >
             OK
           </span>
-          <span className="relative mt-1 h-1.5 w-[70%] rounded-full bg-white/10">
+          {/* A text box, where her keys land. */}
+          <span
+            className="relative flex h-4 w-[78%] items-center rounded bg-white/5 px-1 ring-1 ring-white/10"
+            style={{ animation: `rcd-field ${loop}` }}
+          >
             <span
-              className="absolute inset-y-[-3px] left-[18%] rounded-sm bg-blue-500/40"
-              style={{ animation: `rcd-select ${loop}` }}
+              className="inline-block overflow-hidden whitespace-nowrap text-[8px] font-medium text-zinc-100"
+              style={{ animation: `rcd-type ${loop} steps(6, end)` }}
+            >
+              Oi! 👋
+            </span>
+            <span
+              className="ml-px inline-block h-2.5 w-px bg-blue-400"
+              style={{ animation: `rcd-caret ${loop}, rcd-blink 0.8s steps(1) infinite` }}
             />
           </span>
         </div>
-      </div>
 
-      {/* The prompt that comes up first, and "Permitir" being pressed. */}
-      <div
-        className="rcd-prompt absolute left-1/2 top-1/2 w-44 rounded-lg bg-zinc-950 p-2 shadow-2xl ring-1 ring-white/15"
-        style={{ animation: `rcd-prompt ${loop}` }}
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
-            A
-          </span>
-          <span className="flex flex-col gap-1">
-            <span className="h-1.5 w-14 rounded-full bg-white/40" />
-            <span className="h-1 w-9 rounded-full bg-white/15" />
-          </span>
-        </div>
-        <div className="mt-2 flex gap-1.5">
-          <span className="h-4 flex-1 rounded bg-white/10" />
-          <span className="relative h-4 flex-1 rounded" style={{ animation: `rcd-allow ${loop}` }}>
-            <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold text-white">
+        {/* The request, and "Permitir" pressed by you. */}
+        <div
+          className="rcd-card absolute left-1/2 top-1/2 w-[78%] rounded-md bg-zinc-950 p-1.5 shadow-2xl ring-1 ring-white/15"
+          style={{ animation: `rcd-card ${loop}` }}
+        >
+          <div className="flex items-center gap-1">
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[7px] font-bold text-white">
+              A
+            </span>
+            <span className="truncate text-[8px] font-semibold text-zinc-100">Ana</span>
+          </div>
+          <div className="mt-1.5 flex gap-1">
+            <span className="h-3.5 flex-1 rounded bg-white/10" />
+            <span
+              className="flex h-3.5 flex-1 items-center justify-center rounded bg-blue-600 text-[7px] font-semibold text-white"
+              style={{ animation: `rcd-allow ${loop}` }}
+            >
               {t("remoteControl.accept")}
             </span>
-            <svg
-              viewBox="0 0 24 24"
-              className="absolute -bottom-2 left-1/2 h-3.5 w-3.5 drop-shadow"
-              style={{ animation: `rcd-tap ${loop}` }}
-            >
-              <path d="M5 3l14 7-6 2-2 6z" fill="#fff" stroke="#18181b" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          </span>
+          </div>
         </div>
-      </div>
+        <span className="rcd-host absolute h-3 w-3" style={{ animation: `rcd-host ${loop}`, left: "88%", top: "92%" }}>
+          <DemoArrow fill="#fff" stroke="#18181b" />
+        </span>
 
-      {/* Their pointer, with their name on it. */}
-      <div
-        className="rcd-pointer absolute"
-        style={{ animation: `rcd-pointer ${loop}`, left: "8%", top: "82%" }}
-      >
-        <div style={{ animation: `rcd-click ${loop}` }} className="flex items-start">
-          <svg viewBox="0 0 24 24" className="h-4 w-4 drop-shadow">
-            <path d="M5 3l14 7-6 2-2 6z" fill="#3b82f6" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" />
-          </svg>
-          <span className="mt-3 rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-semibold text-white shadow">
-            Ana
-          </span>
+        {/* Her pointer, with her name on it, following her mouse. */}
+        <div
+          className="rcd-pointer absolute"
+          style={{ animation: `rcd-pointer ${loop}`, left: "14%", top: "78%" }}
+        >
+          <div className="flex items-start" style={{ animation: `rcd-press ${loop}` }}>
+            <span className="h-3.5 w-3.5">
+              <DemoArrow fill="#3b82f6" stroke="#fff" />
+            </span>
+            <span className="mt-2.5 rounded-full bg-blue-600 px-1 py-px text-[7px] font-semibold text-white shadow">
+              Ana
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -1055,9 +1116,14 @@ export function RemoteControlDockButton({
       content={
         <span
           role="status"
-          className="relative block w-64 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+          className="relative block w-72 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
         >
           <span className="tip-arrow absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          {/* What it looks like, before the words: the same demo as the
+              dialog's, smaller. */}
+          <span className="mb-2 block">
+            <RemoteControlDemo size="sm" />
+          </span>
           <span className="flex items-start gap-2">
             <span className="flex-1">{text}</span>
             <button
