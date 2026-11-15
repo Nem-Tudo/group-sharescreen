@@ -756,7 +756,14 @@ export function createRemoteControl(options: {
     return active;
   }
 
+  // Whether the page's remote control surface has the keyboard right now —
+  // what the grab follows, and the only time the page may read this
+  // computer's clipboard (see IPC.remoteControlReadClipboard). Kept apart from
+  // the grabber itself, which an older helper may not be able to run.
+  let surfaceFocused = false;
+
   function setGrab(on: boolean) {
+    surfaceFocused = on;
     if (on) {
       if (grabUnsupported || !isRemoteControlAvailable()) return;
       if (!grabber) grabber = startGrabber();
@@ -812,6 +819,14 @@ export function createRemoteControl(options: {
     });
     ipcMain.on(IPC.remoteControlGrab, (event, raw: unknown) => {
       if (fromApp(event.sender)) setGrab(raw === true);
+    });
+    // Ctrl+V while controlling someone: what is on this clipboard goes across
+    // first, so that is what gets pasted there. Only while the surface has the
+    // keyboard — a page that merely wants to know what was copied gets null.
+    ipcMain.handle(IPC.remoteControlReadClipboard, (event): string | null => {
+      if (!fromApp(event.sender) || !surfaceFocused) return null;
+      const text = clipboard.readText();
+      return Buffer.byteLength(text, "utf8") <= MAX_CLIPBOARD_BYTES ? text : null;
     });
     ipcMain.handle(IPC.remoteControlWindowData, (event) => windowData(event.sender));
     ipcMain.on(IPC.remoteControlWindowChoose, (event, raw: unknown) => {

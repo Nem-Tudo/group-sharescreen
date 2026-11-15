@@ -329,6 +329,14 @@ export const IPC = {
    * computer's clipboard — only while the session allows the clipboard.
    */
   remoteControlClipboard: "golive:remote-control:clipboard",
+  /**
+   * renderer -> main (invoke): this computer's clipboard text, for a paste
+   * into the computer being controlled. Answered only while the page's
+   * remote control surface has the keyboard (see IPC.remoteControlGrab);
+   * null otherwise. The app refuses pages the general clipboard-read
+   * permission, and this is not that.
+   */
+  remoteControlReadClipboard: "golive:remote-control:read-clipboard",
   /** main -> renderer: RemoteControlEvent. */
   remoteControlEvent: "golive:remote-control:event",
   /** consent/banner window -> main (invoke): what to show. */

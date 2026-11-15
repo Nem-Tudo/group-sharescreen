@@ -1277,9 +1277,12 @@ function isPaste(active: ControllerSession, code: string): boolean {
 
 async function sendLocalClipboard(active: ControllerSession) {
   let text = "";
+  // The app reads it itself (pages there are refused the clipboard-read
+  // permission); a browser asks its own permission the first time.
+  const appRead = getDesktopBridge()?.remoteControl?.readClipboard;
   try {
     text = await Promise.race([
-      navigator.clipboard.readText(),
+      appRead ? appRead().then((value) => value ?? "") : navigator.clipboard.readText(),
       new Promise<string>((_, reject) => setTimeout(() => reject(new Error("slow")), 1500)),
     ]);
   } catch {

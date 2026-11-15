@@ -300,6 +300,8 @@ export interface DesktopBridge {
     grabKeys?(on: boolean): void;
     /** Text the person controlling copied, onto this computer's clipboard (if the session allows it). */
     setClipboard?(text: string): void;
+    /** This computer's clipboard, for a paste while controlling someone (null outside that moment). */
+    readClipboard?(): Promise<string | null>;
     onEvent(callback: (event: RemoteControlShellEvent) => void): () => void;
   };
 

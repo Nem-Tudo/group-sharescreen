@@ -474,6 +474,11 @@ contextBridge.exposeInMainWorld("golive", {
         setClipboard(text: unknown): void {
           if (typeof text === "string") ipcRenderer.send(IPC.remoteControlClipboard, text);
         },
+        // This computer's clipboard, for a paste into the one being
+        // controlled — main answers only while the surface has the keyboard.
+        readClipboard(): Promise<string | null> {
+          return ipcRenderer.invoke(IPC.remoteControlReadClipboard);
+        },
         stop(): void {
           ipcRenderer.send(IPC.remoteControlStop);
         },
