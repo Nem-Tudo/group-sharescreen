@@ -292,6 +292,12 @@ export interface DesktopBridge {
     /** Holds the input (and lets go of every key) while the other side is reconnecting. */
     pause(paused: boolean): void;
     stop(): void;
+    /**
+     * The controlling side: while true (the surface has the keyboard, GoLive
+     * in front) the Windows key, Alt+Tab and the like are kept from this
+     * computer and come back as "key" events. Absent on an app from before it.
+     */
+    grabKeys?(on: boolean): void;
     onEvent(callback: (event: RemoteControlShellEvent) => void): () => void;
   };
 
@@ -422,7 +428,10 @@ export type RemoteControlShellEvent =
       reason: "page" | "banner" | "tray" | "hotkey" | "gone" | "helper" | "idle" | "navigated" | "source-changed";
     }
   | { type: "local" }
-  | { type: "blocked"; why: "golive" | "covered" | "elevated" };
+  | { type: "blocked"; why: "golive" | "covered" | "elevated" }
+  | { type: "zone"; zone: "ok" | "golive" | "covered" | "elevated" }
+  | { type: "cursor"; shape: string }
+  | { type: "key"; code: string; down: boolean };
 
 declare global {
   interface Window {

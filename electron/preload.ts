@@ -463,6 +463,12 @@ contextBridge.exposeInMainWorld("golive", {
         pause(paused: unknown): void {
           ipcRenderer.send(IPC.remoteControlPause, paused === true);
         },
+        // The other direction: this page controls someone else's computer,
+        // and while its surface has the keyboard the Windows key and friends
+        // come back as "key" events instead of going to Windows here.
+        grabKeys(on: unknown): void {
+          ipcRenderer.send(IPC.remoteControlGrab, on === true);
+        },
         stop(): void {
           ipcRenderer.send(IPC.remoteControlStop);
         },

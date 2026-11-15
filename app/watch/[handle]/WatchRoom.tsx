@@ -153,7 +153,7 @@ import {
   useRemoteControl,
   useRemoteControlState,
 } from "@/lib/remoteControl";
-import { RemoteControlPrompt } from "@/components/RemoteControlTile";
+import { RemoteControlDockButton, RemoteControlPrompt } from "@/components/RemoteControlTile";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
 import { CallStage, type CallStagePerson } from "@/components/CallStage";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
@@ -8334,6 +8334,18 @@ function WatchRoomView({
           }
         />
       </div>
+      {/* "Controle remoto", next to the screen it is about: the switch to
+          take requests while sharing from the app, "Pedir controle" when
+          somebody takes them, and the way out of a session from either side.
+          It used to be only a row deep in the settings, where nobody found
+          it. Draws nothing when none of that applies. */}
+      {remoteControlEnabled && (
+        <RemoteControlDockButton
+          canHost={remoteControlHost && remoteControlSharing}
+          allowOn={remoteControlMode.on}
+          onToggleAllow={() => setTileExperimentMode("remoteControl", !remoteControlMode.on, handle)}
+        />
+      )}
     </>
   );
 

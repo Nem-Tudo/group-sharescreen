@@ -128,3 +128,17 @@ const TABLE: Record<string, ScanCode> = {
 export function scanCodeFor(code: string): ScanCode | null {
   return Object.prototype.hasOwnProperty.call(TABLE, code) ? TABLE[code] : null;
 }
+
+// The other way round, for the keys golive-input grabs on the controlling
+// computer (see its --grab-keys): they come out as scan codes and go to the
+// page as the KeyboardEvent.code it would have seen. NumpadEnter and Enter
+// share a scan code apart from the E0 prefix, which is part of the key here.
+const BY_SCAN = new Map<number, string>();
+for (const [code, [scan, extended]] of Object.entries(TABLE)) {
+  const key = scan | (extended << 8);
+  if (!BY_SCAN.has(key)) BY_SCAN.set(key, code);
+}
+
+export function codeForScanCode(scan: number, extended: boolean): string | null {
+  return BY_SCAN.get((scan & 0xff) | (extended ? 0x100 : 0)) ?? null;
+}

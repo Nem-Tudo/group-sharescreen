@@ -1,31 +1,54 @@
 "use client";
 
 // "Controle remoto" on a screen tile (see lib/remoteControl.ts):
-//   - RemoteControlTileButton: "Pedir controle" in the tile's corner, and
-//     "Soltar controle" once it is yours.
+//   - RemoteControlTileButton: "Pedir controle" in the tile's corner.
 //   - RemoteControlTileLayer: while you are controlling, the surface over the
-//     picture that turns your mouse and keyboard into theirs; for everybody,
-//     the label saying who is controlling this screen.
+//     picture that turns your mouse and keyboard into theirs, with a small bar
+//     on top (who, how fast, fullscreen, Windows shortcuts, let go); for
+//     everybody, the label saying who is controlling this screen.
+//   - RemoteControlDockButton: the same thing from the room's bottom bar —
+//     allow requests, ask, stop — where people look for it.
 //   - RemoteControlPrompt: the room-wide card for an offer ("Fulano te deu o
 //     controle") and the short notices (refused, ended).
+//
+// How it should feel is AnyDesk's: your own pointer is the one you aim with,
+// so it moves the instant your hand does, and it takes the shape of theirs
+// (an I-beam over text, a hand over a link) and a "no entry" sign where a
+// click would not go through. The picture follows as fast as it can, but
+// pointing never waits for it.
 
-import { useEffect, useRef, useState, type RefObject } from "react";
-import { MdClose, MdMouse } from "react-icons/md";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import {
+  MdClose,
+  MdFullscreen,
+  MdFullscreenExit,
+  MdKeyboard,
+  MdKeyboardArrowDown,
+  MdKeyboardArrowUp,
+  MdMouse,
+} from "react-icons/md";
 import { Tooltip } from "@/components/Tooltip";
 import { containRect } from "@/components/roomTools/AnnotationLayer";
 import { useT } from "@/lib/useI18n";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
-import type { PeerInfo, SignalingState } from "@/lib/signalingClient";
+import { signalingClient, type PeerInfo, type SignalingState } from "@/lib/signalingClient";
 import {
+  REMOTE_CONTROL_EVENTS,
   acceptRemoteControlOffer,
+  canGrabRemoteKeys,
   releaseRemoteControl,
   releaseRemoteKeys,
   requestRemoteControl,
   sendRemoteButton,
+  sendRemoteCombo,
   sendRemoteKey,
   sendRemoteMove,
   sendRemoteWheel,
+  setRemoteKeyGrab,
+  stopHostingRemoteControl,
+  trackRemoteControlEvent,
   useRemoteControlState,
+  type RemoteControlSnapshot,
 } from "@/lib/remoteControl";
 
 function samePeer(a: PeerInfo | null, b: PeerInfo | null): boolean {
@@ -54,7 +77,23 @@ function useCanRequest(): boolean {
   return useSignalingSelector((state: SignalingState) => Boolean(state.account) && Boolean(state.room));
 }
 
-/** "Pedir controle" / "Aguardando…" / "Soltar controle", in the tile's corner. */
+/** Whether somebody could ask this peer for control right now. */
+function requestable(peer: PeerInfo): boolean {
+  return Boolean(peer.rc && peer.screen && peer.app && !peer.rcBy && peer.userId);
+}
+
+/** True while this page drives the screen of `peerId` — the tile hides its own buttons then. */
+export function useRemoteDriving(peerId: string | undefined): boolean {
+  const { enabled, controller } = useRemoteControlState();
+  return Boolean(
+    peerId &&
+      enabled &&
+      controller?.hostId === peerId &&
+      (controller.phase === "active" || controller.phase === "reconnecting" || controller.phase === "connecting")
+  );
+}
+
+/** "Pedir controle" / "Cancelar pedido", in the tile's corner. */
 export function RemoteControlTileButton({ peerId }: { peerId: string }) {
   const t = useT();
   const peer = usePeer(peerId);
@@ -63,23 +102,18 @@ export function RemoteControlTileButton({ peerId }: { peerId: string }) {
   if (!enabled || !peer) return null;
   const mine = controller?.hostId === peerId ? controller : null;
 
-  if (mine && mine.phase !== "offered") {
-    const label = mine.phase === "requesting" ? t("remoteControl.cancelRequest") : t("remoteControl.release");
+  // While driving, the bar over the picture has "Soltar" (see the layer).
+  if (mine && mine.phase === "requesting") {
+    const label = t("remoteControl.cancelRequest");
     return (
       <Tooltip content={label}>
         <button
           type="button"
           onClick={releaseRemoteControl}
           aria-label={label}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-white ${
-            mine.phase === "requesting" ? "bg-black/60 hover:bg-black/80" : "bg-red-600 hover:bg-red-700"
-          }`}
+          className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-2 text-xs font-semibold text-white hover:bg-black/80"
         >
-          {mine.phase === "requesting" ? (
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-          ) : (
-            <MdClose className="h-4 w-4" />
-          )}
+          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
           <span className="hidden sm:inline">{label}</span>
         </button>
       </Tooltip>
@@ -88,14 +122,14 @@ export function RemoteControlTileButton({ peerId }: { peerId: string }) {
 
   // Somebody who takes requests, sharing a screen from the app, nobody
   // controlling it yet — and you with an account, not already controlling.
-  if (!canRequest || !peer.rc || !peer.screen || !peer.app || peer.rcBy || controller) return null;
+  if (!canRequest || !requestable(peer) || controller) return null;
   return (
     <Tooltip content={t("remoteControl.requestHint", { name: peer.name })}>
       <button
         type="button"
         onClick={() => requestRemoteControl(peer)}
         aria-label={t("remoteControl.request")}
-        className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-2 text-xs font-semibold text-white hover:bg-black/80 active:bg-black/80"
+        className="flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-700"
       >
         <MdMouse className="h-4 w-4" />
         <span className="hidden sm:inline">{t("remoteControl.request")}</span>
@@ -118,15 +152,110 @@ const BUTTON_MAP = [0, 2, 1, 3, 4];
 type KeyboardLock = { lock?: (codes?: string[]) => Promise<void>; unlock?: () => void };
 
 /**
+ * The shortcuts a browser (or Windows here) keeps for itself, sent whole from
+ * the bar's menu. Win+L is left out on purpose: it locks their computer, and
+ * nothing here can type the password back in.
+ */
+const SHORTCUTS: { id: string; keys: string[]; label: string }[] = [
+  { id: "start", keys: ["MetaLeft"], label: "Win" },
+  { id: "run", keys: ["MetaLeft", "KeyR"], label: "Win + R" },
+  { id: "explorer", keys: ["MetaLeft", "KeyE"], label: "Win + E" },
+  { id: "desktop", keys: ["MetaLeft", "KeyD"], label: "Win + D" },
+  { id: "settings", keys: ["MetaLeft", "KeyI"], label: "Win + I" },
+  { id: "switch", keys: ["AltLeft", "Tab"], label: "Alt + Tab" },
+  { id: "close", keys: ["AltLeft", "F4"], label: "Alt + F4" },
+  { id: "taskManager", keys: ["ControlLeft", "ShiftLeft", "Escape"], label: "Ctrl + Shift + Esc" },
+  { id: "snip", keys: ["MetaLeft", "ShiftLeft", "KeyS"], label: "Win + Shift + S" },
+];
+
+const BAR_COLLAPSED_KEY = "golive:remoteControl:barCollapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(BAR_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCollapsed(value: boolean) {
+  try {
+    window.localStorage.setItem(BAR_COLLAPSED_KEY, value ? "1" : "0");
+  } catch {
+    // Not remembered, then.
+  }
+}
+
+type Driving = NonNullable<RemoteControlSnapshot["controller"]>;
+
+/** The pointer this side shows over their picture. */
+function pointerFor(mine: Driving): string {
+  if (mine.phase !== "active") return "progress";
+  if (mine.zone !== "ok") return "not-allowed";
+  // Hidden over there (a video playing, typing) — but this side still needs
+  // something to aim with.
+  return mine.cursor === "none" ? "default" : mine.cursor;
+}
+
+function latencyTone(ms: number): string {
+  if (ms < 90) return "text-emerald-400";
+  if (ms < 200) return "text-amber-400";
+  return "text-red-400";
+}
+
+/** Keeps a click inside the bar from also counting as one on their computer. */
+const keepToPage = {
+  onPointerDown: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+  onPointerUp: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+  onPointerMove: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+  onDoubleClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+  onContextMenu: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+  onKeyDown: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+  onKeyUp: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+};
+
+function BarButton({
+  label,
+  onClick,
+  children,
+  active = false,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+  active?: boolean;
+}) {
+  return (
+    <Tooltip content={label} placement="bottom">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-pressed={active}
+        className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition ${
+          active ? "bg-white/20 text-white" : "text-zinc-200 hover:bg-white/15 hover:text-white"
+        }`}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
+/**
  * Over the host's picture while you control it: pointer and keys go to their
  * computer. Also, for everybody, who is controlling this screen.
  */
 export function RemoteControlTileLayer({
   peerId,
   videoRef,
+  isFullscreen = false,
+  onToggleFullscreen,
 }: {
   peerId: string;
   videoRef: RefObject<HTMLVideoElement | null>;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }) {
   const t = useT();
   const peer = usePeer(peerId);
@@ -134,14 +263,31 @@ export function RemoteControlTileLayer({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const mine = enabled && controller?.hostId === peerId ? controller : null;
   const driving = mine !== null && (mine.phase === "active" || mine.phase === "reconnecting" || mine.phase === "connecting");
+  const active = mine?.phase === "active";
   const [focused, setFocused] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const grabsKeys = canGrabRemoteKeys();
 
   // Into the surface as soon as it is yours, so the first key already goes there.
   useEffect(() => {
     if (driving) surfaceRef.current?.focus();
   }, [driving]);
 
-  // The wheel has to be a non-passive listener to keep the page from scrolling.
+  // The shell's grab of the Windows key follows the keyboard: on while the
+  // surface has it and the session is up, off the moment either stops.
+  // Only the tile being driven has a surface to focus, so only it ever turns
+  // the grab on — and off again, on its way out.
+  useEffect(() => {
+    if (!focused || !active) return;
+    setRemoteKeyGrab(true);
+    return () => setRemoteKeyGrab(false);
+  }, [focused, active]);
+
+  // The wheel has to be a non-passive listener to keep the page from
+  // scrolling — and kept from the tile, whose own wheel (zoom in fullscreen)
+  // has nothing to do with their computer.
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface || !driving) return;
@@ -149,6 +295,8 @@ export function RemoteControlTileLayer({
     let carryY = 0;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
+      event.stopPropagation();
+      if ((event.target as Element | null)?.closest?.("[data-rc-ui]")) return;
       const { dx, dy } = wheelUnits(event);
       carryX += dx;
       carryY += dy;
@@ -164,7 +312,8 @@ export function RemoteControlTileLayer({
   }, [driving]);
 
   // In fullscreen, ask the browser for the keys it normally keeps (Alt+Tab,
-  // the Windows key, Esc) — where it supports that at all.
+  // the Windows key, Esc) — where it supports that at all. The Windows app
+  // grabs them itself (see setRemoteKeyGrab), fullscreen or not.
   useEffect(() => {
     if (!driving) return;
     const keyboard = (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard;
@@ -179,6 +328,28 @@ export function RemoteControlTileLayer({
       keyboard?.unlock?.();
     };
   }, [driving]);
+
+  // The shortcuts menu closes on a press anywhere else.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [menuOpen]);
+
+  // This side's pointer, in the shape of theirs. Set on the element directly:
+  // it changes with every move in and out of the picture's black bars, and a
+  // re-render per move would be a lot of React for one CSS property.
+  const outsideRef = useRef(false);
+  const pointer = mine ? pointerFor(mine) : "default";
+  const pointerRef = useRef(pointer);
+  useEffect(() => {
+    pointerRef.current = pointer;
+    const surface = surfaceRef.current;
+    if (surface && !outsideRef.current) surface.style.cursor = pointer;
+  }, [pointer, driving]);
 
   // Moves coalesced to one per frame: the newest position is the only one that matters.
   const pendingMove = useRef<{ x: number; y: number } | null>(null);
@@ -213,6 +384,18 @@ export function RemoteControlTileLayer({
 
   if (!driving || !mine) return label;
 
+  const refocus = () => surfaceRef.current?.focus();
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    writeCollapsed(next);
+    setMenuOpen(false);
+    refocus();
+  };
+
+  // One line at a time under the bar, and only when there is something to
+  // say: connecting, the person there has the mouse, a click that was
+  // refused, or the keyboard is somewhere else.
   const hint =
     mine.phase !== "active"
       ? t(mine.phase === "reconnecting" ? "remoteControl.reconnecting" : "remoteControl.connecting")
@@ -220,9 +403,11 @@ export function RemoteControlTileLayer({
         ? t("remoteControl.localActive", { name: mine.hostName ?? "?" })
         : mine.blocked
           ? t(`remoteControl.blocked.${mine.blocked.why}`)
-          : focused
-            ? t("remoteControl.activeHint")
-            : t("remoteControl.clickToType");
+          : !focused
+            ? t("remoteControl.clickToType")
+            : null;
+
+  const rtt = mine.rtt;
 
   return (
     <div
@@ -230,18 +415,29 @@ export function RemoteControlTileLayer({
       tabIndex={0}
       role="application"
       aria-label={t("remoteControl.surfaceLabel", { name: mine.hostName ?? "?" })}
-      className={`absolute inset-0 z-10 cursor-default outline-none ring-4 ring-inset ${
-        focused ? "ring-blue-500" : "ring-blue-500/40"
-      }`}
+      // The pointer's shape is set on the element by the effect above and the
+      // move handler, never here: a re-render (the latency ticking) would
+      // otherwise put back the wrong one while over the black bars.
+      className={`absolute inset-0 z-30 outline-none ring-2 ring-inset ${focused ? "ring-blue-500" : "ring-blue-500/40"}`}
       onFocus={() => setFocused(true)}
-      onBlur={() => {
+      onBlur={(event) => {
+        // Focus moving to the bar's own buttons is still this surface's.
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
         setFocused(false);
         // Nothing stays pressed on their computer because this tab lost focus.
         releaseRemoteKeys();
       }}
       onContextMenu={(event) => event.preventDefault()}
+      // A double-click is theirs (opening a file), not the tile's fullscreen.
+      onDoubleClick={(event) => event.stopPropagation()}
       onPointerMove={(event) => {
         const point = position(event.clientX, event.clientY);
+        const outside = point === null;
+        if (outside !== outsideRef.current) {
+          outsideRef.current = outside;
+          // Over the black bars around the picture there is nothing to click.
+          event.currentTarget.style.cursor = outside ? "not-allowed" : pointerRef.current;
+        }
         if (!point) return;
         pendingMove.current = point;
         if (frame.current !== null) return;
@@ -254,7 +450,7 @@ export function RemoteControlTileLayer({
       }}
       onPointerDown={(event) => {
         if (event.pointerType === "touch") return;
-        surfaceRef.current?.focus();
+        event.currentTarget.focus();
         const point = position(event.clientX, event.clientY);
         const button = BUTTON_MAP[event.button];
         if (!point || button === undefined) return;
@@ -282,21 +478,313 @@ export function RemoteControlTileLayer({
       }}
     >
       <div
-        className="absolute left-1/2 top-2 z-10 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-full bg-zinc-950/85 py-1 pl-3 pr-1 text-xs text-white shadow-lg"
-        // The bar's own button is for this page, not for their computer.
-        onPointerDown={(event) => event.stopPropagation()}
-        onPointerUp={(event) => event.stopPropagation()}
+        data-rc-ui
+        {...keepToPage}
+        className="absolute left-1/2 top-1.5 z-10 flex max-w-[95%] -translate-x-1/2 cursor-default flex-col items-center gap-1"
       >
-        <MdMouse className={`h-4 w-4 shrink-0 ${mine.phase === "active" ? "text-blue-400" : "animate-pulse text-zinc-400"}`} />
-        <span className="truncate">{hint}</span>
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={t("remoteControl.bar.expand")}
+            title={t("remoteControl.bar.expand")}
+            className="flex cursor-pointer items-center gap-1 rounded-full bg-zinc-950/80 px-2 py-0.5 text-white shadow-lg ring-1 ring-white/10 hover:bg-zinc-900"
+          >
+            <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "animate-pulse bg-amber-400"}`} />
+            <MdKeyboardArrowDown className="h-4 w-4" />
+          </button>
+        ) : (
+          <div className="flex max-w-full items-center gap-1 rounded-full bg-zinc-950/85 py-0.5 pl-2.5 pr-0.5 text-xs text-white shadow-lg ring-1 ring-white/10 backdrop-blur">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-emerald-400" : "animate-pulse bg-amber-400"}`} />
+            <MdMouse className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+            <span className="min-w-0 truncate font-semibold">{mine.hostName ?? "?"}</span>
+            {rtt !== null && (
+              <Tooltip content={t("remoteControl.bar.latency", { ms: rtt })} placement="bottom">
+                <span className={`shrink-0 px-1 tabular-nums ${latencyTone(rtt)}`}>{rtt} ms</span>
+              </Tooltip>
+            )}
+            <span className="mx-0.5 h-4 w-px shrink-0 bg-white/15" />
+            {onToggleFullscreen && (
+              <BarButton
+                label={t(isFullscreen ? "remoteControl.bar.exitFullscreen" : "remoteControl.bar.fullscreen")}
+                active={isFullscreen}
+                onClick={() => {
+                  if (!isFullscreen) trackRemoteControlEvent(REMOTE_CONTROL_EVENTS.fullscreen);
+                  onToggleFullscreen();
+                  refocus();
+                }}
+              >
+                {isFullscreen ? <MdFullscreenExit className="h-4 w-4" /> : <MdFullscreen className="h-4 w-4" />}
+              </BarButton>
+            )}
+            <div ref={menuRef} className="relative">
+              <BarButton
+                label={t("remoteControl.bar.shortcuts")}
+                active={menuOpen}
+                onClick={() => setMenuOpen((open) => !open)}
+              >
+                <MdKeyboard className="h-4 w-4" />
+              </BarButton>
+              {menuOpen && (
+                // Drawn inside the tile rather than on <body>: in fullscreen
+                // the tile is all there is on screen.
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-20 mt-1.5 w-64 overflow-hidden rounded-xl bg-zinc-900 py-1 text-sm text-zinc-100 shadow-2xl ring-1 ring-white/10"
+                >
+                  <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                    {t("remoteControl.bar.shortcuts")}
+                  </p>
+                  {SHORTCUTS.map((shortcut) => (
+                    <button
+                      key={shortcut.id}
+                      type="button"
+                      role="menuitem"
+                      disabled={!active}
+                      onClick={() => {
+                        sendRemoteCombo(shortcut.keys);
+                        setMenuOpen(false);
+                        refocus();
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="truncate">{t(`remoteControl.shortcut.${shortcut.id}`)}</span>
+                      <kbd className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-sans text-[11px] text-zinc-300">
+                        {shortcut.label}
+                      </kbd>
+                    </button>
+                  ))}
+                  <p className="border-t border-white/10 px-3 pb-1.5 pt-2 text-[11px] leading-snug text-zinc-400">
+                    {grabsKeys ? t("remoteControl.bar.keysHintApp") : t("remoteControl.bar.keysHintBrowser")}
+                  </p>
+                </div>
+              )}
+            </div>
+            <BarButton label={t("remoteControl.bar.collapse")} onClick={toggleCollapsed}>
+              <MdKeyboardArrowUp className="h-4 w-4" />
+            </BarButton>
+            <button
+              type="button"
+              onClick={releaseRemoteControl}
+              className="ml-0.5 flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 font-semibold hover:bg-red-700"
+            >
+              <MdClose className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t("remoteControl.release")}</span>
+            </button>
+          </div>
+        )}
+        {hint && (
+          <div className="pointer-events-none flex max-w-full items-center gap-1.5 rounded-full bg-zinc-950/80 px-2.5 py-1 text-[11px] text-zinc-100 shadow">
+            {mine.phase !== "active" && (
+              <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            )}
+            <span className="truncate">{hint}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const FINE_POINTER = "(any-pointer: fine)";
+
+function hasFinePointer(): boolean {
+  return window.matchMedia?.(FINE_POINTER).matches ?? true;
+}
+
+function subscribeFinePointer(onChange: () => void): () => void {
+  const query = window.matchMedia?.(FINE_POINTER);
+  query?.addEventListener("change", onChange);
+  return () => query?.removeEventListener("change", onChange);
+}
+
+/**
+ * "Controle remoto" in the room's bottom bar, next to the screen button —
+ * where people look for it, rather than in the settings:
+ *   - sharing from the Windows app: the switch to take requests, or "stop"
+ *     while somebody is in control;
+ *   - controlling somebody: "Soltar controle";
+ *   - somebody in the room takes requests: "Pedir controle" (a list when more
+ *     than one does).
+ */
+export function RemoteControlDockButton({
+  canHost,
+  allowOn,
+  onToggleAllow,
+  className = "",
+}: {
+  /** This page can be controlled right now: feature, Windows app, sharing one screen. */
+  canHost: boolean;
+  /** The "take requests" switch. */
+  allowOn: boolean;
+  onToggleAllow: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  const { enabled, host, controller } = useRemoteControlState();
+  const canRequest = useCanRequest();
+  const [listOpen, setListOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const hosts = useSignalingSelector(
+    (state: SignalingState) =>
+      state.peers
+        .filter((p) => p.id !== state.selfId && requestable(p))
+        .map((p) => ({ id: p.id, name: p.name })),
+    (a, b) => a.length === b.length && a.every((p, i) => p.id === b[i].id && p.name === b[i].name)
+  );
+
+  useEffect(() => {
+    if (!listOpen) return;
+    const onDown = (event: PointerEvent) => {
+      if (!listRef.current?.contains(event.target as Node)) setListOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [listOpen]);
+
+  // Driving a computer takes a mouse: a phone gets no "Pedir controle" here
+  // (the surface ignores touch). False on the server, so its render and the
+  // first one here agree.
+  const finePointer = useSyncExternalStore(subscribeFinePointer, hasFinePointer, () => false);
+
+  if (!enabled) return null;
+
+  // One event for every use of the button, whatever it did — the point is
+  // whether people find it here at all.
+  const click = () => trackRemoteControlEvent(REMOTE_CONTROL_EVENTS.dockClick);
+  const base = `flex items-center gap-1.5 rounded-lg px-3 py-2 text-white transition ${className}`;
+
+  // Your computer, being controlled (or about to be).
+  if (host) {
+    const label =
+      host.phase === "consent"
+        ? t("remoteControl.dock.consent")
+        : t("remoteControl.dock.stopHost", { name: host.name ?? "?" });
+    return (
+      <Tooltip content={label}>
         <button
           type="button"
-          onClick={releaseRemoteControl}
-          className="shrink-0 rounded-full bg-red-600 px-2.5 py-1 font-semibold hover:bg-red-700"
+          onClick={() => {
+            click();
+            stopHostingRemoteControl();
+          }}
+          disabled={host.phase === "consent"}
+          aria-label={label}
+          className={`${base} bg-red-600 hover:bg-red-700 disabled:animate-pulse disabled:cursor-wait`}
         >
-          {t("remoteControl.release")}
+          <MdMouse className="h-5 w-5" />
         </button>
-      </div>
+      </Tooltip>
+    );
+  }
+
+  // Their computer, under your control.
+  if (controller && controller.phase !== "offered") {
+    const requesting = controller.phase === "requesting";
+    const label = requesting ? t("remoteControl.cancelRequest") : t("remoteControl.release");
+    return (
+      <Tooltip content={label}>
+        <button
+          type="button"
+          onClick={() => {
+            click();
+            releaseRemoteControl();
+          }}
+          aria-label={label}
+          className={`${base} ${requesting ? "bg-zinc-600 hover:bg-zinc-700" : "bg-red-600 hover:bg-red-700"}`}
+        >
+          {requesting ? (
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          ) : (
+            <MdMouse className="h-5 w-5" />
+          )}
+        </button>
+      </Tooltip>
+    );
+  }
+
+  // Sharing from the app: the switch.
+  if (canHost) {
+    const label = allowOn ? t("remoteControl.dock.allowOn") : t("remoteControl.dock.allowOff");
+    return (
+      <Tooltip content={label}>
+        <button
+          type="button"
+          onClick={() => {
+            click();
+            onToggleAllow();
+          }}
+          aria-pressed={allowOn}
+          aria-label={label}
+          className={`${base} ${allowOn ? "bg-blue-600 hover:bg-blue-700" : "bg-zinc-500 hover:bg-zinc-600 dark:bg-zinc-700 dark:hover:bg-zinc-600"}`}
+        >
+          <MdMouse className={`h-5 w-5 ${allowOn ? "" : "opacity-70"}`} />
+        </button>
+      </Tooltip>
+    );
+  }
+
+  // Somebody to ask.
+  if (!canRequest || !finePointer || hosts.length === 0 || controller) return null;
+  const ask = (id: string) => {
+    const peer = signalingClient.state.peers.find((p) => p.id === id);
+    if (peer) requestRemoteControl(peer);
+  };
+  if (hosts.length === 1) {
+    const only = hosts[0];
+    const label = t("remoteControl.requestHint", { name: only.name });
+    return (
+      <Tooltip content={label}>
+        <button
+          type="button"
+          onClick={() => {
+            click();
+            ask(only.id);
+          }}
+          aria-label={label}
+          className={`${base} bg-blue-600 hover:bg-blue-700`}
+        >
+          <MdMouse className="h-5 w-5" />
+        </button>
+      </Tooltip>
+    );
+  }
+  return (
+    <div ref={listRef} className="relative flex">
+      <Tooltip content={t("remoteControl.request")}>
+        <button
+          type="button"
+          onClick={() => setListOpen((open) => !open)}
+          aria-expanded={listOpen}
+          aria-label={t("remoteControl.request")}
+          className={`${base} bg-blue-600 hover:bg-blue-700`}
+        >
+          <MdMouse className="h-5 w-5" />
+        </button>
+      </Tooltip>
+      {listOpen && (
+        <div
+          role="menu"
+          className="absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          {hosts.map((h) => (
+            <button
+              key={h.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setListOpen(false);
+                click();
+                ask(h.id);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              <MdMouse className="h-4 w-4 shrink-0 text-blue-500" />
+              <span className="truncate">{t("remoteControl.requestHint", { name: h.name })}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

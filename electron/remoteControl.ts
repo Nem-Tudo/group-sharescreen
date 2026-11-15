@@ -26,15 +26,19 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   IPC,
+  REMOTE_CONTROL_CURSORS,
+  REMOTE_CONTROL_ZONES,
   type RemoteControlConsent,
+  type RemoteControlCursor,
   type RemoteControlEndReason,
   type RemoteControlEvent,
   type RemoteControlLang,
   type RemoteControlRequestInfo,
   type RemoteControlWindowData,
+  type RemoteControlZone,
 } from "./channels";
 import { onSharedSourceChanged, sharedDisplayId, sharedSourceArgs } from "./nativeVideo";
-import { scanCodeFor } from "./remoteControlKeys";
+import { codeForScanCode, scanCodeFor } from "./remoteControlKeys";
 
 const HELPER = "golive-input.exe";
 const CONSENT_TIMEOUT_MS = 30_000;
@@ -419,6 +423,12 @@ export function createRemoteControl(options: {
           } else if (line.startsWith("BLOCKED ")) {
             const why = line.slice(8);
             if (why === "golive" || why === "covered" || why === "elevated") options.send({ type: "blocked", why });
+          } else if (line.startsWith("ZONE ")) {
+            const zone = line.slice(5) as RemoteControlZone;
+            if (REMOTE_CONTROL_ZONES.includes(zone)) options.send({ type: "zone", zone });
+          } else if (line.startsWith("CURSOR ")) {
+            const shape = line.slice(7) as RemoteControlCursor;
+            if (REMOTE_CONTROL_CURSORS.includes(shape)) options.send({ type: "cursor", shape });
           }
         }
         if (buffered.length > 4096) buffered = "";
@@ -478,6 +488,128 @@ export function createRemoteControl(options: {
     if (!write(active, lines)) active.congested = true;
   }
 
+  // ── Grabbing the system shortcuts (this computer controls another) ──────
+  //
+  // The Windows key, Alt+Tab, Ctrl+Esc, Alt+F4 and PrintScreen are Windows'
+  // before any page sees them, so "Win+R" on the person controlling opened
+  // *their* Run box. A second golive-input, in --grab-keys mode, keeps them
+  // from Windows while the page says its surface has the keyboard and GoLive
+  // is in front, and hands them back here to go across. Started on the first
+  // grab, stopped a minute after the last one ends.
+
+  interface Grabber {
+    child: ChildProcessWithoutNullStreams;
+    on: boolean;
+    pingTimer: NodeJS.Timeout;
+    stopTimer: NodeJS.Timeout | null;
+  }
+
+  const GRAB_IDLE_MS = 60_000;
+  let grabber: Grabber | null = null;
+  // A helper from before --grab-keys existed says so with exit code 2; asking
+  // again on every focus would only start it again for nothing.
+  let grabUnsupported = false;
+
+  function writeGrab(active: Grabber, line: string) {
+    try {
+      active.child.stdin.write(line);
+    } catch {
+      // Exiting; "exit" below clears it.
+    }
+  }
+
+  function stopGrabber() {
+    const active = grabber;
+    if (!active) return;
+    grabber = null;
+    clearInterval(active.pingTimer);
+    if (active.stopTimer) clearTimeout(active.stopTimer);
+    writeGrab(active, "q\n");
+    try {
+      active.child.stdin.end();
+    } catch {
+      // Already closed.
+    }
+    const child = active.child;
+    setTimeout(() => {
+      if (child.exitCode === null) child.kill();
+    }, 2000).unref?.();
+  }
+
+  function startGrabber(): Grabber | null {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(helperPath(), ["--grab-keys", "--protect-pid", String(process.pid)], {
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch {
+      return null;
+    }
+    const active: Grabber = {
+      child,
+      on: false,
+      pingTimer: setInterval(() => writeGrab(active, "p\n"), PING_INTERVAL_MS),
+      stopTimer: null,
+    };
+    let buffered = "";
+    let ready = false;
+    child.stdin.on("error", () => {});
+    child.stderr.on("data", () => {});
+    child.stdout.on("data", (data: Buffer) => {
+      buffered += data.toString("latin1");
+      let newline: number;
+      while ((newline = buffered.indexOf("\n")) >= 0) {
+        const line = buffered.slice(0, newline).trim();
+        buffered = buffered.slice(newline + 1);
+        if (line === "READY") {
+          ready = true;
+          continue;
+        }
+        const match = /^KEY (\d{1,3}) ([01]) ([01])$/.exec(line);
+        if (!match || grabber !== active || !active.on) continue;
+        const code = codeForScanCode(Number(match[1]), match[2] === "1");
+        if (code) options.send({ type: "key", code, down: match[3] === "1" });
+      }
+      if (buffered.length > 4096) buffered = "";
+    });
+    const gone = (exitCode?: number | null) => {
+      clearInterval(active.pingTimer);
+      if (!ready && exitCode === 2) grabUnsupported = true;
+      if (grabber === active) grabber = null;
+    };
+    child.on("error", () => gone());
+    child.on("exit", (exitCode) => gone(exitCode));
+    return active;
+  }
+
+  function setGrab(on: boolean) {
+    if (on) {
+      if (grabUnsupported || !isRemoteControlAvailable()) return;
+      if (!grabber) grabber = startGrabber();
+      const active = grabber;
+      if (!active) return;
+      if (active.stopTimer) clearTimeout(active.stopTimer);
+      active.stopTimer = null;
+      if (!active.on) {
+        active.on = true;
+        writeGrab(active, "g 1\n");
+      }
+      return;
+    }
+    const active = grabber;
+    if (!active) return;
+    if (active.on) {
+      active.on = false;
+      writeGrab(active, "g 0\n");
+    }
+    if (!active.stopTimer) {
+      active.stopTimer = setTimeout(() => {
+        if (grabber === active && !active.on) stopGrabber();
+      }, GRAB_IDLE_MS);
+    }
+  }
+
   function setPaused(paused: boolean) {
     const active = session;
     if (!active || active.paused === paused) return;
@@ -504,6 +636,9 @@ export function createRemoteControl(options: {
       if (!fromApp(event.sender)) return;
       cancelConsent();
       end("page");
+    });
+    ipcMain.on(IPC.remoteControlGrab, (event, raw: unknown) => {
+      if (fromApp(event.sender)) setGrab(raw === true);
     });
     ipcMain.handle(IPC.remoteControlWindowData, (event) => windowData(event.sender));
     ipcMain.on(IPC.remoteControlWindowChoose, (event, raw: unknown) => {
@@ -540,6 +675,7 @@ export function createRemoteControl(options: {
     pageGone() {
       cancelConsent();
       end("navigated");
+      stopGrabber();
     },
     stopFromTray() {
       end("tray");
@@ -547,6 +683,7 @@ export function createRemoteControl(options: {
     destroy() {
       cancelConsent();
       end("page");
+      stopGrabber();
     },
   };
 }

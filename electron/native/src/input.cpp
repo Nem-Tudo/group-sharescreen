@@ -18,12 +18,15 @@
 // Usage
 // -----
 //   golive-input (--monitor <x> <y> | --window <hwnd>) --protect-pid <pid>
+//   golive-input --grab-keys --protect-pid <pid>
 //
 //   --monitor x y     the shared monitor, named by a point inside it, in
 //                     physical pixels (the same argument golive-videocap
 //                     takes, worked out by the same code in the shell)
 //   --window hwnd     the shared window
 //   --protect-pid pid GoLive's own main process — see "What can't be touched"
+//   --grab-keys       the other side: the computer of the person *controlling*.
+//                     See "Grabbing the system shortcuts" below.
 //
 // stdin, one command per line (ASCII, space separated):
 //   m X Y              pointer to X,Y — 0..65535 across the shared picture
@@ -33,6 +36,7 @@
 //   k SC EXT D         key by scan code SC (1..127), EXT=1 for the E0
 //                      prefixed ones (arrows, right Ctrl, ...), D=1 down
 //   r                  release everything this program is holding down
+//   g ON               --grab-keys only: start (1) or stop (0) grabbing
 //   p                  ping — the shell sends one a second
 //   q                  quit
 //
@@ -44,9 +48,31 @@
 //                              Ctrl+Alt+Esc; the program exits right after
 //   BLOCKED golive|covered|elevated   a click or key was dropped, and why
 //                              (throttled per reason)
+//   ZONE ok|golive|covered|elevated   what is under the pointer now, after
+//                              a move — sent when it changes. The other side
+//                              shows a "no entry" pointer where clicks would
+//                              be dropped, instead of letting them find out.
+//   CURSOR <css name>          the pointer's shape changed (default, text,
+//                              pointer, ew-resize...; none when hidden). The
+//                              other side draws its own pointer in that shape,
+//                              so pointing feels immediate however late the
+//                              picture is — the way AnyDesk does it.
+//   KEY SC EXT D               --grab-keys only: a system shortcut key that
+//                              was kept from Windows here, to be sent across
 //   GONE                       the shared window or monitor no longer exists
 //
 // Exit codes: 0 stopped, 1 failure, 2 bad arguments, 4 target gone.
+//
+// Grabbing the system shortcuts
+// -----------------------------
+// The Windows key, Alt+Tab, Ctrl+Esc, Alt+F4 and PrintScreen never reach a
+// web page: Windows acts on them first. For the person controlling that means
+// Win+R opens *their* Run box. With --grab-keys this program runs on their
+// computer instead, and while the shell says "g 1" and a GoLive window is in
+// front it keeps those keys from Windows and writes them out (KEY), for the
+// page to send across like any other key. Everything else is left alone and
+// reaches the page the normal way. Ctrl+Alt+Del cannot be grabbed by anybody,
+// and that is fine: it is the way out.
 //
 // Safety, in the order it matters
 // -------------------------------
@@ -84,14 +110,18 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <set>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 static const int EXIT_OK = 0;
 static const int EXIT_FAILED = 1;
@@ -113,6 +143,7 @@ struct Options {
   POINT monitorPoint = {0, 0};
   HWND window = nullptr;
   DWORD protectPid = 0;
+  bool grabKeys = false;
 };
 
 static bool ParseLong(const wchar_t* text, long long& out) {
@@ -139,13 +170,19 @@ static bool ParseArgs(int argc, wchar_t** argv, Options& options) {
       if (!ParseLong(argv[i + 1], a) || a <= 0) return false;
       options.protectPid = static_cast<DWORD>(a);
       i += 1;
+    } else if (arg == L"--grab-keys") {
+      options.grabKeys = true;
     } else {
       return false;
     }
   }
+  if (options.protectPid == 0) return false;
+  // Grabbing drives nothing, so it takes no target — and refuses one, so a
+  // mixed-up command line never does half of each.
+  if (options.grabKeys) return !options.monitor && options.window == nullptr;
   // Exactly one target, and the protected process is not optional: running
   // without it would make GoLive's own prompts clickable from afar.
-  return (options.monitor != (options.window != nullptr)) && options.protectPid != 0;
+  return options.monitor != (options.window != nullptr);
 }
 
 static Options g_options;
@@ -331,19 +368,21 @@ static POINT ToDesktop(const RECT& rect, int x, int y) {
 }
 
 static void MoveTo(POINT point) {
-  // Absolute coordinates over the whole virtual desktop are 0..65535 from its
-  // top-left to its bottom-right pixel. In a per-monitor DPI aware process the
-  // virtual screen metrics are physical pixels, the same as everything else
-  // here.
-  const int left = GetSystemMetrics(SM_XVIRTUALSCREEN);
-  const int top = GetSystemMetrics(SM_YVIRTUALSCREEN);
-  const int width = std::max(2, GetSystemMetrics(SM_CXVIRTUALSCREEN));
-  const int height = std::max(2, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+  // The pointer is put on the pixel itself, with SetCursorPos, rather than
+  // through SendInput's absolute coordinates. Those go through a 0..65535 grid
+  // over the virtual desktop whose size Windows reports differently depending
+  // on DPI awareness, scaling and how the monitors are arranged — the first
+  // version used them, and on real machines the pointer did not follow (it sat
+  // still or stuck to an edge) while keys and the wheel, which need no
+  // position, worked. SetCursorPos takes plain screen pixels, the same ones
+  // TargetRect measures in, and is done by the time it returns.
+  if (!SetCursorPos(point.x, point.y)) return;
+  // Then a move of nothing through the real input path: programs that read
+  // raw input or watch for activity see that the mouse moved, and the hover
+  // under the new position updates the way it does for a hand on a mouse.
   INPUT input = {};
   input.type = INPUT_MOUSE;
-  input.mi.dx = static_cast<LONG>((static_cast<long long>(point.x - left) * 65535 + (width - 1) / 2) / (width - 1));
-  input.mi.dy = static_cast<LONG>((static_cast<long long>(point.y - top) * 65535 + (height - 1) / 2) / (height - 1));
-  input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+  input.mi.dwFlags = MOUSEEVENTF_MOVE;
   SendOne(input);
 }
 
@@ -361,42 +400,242 @@ static DWORD OwnerPid(HWND window) {
 // shared program.
 static DWORD TargetPid() { return g_options.window ? OwnerPid(g_options.window) : 0; }
 
-// Whether a click or a wheel turn at this point may go through.
-static bool PointAllowed(POINT point) {
-  HWND under = WindowFromPoint(point);
-  if (OwnerPid(under) == g_options.protectPid) {
-    Report(REPORT_GOLIVE);
-    return false;
-  }
-  if (g_options.window) {
-    // A window share's picture is that window alone, even where something
-    // else is on top of it on the real desktop. A click there would land on
-    // the thing on top — which the person clicking cannot see.
-    if (OwnerPid(under) != TargetPid()) {
-      Report(REPORT_COVERED);
-      return false;
-    }
-  }
-  return true;
+// The integrity level of this program's own token, once.
+static DWORD IntegrityOf(HANDLE token) {
+  DWORD size = 0;
+  GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &size);
+  if (size == 0) return 0;
+  std::vector<BYTE> buffer(size);
+  if (!GetTokenInformation(token, TokenIntegrityLevel, buffer.data(), size, &size)) return 0;
+  const TOKEN_MANDATORY_LABEL* label = reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(buffer.data());
+  const UCHAR count = *GetSidSubAuthorityCount(label->Label.Sid);
+  if (count == 0) return 0;
+  return *GetSidSubAuthority(label->Label.Sid, count - 1);
 }
 
-// Whether keys may go to whatever has the focus right now.
-static bool KeysAllowed() {
-  HWND focused = GetForegroundWindow();
-  if (OwnerPid(focused) == g_options.protectPid) {
-    Report(REPORT_GOLIVE);
-    return false;
+static DWORD SelfIntegrity() {
+  static DWORD level = [] {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return DWORD(0);
+    const DWORD value = IntegrityOf(token);
+    CloseHandle(token);
+    return value;
+  }();
+  return level;
+}
+
+// Whether a process runs above this one — an elevated program, which Windows
+// will not let injected input reach (UIPI). Worked out here rather than read
+// from SendInput: when UIPI drops an event, SendInput still reports success.
+// A process whose token cannot even be read is counted as above: from an
+// ordinary program that is what an elevated one looks like. Cached for a few
+// seconds — this runs on every pointer move.
+static bool ProcessAbove(DWORD pid) {
+  static std::unordered_map<DWORD, std::pair<bool, ULONGLONG>> cache;
+  const ULONGLONG now = GetTickCount64();
+  auto found = cache.find(pid);
+  if (found != cache.end() && now - found->second.second < 5000) return found->second.first;
+  if (cache.size() > 256) cache.clear();
+  bool above = true;
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (process) {
+    HANDLE token = nullptr;
+    if (OpenProcessToken(process, TOKEN_QUERY, &token)) {
+      const DWORD level = IntegrityOf(token);
+      above = level == 0 || level > SelfIntegrity();
+      CloseHandle(token);
+    }
+    CloseHandle(process);
   }
-  if (g_options.window && OwnerPid(focused) != TargetPid()) {
-    // Typing into an application that is not the one being shared would be
-    // typing somewhere the other person cannot see.
-    Report(REPORT_COVERED);
-    return false;
+  cache[pid] = {above, now};
+  return above;
+}
+
+// What a click at a point would reach. Callers hold g_inputLock (the cache in
+// ProcessAbove is not otherwise guarded).
+enum Zone { ZONE_OK = 0, ZONE_GOLIVE, ZONE_COVERED, ZONE_ELEVATED, ZONE_COUNT };
+static const char* const kZoneLines[ZONE_COUNT] = {"ZONE ok", "ZONE golive", "ZONE covered", "ZONE elevated"};
+
+static Zone ZoneOf(DWORD pid) {
+  if (pid == g_options.protectPid) return ZONE_GOLIVE;
+  // A window share's picture is that window alone, even where something else
+  // is on top of it on the real desktop. A click there would land on the
+  // thing on top — which the person clicking cannot see.
+  if (g_options.window && pid != TargetPid()) return ZONE_COVERED;
+  if (pid != 0 && pid != GetCurrentProcessId() && ProcessAbove(pid)) return ZONE_ELEVATED;
+  return ZONE_OK;
+}
+
+static Zone ZoneAt(POINT point) { return ZoneOf(OwnerPid(WindowFromPoint(point))); }
+
+static bool Allowed(Zone zone) {
+  switch (zone) {
+    case ZONE_GOLIVE: Report(REPORT_GOLIVE); return false;
+    case ZONE_COVERED: Report(REPORT_COVERED); return false;
+    case ZONE_ELEVATED: Report(REPORT_ELEVATED); return false;
+    default: return true;
   }
-  return true;
+}
+
+// Whether a click or a wheel turn at this point may go through.
+static bool PointAllowed(POINT point) { return Allowed(ZoneAt(point)); }
+
+// Whether keys may go to whatever has the focus right now. Typing into an
+// application that is not the one being shared would be typing somewhere the
+// other person cannot see.
+static bool KeysAllowed() { return Allowed(ZoneOf(OwnerPid(GetForegroundWindow()))); }
+
+// The zone under the pointer, told to the shell when it changes.
+static int g_zoneShown = -1;
+
+static void ShowZone(Zone zone) {
+  if (g_zoneShown == zone) return;
+  g_zoneShown = zone;
+  Emit(kZoneLines[zone]);
 }
 
 static bool LocalHasPriority() { return GetTickCount64() < g_localUntil.load(); }
+
+// ---------------------------------------------------------------------------
+// The pointer's shape
+
+struct CursorName {
+  WORD id;  // the IDC_* number, spelled out: the macros change type with UNICODE
+  const char* name;
+};
+
+// The system's shared cursors, by the CSS name the other side draws them
+// with. Programs that use Windows' own pointers (nearly all of them, browsers
+// included) hand out exactly these handles; anything else — a program's own
+// artwork — is told as "default", which is what it nearly always resembles.
+static const CursorName kCursors[] = {
+    {32512, "default"},      // IDC_ARROW
+    {32513, "text"},         // IDC_IBEAM
+    {32649, "pointer"},      // IDC_HAND
+    {32514, "wait"},         // IDC_WAIT
+    {32650, "progress"},     // IDC_APPSTARTING
+    {32515, "crosshair"},    // IDC_CROSS
+    {32644, "ew-resize"},    // IDC_SIZEWE
+    {32645, "ns-resize"},    // IDC_SIZENS
+    {32642, "nwse-resize"},  // IDC_SIZENWSE
+    {32643, "nesw-resize"},  // IDC_SIZENESW
+    {32646, "move"},         // IDC_SIZEALL
+    {32648, "not-allowed"},  // IDC_NO
+    {32651, "help"},         // IDC_HELP
+    {32516, "default"},      // IDC_UPARROW
+};
+static const size_t kCursorCount = sizeof(kCursors) / sizeof(kCursors[0]);
+
+static void WatchCursor() {
+  HCURSOR handles[kCursorCount] = {};
+  for (size_t i = 0; i < kCursorCount; i++) handles[i] = LoadCursorW(nullptr, MAKEINTRESOURCEW(kCursors[i].id));
+  const char* shown = nullptr;
+  for (;;) {
+    const char* name = "default";
+    CURSORINFO info = {};
+    info.cbSize = sizeof(info);
+    if (GetCursorInfo(&info)) {
+      if (!(info.flags & CURSOR_SHOWING) || !info.hCursor) {
+        name = "none";
+      } else {
+        for (size_t i = 0; i < kCursorCount; i++) {
+          if (handles[i] && info.hCursor == handles[i]) {
+            name = kCursors[i].name;
+            break;
+          }
+        }
+      }
+    }
+    if (name != shown) {
+      shown = name;
+      std::string line = "CURSOR ";
+      line += name;
+      Emit(line.c_str());
+    }
+    Sleep(30);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grabbing the system shortcuts (--grab-keys; see the header)
+
+static std::atomic<bool> g_grab{false};
+// Hook thread only.
+static bool g_winL = false, g_winR = false, g_altL = false, g_altR = false, g_ctrlL = false, g_ctrlR = false;
+static std::set<DWORD> g_swallowed;
+
+// The hook may not wait on a pipe (see KeyboardHook), so what it grabbed goes
+// through a queue that a thread of its own writes out.
+static std::mutex g_keyLock;
+static std::condition_variable g_keyReady;
+static std::deque<std::string> g_keyQueue;
+
+static void QueueKey(DWORD scan, bool extended, bool down) {
+  char line[40];
+  snprintf(line, sizeof(line), "KEY %lu %d %d", static_cast<unsigned long>(scan & 0xFF), extended ? 1 : 0,
+           down ? 1 : 0);
+  {
+    std::lock_guard<std::mutex> lock(g_keyLock);
+    if (g_keyQueue.size() >= 256) return;
+    g_keyQueue.emplace_back(line);
+  }
+  g_keyReady.notify_one();
+}
+
+static void WriteKeys() {
+  for (;;) {
+    std::string line;
+    {
+      std::unique_lock<std::mutex> lock(g_keyLock);
+      g_keyReady.wait(lock, [] { return !g_keyQueue.empty(); });
+      line = std::move(g_keyQueue.front());
+      g_keyQueue.pop_front();
+    }
+    Emit(line.c_str());
+  }
+}
+
+static void GrabSet(bool on) { g_grab.store(on); }
+
+// Whether GoLive is the window in front — the only time anything is grabbed.
+// Alt+Tab on the person's own computer works as always the moment they are
+// somewhere else.
+static bool GoLiveInFront() { return OwnerPid(GetForegroundWindow()) == g_options.protectPid; }
+
+static LRESULT CALLBACK GrabHook(int code, WPARAM wParam, LPARAM lParam) {
+  if (code != HC_ACTION) return CallNextHookEx(nullptr, code, wParam, lParam);
+  const KBDLLHOOKSTRUCT* info = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
+  // Injected keys are some program's, never the person's.
+  if (info->flags & (LLKHF_INJECTED | LLKHF_LOWER_IL_INJECTED)) return CallNextHookEx(nullptr, code, wParam, lParam);
+  const bool down = !(info->flags & LLKHF_UP);
+  const DWORD vk = info->vkCode;
+  switch (vk) {
+    case VK_LWIN: g_winL = down; break;
+    case VK_RWIN: g_winR = down; break;
+    case VK_LMENU: g_altL = down; break;
+    case VK_RMENU: g_altR = down; break;
+    case VK_LCONTROL: g_ctrlL = down; break;
+    case VK_RCONTROL: g_ctrlR = down; break;
+    default: break;
+  }
+  bool grab = false;
+  if (!down) {
+    // A release is grabbed exactly when its press was, whatever changed in
+    // between — half a key on each side would leave one of them held.
+    grab = g_swallowed.erase(vk) > 0;
+  } else if (g_grab.load() && GoLiveInFront()) {
+    const bool win = g_winL || g_winR;
+    const bool alt = g_altL || g_altR;
+    const bool ctrl = g_ctrlL || g_ctrlR;
+    grab = vk == VK_LWIN || vk == VK_RWIN || win || vk == VK_SNAPSHOT ||
+           (alt && (vk == VK_TAB || vk == VK_ESCAPE || vk == VK_F4 || vk == VK_SPACE)) ||
+           (ctrl && vk == VK_ESCAPE);
+    if (grab) g_swallowed.insert(vk);
+  }
+  if (!grab) return CallNextHookEx(nullptr, code, wParam, lParam);
+  QueueKey(info->scanCode, (info->flags & LLKHF_EXTENDED) != 0, down);
+  return 1;
+}
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -424,6 +663,11 @@ static void HandleLine(char* line) {
     return;
   }
   if (command == 'q') Finish(EXIT_OK);
+  if (g_options.grabKeys) {
+    // Nothing is driven from here in this mode; the switch is all there is.
+    if (command == 'g' && count == 2) GrabSet(n[0] == 1);
+    return;
+  }
 
   std::lock_guard<std::mutex> lock(g_inputLock);
   if (command == 'r') {
@@ -443,7 +687,9 @@ static void HandleLine(char* line) {
     case 'm': {
       if (count != 3 || !InRange(n[0], 0, 65535) || !InRange(n[1], 0, 65535)) return;
       if (LocalHasPriority()) return;
-      MoveTo(ToDesktop(rect, n[0], n[1]));
+      const POINT point = ToDesktop(rect, n[0], n[1]);
+      MoveTo(point);
+      ShowZone(ZoneAt(point));
       return;
     }
     case 'b': {
@@ -553,6 +799,7 @@ static void Watchdog() {
       Log("no ping from the shell; stopping");
       Finish(EXIT_OK);
     }
+    if (g_options.grabKeys) continue;
     if (now - lastTargetCheck >= 1000) {
       lastTargetCheck = now;
       RECT rect;
@@ -564,14 +811,39 @@ static void Watchdog() {
   }
 }
 
+static int RunGrab() {
+  HHOOK keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, GrabHook, GetModuleHandleW(nullptr), 0);
+  if (!keyboardHook) {
+    Log("could not install the keyboard hook");
+    return EXIT_FAILED;
+  }
+  g_lastPing.store(GetTickCount64());
+  std::thread(ReadStdin).detach();
+  std::thread(Watchdog).detach();
+  std::thread(WriteKeys).detach();
+  Emit("READY");
+  MSG message;
+  while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+    TranslateMessage(&message);
+    DispatchMessageW(&message);
+  }
+  Finish(EXIT_OK);
+}
+
 int wmain(int argc, wchar_t** argv) {
   if (!ParseArgs(argc, argv, g_options)) {
     Log("usage: golive-input (--monitor <x> <y> | --window <hwnd>) --protect-pid <pid>");
+    Log("       golive-input --grab-keys --protect-pid <pid>");
     return EXIT_BAD_ARGS;
   }
   // Physical pixels everywhere: the monitor point the shell sends is in them,
-  // and so are SendInput's absolute coordinates for a process declared this way.
-  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  // and so are the window and monitor rectangles and SetCursorPos for a
+  // process declared this way.
+  if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+    Log("could not declare per-monitor DPI awareness");
+  }
+
+  if (g_options.grabKeys) return RunGrab();
 
   RECT rect;
   if (!TargetRect(rect)) {
@@ -595,6 +867,7 @@ int wmain(int argc, wchar_t** argv) {
   std::thread(ReadStdin).detach();
   std::thread(Watchdog).detach();
   Emit("READY");
+  std::thread(WatchCursor).detach();
 
   MSG message;
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {

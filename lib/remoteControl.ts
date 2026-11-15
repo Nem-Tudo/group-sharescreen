@@ -45,27 +45,35 @@ import {
   type RemoteControlInputEvent,
   type RemoteControlShellEvent,
 } from "./desktop";
+import { connectionRegistry } from "./connectionRegistry";
 import { trackFeatureEvent } from "./features";
 import { iceConfigFor } from "./iceConfig";
 import { signalingClient, type PeerInfo } from "./signalingClient";
 import {
   BLOCKED_WHY,
+  CURSORS,
   T_BLOCKED,
   T_BYE,
+  T_CURSOR,
   T_LOCAL,
-  T_PING,
   T_READY,
+  T_ZONE,
+  ZONES,
   decode,
   encodeButton,
   encodeKey,
   encodeMove,
+  encodePing,
+  encodePong,
   encodeSimple,
   encodeWheel,
   newer,
   type RemoteControlBlocked,
+  type RemoteControlCursor,
+  type RemoteControlZone,
 } from "./remoteControlWire";
 
-export type { RemoteControlBlocked };
+export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone };
 
 export const REMOTE_CONTROL_FEATURE = "remote-control";
 
@@ -83,6 +91,9 @@ export const REMOTE_CONTROL_EVENTS = {
   stopSharer: "rc_stop_sharer",
   stopViewer: "rc_stop_viewer",
   helperFail: "rc_helper_fail",
+  shortcut: "rc_shortcut", // a Windows shortcut sent from the bar's menu
+  fullscreen: "rc_fullscreen", // the bar's fullscreen button
+  dockClick: "rc_dock_click", // the button in the room's bottom bar
 } as const;
 
 const CHANNEL = "remote-control";
@@ -160,6 +171,11 @@ function track(name: string, value?: number) {
   trackFeatureEvent(name, { room, feature: REMOTE_CONTROL_FEATURE, ...(value ? { value } : {}) });
 }
 
+/** For the UI's own events (REMOTE_CONTROL_EVENTS): counted against this room, like the rest. */
+export function trackRemoteControlEvent(name: string) {
+  track(name);
+}
+
 // ---------------------------------------------------------------------------
 // Store for the UI
 
@@ -178,6 +194,12 @@ export interface RemoteControlSnapshot {
     localActive: boolean;
     /** The last thing the host dropped, and when — for a short hint. */
     blocked: { why: RemoteControlBlocked; at: number } | null;
+    /** The remote pointer's shape — this side's pointer takes it (see RemoteControlTile). */
+    cursor: RemoteControlCursor;
+    /** What is under the remote pointer; anything but "ok" draws the "no entry" pointer. */
+    zone: RemoteControlZone;
+    /** Round trip of the input connection, in ms; null until measured (or an older host). */
+    rtt: number | null;
   } | null;
   /** A short message for the room to show once (refused, ended...). */
   notice: { key: string; name: string | null; at: number } | null;
@@ -253,6 +275,9 @@ interface HostSession {
   watchdog: ReturnType<typeof setInterval>;
   queue: RemoteControlInputEvent[];
   flushScheduled: boolean;
+  /** The pointer's shape and the zone under it, as the helper last said (index, -1 unknown) — told again on a new connection. */
+  cursor: number;
+  zone: number;
 }
 
 let host: HostSession | null = null;
@@ -338,6 +363,10 @@ function hostOnMessage(raw: unknown) {
     case "key":
       hostQueue({ t: "k", c: event.c, d: event.d });
       return;
+    case "ping":
+      // A stamped ping is the other side measuring the round trip.
+      if (event.stamp !== null) hostSend(encodePong(event.stamp));
+      return;
     case "bye":
       endHost("viewer");
       return;
@@ -361,6 +390,10 @@ function hostAttachChannel(active: HostSession, channel: RTCDataChannel) {
       if (active.connectTimer) clearTimeout(active.connectTimer);
       active.connectTimer = null;
       hostSend(encodeSimple(T_READY));
+      // A new connection starts knowing nothing: tell it the pointer's shape
+      // and what is under it, which the helper only reports when they change.
+      if (active.cursor >= 0) hostSend(encodeSimple(T_CURSOR, active.cursor));
+      if (active.zone >= 0) hostSend(encodeSimple(T_ZONE, active.zone));
       // Told to the room once the connection is really up: before that,
       // nobody is controlling anything.
       hostAnnounce(active.peerId);
@@ -451,6 +484,16 @@ function hostWatchdog() {
   if (active.paused && active.pausedSince && now - active.pausedSince > RESUME_MS) endHost("lost");
 }
 
+function shellEvent(event: RemoteControlShellEvent) {
+  if (event.type === "key") {
+    // Not about hosting at all: this page controls someone, and the shell
+    // kept a system shortcut from this computer for it (see setRemoteKeyGrab).
+    controllerShellKey(event.code, event.down);
+    return;
+  }
+  hostShellEvent(event);
+}
+
 function hostShellEvent(event: RemoteControlShellEvent) {
   if (event.type === "local") {
     hostSend(encodeSimple(T_LOCAL));
@@ -460,6 +503,21 @@ function hostShellEvent(event: RemoteControlShellEvent) {
     hostSend(encodeSimple(T_BLOCKED, BLOCKED_WHY.indexOf(event.why)));
     return;
   }
+  if (event.type === "cursor") {
+    const index = CURSORS.indexOf(event.shape as RemoteControlCursor);
+    if (!host || index < 0) return;
+    host.cursor = index;
+    hostSend(encodeSimple(T_CURSOR, index));
+    return;
+  }
+  if (event.type === "zone") {
+    const index = ZONES.indexOf(event.zone);
+    if (!host || index < 0) return;
+    host.zone = index;
+    hostSend(encodeSimple(T_ZONE, index));
+    return;
+  }
+  if (event.type !== "ended") return;
   // The shell ended it: the banner, the tray, the hotkey, the helper...
   if (!host) return;
   const reason =
@@ -516,6 +574,8 @@ function startHostSession(peerId: string, userId: string, name: string | null, k
     watchdog: setInterval(hostWatchdog, 1000),
     queue: [],
     flushScheduled: false,
+    cursor: -1,
+    zone: -1,
   };
   active.connectTimer = setTimeout(() => {
     if (host === active && !active.input) endHost("timeout");
@@ -620,9 +680,16 @@ interface ControllerSession {
   /** Keys this side pressed and has not released — let go of on blur and at the end. */
   keysDown: Set<string>;
   buttonsDown: Set<number>;
+  cursor: RemoteControlCursor;
+  zone: RemoteControlZone;
+  rtt: number | null;
+  /** The host's picture is set to play with no added delay (see setLowLatency). */
+  lowLatency: boolean;
 }
 
 let controller: ControllerSession | null = null;
+/** The surface has the keyboard and the shell was asked to grab system shortcuts. */
+let keyGrab = false;
 // Kept across a reload of this page, so a session survives one: a fresh page
 // that finds this, fresh enough, connects again without a new request — and
 // the host lets it, being the same account (see hostOnOffer).
@@ -638,9 +705,35 @@ function publishController() {
           hostName: active.hostName,
           localActive: Date.now() < active.localUntil,
           blocked: active.blocked,
+          cursor: active.cursor,
+          zone: active.zone,
+          rtt: active.rtt,
         }
       : null,
   });
+}
+
+// The room plays every screen a tenth of a second late on purpose, to ride
+// out jitter (see useRoomMedia's playoutDelayHint). Watching, nobody notices;
+// driving, it is a tenth of a second between moving the mouse and seeing it
+// move, on top of everything else. While this page drives a screen, that
+// screen plays as soon as frames arrive; back to normal when it stops.
+const WATCH_PLAYOUT_DELAY_S = 0.1;
+
+type TunableReceiver = RTCRtpReceiver & { playoutDelayHint?: number | null; jitterBufferTarget?: number | null };
+
+function setLowLatency(hostId: string, on: boolean) {
+  const entry = connectionRegistry.findRecvByOrigin("screen", hostId);
+  if (!entry) return;
+  for (const receiver of entry.pc.getReceivers() as TunableReceiver[]) {
+    if (receiver.track?.kind !== "video") continue;
+    try {
+      if ("playoutDelayHint" in receiver) receiver.playoutDelayHint = on ? 0 : WATCH_PLAYOUT_DELAY_S;
+      if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = on ? 0 : null;
+    } catch {
+      // Not supported here; the default stays.
+    }
+  }
 }
 
 function rememberController(active: ControllerSession | null) {
@@ -683,9 +776,29 @@ function controllerOnMessage(raw: unknown) {
         active.phase = "active";
         active.lostSince = 0;
         rememberController(active);
+        setLowLatency(active.hostId, true);
+        active.lowLatency = true;
         publishController();
         if (first) for (const listener of drivingListeners) listener(active.hostId);
       }
+      return;
+    case "pong": {
+      const sample = (Math.round(performance.now()) - event.stamp) >>> 0;
+      // A stamp from before a page reload, or simply nonsense: not a round trip.
+      if (sample > 60_000) return;
+      active.rtt = active.rtt === null ? sample : Math.round(active.rtt * 0.6 + sample * 0.4);
+      publishController();
+      return;
+    }
+    case "cursor":
+      if (active.cursor === event.shape) return;
+      active.cursor = event.shape;
+      publishController();
+      return;
+    case "zone":
+      if (active.zone === event.zone) return;
+      active.zone = event.zone;
+      publishController();
       return;
     case "local":
       active.localUntil = Date.now() + 1500;
@@ -815,6 +928,8 @@ function endController(reason: ControllerEndReason) {
   if (!active) return;
   releaseHeld(active);
   controller = null;
+  setRemoteKeyGrab(false);
+  if (active.lowLatency) setLowLatency(active.hostId, false);
   if (active.pingTimer) clearInterval(active.pingTimer);
   if (active.answerTimer) clearTimeout(active.answerTimer);
   if (active.reconnectTimer) clearTimeout(active.reconnectTimer);
@@ -851,9 +966,14 @@ function newController(hostId: string, hostUserId: string, hostName: string | nu
     blocked: null,
     keysDown: new Set(),
     buttonsDown: new Set(),
+    cursor: "default",
+    zone: "ok",
+    rtt: null,
+    lowLatency: false,
   };
+  // Stamped, so the host answers and the bar can show the round trip.
   active.pingTimer = setInterval(() => {
-    if (controller === active) controllerSend(encodeSimple(T_PING));
+    if (controller === active) controllerSend(encodePing(Math.round(performance.now())));
   }, PING_MS);
   controller = active;
   publishController();
@@ -980,6 +1100,44 @@ export function releaseRemoteKeys() {
   if (active) releaseHeld(active);
 }
 
+/**
+ * A whole shortcut at once — "Win+R", "Ctrl+Shift+Esc" — from the bar's menu:
+ * pressed in order, let go in reverse, the way fingers do it. The way to send
+ * what this computer would otherwise act on itself, from any browser.
+ */
+export function sendRemoteCombo(codes: string[]) {
+  const active = controller;
+  if (!active || active.phase !== "active") return;
+  for (const code of codes) sendRemoteKey(code, true);
+  for (const code of [...codes].reverse()) sendRemoteKey(code, false);
+  track(REMOTE_CONTROL_EVENTS.shortcut);
+}
+
+/** Whether this app can keep the Windows key and friends from this computer (see setRemoteKeyGrab). */
+export function canGrabRemoteKeys(): boolean {
+  return Boolean(getDesktopBridge()?.remoteControl?.grabKeys);
+}
+
+/**
+ * The surface has the keyboard (true) or lost it (false). In the Windows app
+ * that turns on the shell's grab of the system shortcuts, which then arrive
+ * through controllerShellKey instead of acting on this computer.
+ */
+export function setRemoteKeyGrab(on: boolean) {
+  const want = on && controller?.phase === "active";
+  if (want === keyGrab) return;
+  keyGrab = want;
+  getDesktopBridge()?.remoteControl?.grabKeys?.(want);
+}
+
+function controllerShellKey(code: string, down: boolean) {
+  // A release always goes through (sendRemoteKey only sends one for a key it
+  // pressed); a press only while the grab is on — after it ends, the shell
+  // can still have one in flight.
+  if (down && !keyGrab) return;
+  sendRemoteKey(code, down);
+}
+
 // ---------------------------------------------------------------------------
 // Wiring, once per room page
 
@@ -1020,11 +1178,16 @@ function wire() {
     tryResumeController();
   });
   const bridge = getDesktopBridge()?.remoteControl;
-  unsubscribeShell = bridge ? bridge.onEvent(hostShellEvent) : null;
+  unsubscribeShell = bridge ? bridge.onEvent(shellEvent) : null;
   // While a session is up its timestamp is refreshed now and then, so a
-  // reload at any point finds a fresh one (see tryResumeController).
+  // reload at any point finds a fresh one (see tryResumeController). The
+  // picture's delay is set again too: a dropped and rebuilt screen
+  // connection comes back with the room's default.
   const refresh = setInterval(() => {
-    if (controller?.phase === "active") rememberController(controller);
+    if (controller?.phase === "active") {
+      rememberController(controller);
+      setLowLatency(controller.hostId, true);
+    }
   }, 5000);
   return () => {
     clearInterval(refresh);

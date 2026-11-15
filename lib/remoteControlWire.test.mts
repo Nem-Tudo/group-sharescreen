@@ -1,73 +1,54 @@
-// "Controle remoto"'s wire format: what the controller sends is exactly what
-// the host reads, and anything malformed is refused rather than guessed at —
-// the host turns these bytes into real clicks and key presses.
+// node --experimental-strip-types lib/remoteControlWire.test.mts
+//
+// The remote control data channels between two apps of different ages. The
+// round-trip ping, the pointer's shape and the "no entry" zone were added
+// without a version bump (see remoteControlWire.ts): an old side has to keep
+// working with a new one, and that is what is checked here.
+
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "node:test";
 import {
-  T_BLOCKED,
-  T_LOCAL,
+  CURSORS,
+  T_CURSOR,
   T_PING,
+  T_ZONE,
+  ZONES,
   decode,
-  encodeButton,
-  encodeKey,
-  encodeMove,
+  encodePing,
+  encodePong,
   encodeSimple,
-  encodeWheel,
-  newer,
-} from "@/lib/remoteControlWire";
+} from "./remoteControlWire.ts";
 
-test("moves, buttons, wheel and keys round-trip", () => {
-  assert.deepEqual(decode(encodeMove(7, 0, 65535)), { t: "move", seq: 7, x: 0, y: 65535 });
-  assert.deepEqual(decode(encodeMove(70000, 1, 2)), { t: "move", seq: 70000 & 0xffff, x: 1, y: 2 });
-  assert.deepEqual(decode(encodeButton(2, true, 100, 200)), { t: "button", b: 2, d: true, x: 100, y: 200 });
-  assert.deepEqual(decode(encodeButton(0, false, 0, 0)), { t: "button", b: 0, d: false, x: 0, y: 0 });
-  assert.deepEqual(decode(encodeWheel(-120, 240)), { t: "wheel", dx: -120, dy: 240 });
-  assert.deepEqual(decode(encodeKey("KeyA", true)), { t: "key", c: "KeyA", d: true });
-  assert.deepEqual(decode(encodeKey("ArrowLeft", false)), { t: "key", c: "ArrowLeft", d: false });
-  assert.deepEqual(decode(encodeSimple(T_PING)), { t: "ping" });
-  assert.deepEqual(decode(encodeSimple(T_LOCAL)), { t: "local" });
-  assert.deepEqual(decode(encodeSimple(T_BLOCKED, 1)), { t: "blocked", why: "covered" });
+test("a stamped ping carries its stamp, and a pong echoes it across the u32 range", () => {
+  assert.deepEqual(decode(encodePing(123_456)), { t: "ping", stamp: 123_456 });
+  assert.deepEqual(decode(encodePong(0xffffffff)), { t: "pong", stamp: 0xffffffff });
+  // performance.now() past 2^32 ms wraps rather than breaking the encoding.
+  assert.deepEqual(decode(encodePing(2 ** 32 + 5)), { t: "ping", stamp: 5 });
 });
 
-test("the wheel is clamped to what the helper accepts", () => {
-  assert.deepEqual(decode(encodeWheel(-99999, 99999)), { t: "wheel", dx: -1200, dy: 1200 });
+test("an old controller's bare ping is still a ping, just without a stamp to answer", () => {
+  assert.deepEqual(decode(encodeSimple(T_PING)), { t: "ping", stamp: null });
 });
 
-test("key codes outside plain letters and digits are never encoded", () => {
-  assert.equal(encodeKey("", true), null);
-  assert.equal(encodeKey("Key A", true), null);
-  assert.equal(encodeKey("Ação", true), null);
-  assert.equal(encodeKey("x".repeat(33), true), null);
+test("pointer shapes and zones decode by index, and anything out of range is ignored", () => {
+  CURSORS.forEach((shape, index) => {
+    assert.deepEqual(decode(encodeSimple(T_CURSOR, index)), { t: "cursor", shape });
+  });
+  ZONES.forEach((zone, index) => {
+    assert.deepEqual(decode(encodeSimple(T_ZONE, index)), { t: "zone", zone });
+  });
+  assert.equal(decode(encodeSimple(T_CURSOR, CURSORS.length)), null);
+  assert.equal(decode(encodeSimple(T_ZONE, 200)), null);
+  // Without the byte that says which: not a message.
+  assert.equal(decode(encodeSimple(T_CURSOR)), null);
 });
 
-test("malformed or foreign messages decode to nothing", () => {
-  assert.equal(decode("hello"), null);
-  assert.equal(decode(new ArrayBuffer(0)), null);
-  assert.equal(decode(new ArrayBuffer(100)), null);
-  // Another version.
-  const future = new Uint8Array(encodeMove(1, 1, 1));
-  future[0] = 2;
-  assert.equal(decode(future.buffer), null);
-  // A move one byte short.
-  assert.equal(decode(encodeMove(1, 1, 1).slice(0, 7)), null);
-  // A button beyond the five there are.
-  const button = new Uint8Array(encodeButton(0, true, 1, 1));
-  button[2] = 9;
-  assert.equal(decode(button.buffer), null);
-  // A key whose stated length does not match.
-  const key = new Uint8Array(encodeKey("KeyA", true)!);
-  key[3] = 9;
-  assert.equal(decode(key.buffer), null);
-  // A blocked reason that does not exist.
-  assert.equal(decode(encodeSimple(T_BLOCKED, 7)), null);
-  // An unknown type.
-  assert.equal(decode(encodeSimple(99)), null);
-});
-
-test("sequence numbers compare across the wrap", () => {
-  assert.equal(newer(2, 1), true);
-  assert.equal(newer(1, 2), false);
-  assert.equal(newer(5, 5), false);
-  assert.equal(newer(0, 65535), true);
-  assert.equal(newer(65535, 0), false);
+test("the shapes stay in the shell's order", async () => {
+  // electron/channels.ts keeps its own copy (the shell is built separately);
+  // an index means the same shape on both sides only while the lists match.
+  const { readFile } = await import("node:fs/promises");
+  const channels = await readFile(new URL("../electron/channels.ts", import.meta.url), "utf8");
+  const block = /REMOTE_CONTROL_CURSORS = \[([\s\S]*?)\] as const/.exec(channels)?.[1] ?? "";
+  const shell = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(shell, [...CURSORS]);
 });

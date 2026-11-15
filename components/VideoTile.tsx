@@ -57,7 +57,7 @@ import { registerTileCommands } from "@/lib/tileCommands";
 import { ConnectionStatsOverlay } from "@/components/ConnectionStatsOverlay";
 import { OwnStreamStatsOverlay } from "@/components/OwnStreamStatsOverlay";
 import { TurnUpsellTileMessage } from "@/components/TurnUpsellNotice";
-import { RemoteControlTileButton, RemoteControlTileLayer } from "@/components/RemoteControlTile";
+import { RemoteControlTileButton, RemoteControlTileLayer, useRemoteDriving } from "@/components/RemoteControlTile";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
 import { VolumeSlider } from "@/components/VolumeSlider";
 import { Tooltip, Popover } from "@/components/Tooltip";
@@ -1002,7 +1002,15 @@ const VideoTileView = memo(function VideoTileView({
   // mouse is doing: the panel is portaled onto <body>, so walking the pointer
   // over to it leaves the tile, and a button that vanishes under the panel it
   // opened is a button nobody can click twice.
-  const overlayVisibilityClass = orientationOpen
+  // While this page drives the computer behind this tile, the picture is
+  // theirs edge to edge: the tile's own buttons, the name bar and the
+  // transport would sit on top of their window's close button, their tabs,
+  // their taskbar. The remote control bar has everything needed meanwhile.
+  const remoteDriving = useRemoteDriving(remoteControlPeerId);
+  // `invisible` rather than `hidden`: these elements carry `flex` already.
+  const overlayVisibilityClass = remoteDriving
+    ? "invisible pointer-events-none"
+    : orientationOpen
     ? "opacity-100 pointer-events-auto"
     : `${touchHiddenInFullscreen ? "opacity-0 pointer-events-none" : "opacity-100"
     } ${mouseVisibilityClass}`;
@@ -1077,7 +1085,14 @@ const VideoTileView = memo(function VideoTileView({
         }`}
       />
       {mediaKey && <AnnotationLayer annotationKey={mediaKey} videoRef={videoRef} focused={isSpotlighted || isHyperfocused || isFullscreen} />}
-      {remoteControlPeerId && <RemoteControlTileLayer peerId={remoteControlPeerId} videoRef={videoRef} />}
+      {remoteControlPeerId && (
+        <RemoteControlTileLayer
+          peerId={remoteControlPeerId}
+          videoRef={videoRef}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={() => void toggleFullscreen()}
+        />
+      )}
       {mediaKey && <ReactionFloats mediaKey={mediaKey} />}
       {isVideoLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">

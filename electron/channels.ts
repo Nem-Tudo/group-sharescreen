@@ -317,6 +317,13 @@ export const IPC = {
   remoteControlPause: "golive:remote-control:pause",
   /** renderer -> main: the session is over. */
   remoteControlStop: "golive:remote-control:stop",
+  /**
+   * renderer -> main: this page is *controlling* someone else's computer and
+   * its surface has the keyboard (true), or no longer (false). While true and
+   * GoLive is in front, the Windows key, Alt+Tab and the like are kept from
+   * this computer and come back as RemoteControlEvent "key".
+   */
+  remoteControlGrab: "golive:remote-control:grab",
   /** main -> renderer: RemoteControlEvent. */
   remoteControlEvent: "golive:remote-control:event",
   /** consent/banner window -> main (invoke): what to show. */
@@ -732,7 +739,35 @@ export type RemoteControlEvent =
   /** The person at the computer moved the mouse or typed; remote input paused for a moment. */
   | { type: "local" }
   /** A click or key was dropped, and why. */
-  | { type: "blocked"; why: "golive" | "covered" | "elevated" };
+  | { type: "blocked"; why: "golive" | "covered" | "elevated" }
+  /** What is under the pointer now — "ok", or why a click there would be dropped. */
+  | { type: "zone"; zone: RemoteControlZone }
+  /** The pointer's shape changed, as a CSS cursor name (REMOTE_CONTROL_CURSORS). */
+  | { type: "cursor"; shape: RemoteControlCursor }
+  /** Controlling side: a system shortcut key kept from this computer (see IPC.remoteControlGrab). */
+  | { type: "key"; code: string; down: boolean };
+
+export const REMOTE_CONTROL_ZONES = ["ok", "golive", "covered", "elevated"] as const;
+export type RemoteControlZone = (typeof REMOTE_CONTROL_ZONES)[number];
+
+/** The pointer shapes golive-input reports — the same list, in the same order, as lib/remoteControlWire's CURSORS. */
+export const REMOTE_CONTROL_CURSORS = [
+  "default",
+  "text",
+  "pointer",
+  "wait",
+  "progress",
+  "crosshair",
+  "ew-resize",
+  "ns-resize",
+  "nwse-resize",
+  "nesw-resize",
+  "move",
+  "not-allowed",
+  "help",
+  "none",
+] as const;
+export type RemoteControlCursor = (typeof REMOTE_CONTROL_CURSORS)[number];
 
 /** What the consent window and the banner draw from. */
 export interface RemoteControlWindowData {
