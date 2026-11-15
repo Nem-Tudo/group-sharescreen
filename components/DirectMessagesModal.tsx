@@ -408,6 +408,8 @@ type BubbleHandlers = {
   mediaLoad: () => void;
   menu: (event: ReactMouseEvent, bubble: Bubble) => void;
   jump: (messageId: string) => void;
+  /** A click on an author's name or face: their profile, or with Shift an @mention in the box. */
+  person: (event: ReactMouseEvent, author: Author) => void;
 };
 
 /** Everything a bubble needs, whether delivered or still on its way. */
@@ -532,6 +534,7 @@ const MessageBubble = memo(function MessageBubble({
   onMediaLoad,
   onMenu,
   onJump,
+  onPerson,
   flash,
 }: {
   bubble: Bubble;
@@ -560,6 +563,8 @@ const MessageBubble = memo(function MessageBubble({
   onMenu: (event: ReactMouseEvent, bubble: Bubble) => void;
   /** Goes to the message this one answers — see the quote above. */
   onJump: (messageId: string) => void;
+  /** The author's name or face clicked: profile, or Shift for an @mention. */
+  onPerson: (event: ReactMouseEvent, author: Author) => void;
   /** Lit for a moment after being jumped to, so the eye finds it. */
   flash: boolean;
 }) {
@@ -834,8 +839,15 @@ const MessageBubble = memo(function MessageBubble({
         {!grouped && author && (
           <div className="flex items-center justify-between gap-1.5">
             <span className="flex min-w-0 items-center gap-1.5">
-              <UserAvatar src={author.avatarUrl} name={author.name} size={20} userId={author.id} />
-              <span className="flex min-w-0 items-baseline gap-1.5">
+              {/* The author, as a way to their profile — the same thing a
+                  name does in a group's text room (Shift+click mentions). */}
+              <button
+                type="button"
+                onClick={(e) => onPerson(e, author)}
+                title={t("directMessagesModal.authorHint")}
+                className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left hover:underline"
+              >
+                <UserAvatar src={author.avatarUrl} name={author.name} size={20} userId={author.id} />
                 <DisplayUserName
                   name={author.name}
                   verified={verifiedBadge(author.flags)}
@@ -843,6 +855,8 @@ const MessageBubble = memo(function MessageBubble({
                   color={author.nameColor}
                   className="min-w-0 truncate font-medium text-zinc-700 dark:text-zinc-300"
                 />
+              </button>
+              <span className="flex min-w-0 items-baseline gap-1.5">
                 <span className="flex shrink-0 items-center gap-1 text-xs tabular-nums text-zinc-400 dark:text-zinc-600">
                   {status === "sending" && <MdSchedule className="h-3 w-3" aria-label={t("directMessagesModal.sending")} />}
                   {timeLabel(bubble.ts)}
@@ -1777,6 +1791,27 @@ export function DirectMessagesModal({
       mediaLoad: handleMediaLoad,
       menu: messageMenu,
       jump: (messageId) => void jumpToMessage(messageId),
+      person: (event, author) => {
+        // The same gestures as a name in a group: Shift writes @name into the
+        // message being written, a plain click opens the profile.
+        const box = composerRef.current;
+        if (event.shiftKey && activeId && box && !box.disabled) {
+          event.preventDefault();
+          const start = box.selectionStart ?? boxText.length;
+          const end = box.selectionEnd ?? start;
+          const before = boxText.slice(0, start);
+          const insert = `${before && !/\s$/.test(before) ? " " : ""}@${author.name} `;
+          const next = (before + insert + boxText.slice(end)).slice(0, MAX_LENGTH);
+          setBoxText(activeId, next);
+          const caret = Math.min(before.length + insert.length, next.length);
+          requestAnimationFrame(() => {
+            box.focus();
+            box.setSelectionRange(caret, caret);
+          });
+          return;
+        }
+        setProfileId(author.id);
+      },
     };
   });
   const [bubbleHandlers] = useState<BubbleHandlers>(() => ({
@@ -1790,6 +1825,7 @@ export function DirectMessagesModal({
     mediaLoad: () => handlersRef.current?.mediaLoad(),
     menu: (event, bubble) => handlersRef.current?.menu(event, bubble),
     jump: (messageId) => handlersRef.current?.jump(messageId),
+    person: (event, author) => handlersRef.current?.person(event, author),
   }));
 
   const otherName = active?.displayName ?? t("common.someone");
@@ -1880,6 +1916,7 @@ export function DirectMessagesModal({
           onMediaLoad={bubbleHandlers.mediaLoad}
           onMenu={bubbleHandlers.menu}
           onJump={bubbleHandlers.jump}
+          onPerson={bubbleHandlers.person}
           flash={Boolean(bubble.messageId) && bubble.messageId === flashId}
         />
       );

@@ -1773,6 +1773,7 @@
   "directMessagesModal.readReceiptsHint": "Shows when you have seen a message. Turned off, you won't see when others read yours either.",
   "directMessagesModal.sayHiTo": "Say hi to",
   "directMessagesModal.seen": "Seen",
+  "directMessagesModal.authorHint": "View profile · Shift+click to mention",
   "directMessagesModal.sendEnter": "Send (Enter)",
   "directMessagesModal.sending": "Sending",
   "directMessagesModal.settings": "Message settings",

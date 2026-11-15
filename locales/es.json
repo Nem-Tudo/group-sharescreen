@@ -1773,6 +1773,7 @@
   "directMessagesModal.readReceiptsHint": "Muestra cuándo viste un mensaje. Desactivado, tampoco verás cuándo leen los tuyos.",
   "directMessagesModal.sayHiTo": "Dile hola a",
   "directMessagesModal.seen": "Visto",
+  "directMessagesModal.authorHint": "Ver perfil · Shift+clic para mencionar",
   "directMessagesModal.sendEnter": "Enviar (Enter)",
   "directMessagesModal.sending": "Enviando",
   "directMessagesModal.settings": "Ajustes de mensajes",
