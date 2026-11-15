@@ -5987,6 +5987,7 @@
   "remoteControl.dock.needsUpdate": "Remote control: update the Go Live app to use it (close and reopen it, or use the green update button)",
   "remoteControl.dock.needsAccount": "Remote control: sign in to use it",
   "remoteControl.allowDialog.title": "Turn on remote control?",
+  "remoteControl.allowDialog.likeAnyDesk": "Like AnyDesk or Parsec, right inside the Go Live room.",
   "remoteControl.allowDialog.request": "People in the room will be able to ask to use the mouse and keyboard of the screen you share. Only ask.",
   "remoteControl.allowDialog.consent": "Each request shows up in a Go Live window, with the name and @username of who asked. There you choose what to allow (mouse, keyboard, copy and paste...) and it only starts if you click Allow.",
   "remoteControl.allowDialog.stop": "Stop whenever you want: Ctrl+Alt+Esc, the Stop button or this button. If you move your mouse, you take priority.",

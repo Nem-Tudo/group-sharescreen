@@ -887,20 +887,15 @@ function AllowRemoteControlDialog({
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
             <MdMouse className="h-5 w-5" />
           </span>
-          <h2 id="rc-allow-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            {t("remoteControl.allowDialog.title")}
-          </h2>
-        </div>
-        <RemoteControlDemo />
-        {/* The one thing to take away, before the details: turning this on
-            lets people *ask*. Nobody gets in without a "Permitir", each time. */}
-        <div className="mt-4 flex gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-50 p-3 text-sm dark:bg-emerald-500/10">
-          <MdVerifiedUser className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-          <div>
-            <p className="font-semibold text-emerald-900 dark:text-emerald-200">{t("remoteControl.allowDialog.safeTitle")}</p>
-            <p className="text-emerald-800/90 dark:text-emerald-200/80">{t("remoteControl.allowDialog.safeText")}</p>
+          <div className="min-w-0">
+            <h2 id="rc-allow-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              {t("remoteControl.allowDialog.title")}
+            </h2>
+            {/* What it is like, by a name people already know. */}
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("remoteControl.allowDialog.likeAnyDesk")}</p>
           </div>
         </div>
+        <RemoteControlDemo />
         <ul className="mt-4 flex flex-col gap-2.5 text-sm text-zinc-700 dark:text-zinc-300">
           {points.map((point) => (
             <li key={point} className="flex gap-2">
@@ -917,6 +912,16 @@ function AllowRemoteControlDialog({
             <p>{t(`remoteControl.allowDialog.blocked.${block}`)}</p>
           </div>
         )}
+        {/* The one thing to take away, last, right above the buttons: turning
+            this on lets people *ask*. Nobody gets in without a "Permitir",
+            each time. */}
+        <div className="mt-4 flex gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-50 p-3 text-sm dark:bg-emerald-500/10">
+          <MdVerifiedUser className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div>
+            <p className="font-semibold text-emerald-900 dark:text-emerald-200">{t("remoteControl.allowDialog.safeTitle")}</p>
+            <p className="text-emerald-800/90 dark:text-emerald-200/80">{t("remoteControl.allowDialog.safeText")}</p>
+          </div>
+        </div>
         <div className="mt-5 flex gap-2">
           <button
             type="button"
