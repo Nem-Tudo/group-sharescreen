@@ -5969,5 +5969,12 @@
   "remoteControl.notice.end.unavailable": "Couldn't control {name}'s computer",
   "remoteControl.notice.end.host": "{name} ended remote control",
   "remoteControl.notice.end.lost": "The remote control connection dropped",
-  "remoteControl.notice.offer.declined": "{name} didn't take control"
+  "remoteControl.notice.offer.declined": "{name} didn't take control",
+  "shareSuggestions.title": "Send to",
+  "shareSuggestions.search": "Search friends",
+  "shareSuggestions.nobody": "No one by that name",
+  "shareSuggestions.send": "Send",
+  "shareSuggestions.sent": "Sent",
+  "shareSuggestions.sendTo": "Send the room link to {displayName}",
+  "shareSuggestions.message": "Join my room on GoLive: {url}"
 }

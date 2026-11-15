@@ -167,6 +167,11 @@ import { MobileQualitySheet, type MobileQualityChoice } from "@/components/Mobil
 import { openAndroidAppSettings } from "@/lib/androidScreenCapture";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { InviteToRoomModal } from "@/components/InviteToRoomModal";
+import {
+  SHARE_SUGGESTIONS_EVENTS,
+  SHARE_SUGGESTIONS_FEATURE,
+  ShareSuggestions,
+} from "@/components/ShareSuggestions";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { FAST_JOIN_CHECK_FEATURE } from "@/lib/captchaPass";
 import { RoomAccountCard } from "@/components/RoomAccountCard";
@@ -2308,6 +2313,14 @@ function WatchRoomView({
   const [renameInput, setRenameInput] = useState("");
   const [qualityOpen, setQualityOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  // "Enviar para…" under the share button (experiment share-suggestions):
+  // where it opened from, or null when closed. Accounts only — a guest has
+  // no conversations or friends to suggest. Exposure is everyone who can see
+  // a share button, so both sides compare on the same `share_click`.
+  const shareSuggestionsOn = useFeature(SHARE_SUGGESTIONS_FEATURE, {
+    track: Boolean(account) && !group && !callLayout,
+  }).enabled && Boolean(account);
+  const [shareSuggestions, setShareSuggestions] = useState<{ anchor: DOMRect | null } | null>(null);
   const {
     mics: micDevices,
     speakers: speakerDevices,
@@ -3202,7 +3215,9 @@ function WatchRoomView({
     setShareQualityOpen(false);
   }
 
-  async function handleCopyLink() {
+  async function handleCopyLink(event?: { currentTarget: Element }) {
+    // Read now: React lets go of currentTarget once this awaits.
+    const anchor = event?.currentTarget?.getBoundingClientRect() ?? null;
     // copyText, not navigator.clipboard directly: the desktop shell denies
     // the clipboard permission on builds already installed out there, and
     // the fallback inside copyText is what keeps this button working for
@@ -3213,6 +3228,10 @@ function WatchRoomView({
     }
     trackEvent("room_link_copied");
     trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.linkShare);
+    if (account && !group && !callLayout) {
+      trackFeatureEvent(SHARE_SUGGESTIONS_EVENTS.click, { feature: SHARE_SUGGESTIONS_FEATURE });
+    }
+    if (shareSuggestionsOn && !group && !callLayout) setShareSuggestions({ anchor });
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2000);
   }
@@ -9911,6 +9930,21 @@ function WatchRoomView({
       {/* Asked at the moment a phone starts transmitting, and nowhere else —
           see MobileQualitySheet for why this is a question rather than a
           setting on this one platform. */}
+      {shareSuggestions && (
+        <ShareSuggestions
+          url={window.location.href}
+          anchor={shareSuggestions.anchor}
+          presentUserIds={
+            new Set(
+              [...visiblePeers.map((peer) => peer.userId), account?.id].filter(
+                (id): id is string => Boolean(id)
+              )
+            )
+          }
+          onClose={() => setShareSuggestions(null)}
+        />
+      )}
+
       {inviting && (
         <InviteToRoomModal
           roomHandle={handle}

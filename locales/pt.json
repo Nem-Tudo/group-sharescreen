@@ -5969,5 +5969,12 @@
   "remoteControl.notice.end.unavailable": "Não deu para controlar o computador de {name}",
   "remoteControl.notice.end.host": "{name} encerrou o controle remoto",
   "remoteControl.notice.end.lost": "A conexão do controle remoto caiu",
-  "remoteControl.notice.offer.declined": "{name} não assumiu o controle"
+  "remoteControl.notice.offer.declined": "{name} não assumiu o controle",
+  "shareSuggestions.title": "Enviar para",
+  "shareSuggestions.search": "Procurar amigos",
+  "shareSuggestions.nobody": "Ninguém com esse nome",
+  "shareSuggestions.send": "Enviar",
+  "shareSuggestions.sent": "Enviado",
+  "shareSuggestions.sendTo": "Enviar o link da sala para {displayName}",
+  "shareSuggestions.message": "Vem pra minha sala no GoLive: {url}"
 }
