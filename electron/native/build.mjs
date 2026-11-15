@@ -236,6 +236,26 @@ for (const helper of HELPERS) {
 }
 if (pending.length === 0) process.exit(0);
 
+// Stale here, outside CI, and nobody asked for a build: say so and leave the
+// committed binaries alone. bin/ has one writer, the CI job above, which
+// commits a fresh build whenever a helper's sources change. A machine that
+// also has MSVC used to rebuild into bin/ on every `electron:build` — MSVC's
+// output is not byte-identical from one build to the next — and the release
+// script then committed that copy alongside the CI's, which ended every
+// release after a C++ change in a binary merge conflict. Releases are not
+// affected: release-desktop.yml compiles from source with --force on its own
+// runner. To try a C++ change locally, run with --force (and do not commit
+// what it writes to bin/).
+const onCi = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
+if (!force && !onCi) {
+  for (const helper of pending) {
+    console.log(
+      `[native] ${helper.name}.exe is behind its sources — CI rebuilds and commits it; pull once it lands (or run with --force to build it here)`
+    );
+  }
+  process.exit(0);
+}
+
 // vswhere ships with every Visual Studio 2017+ installer at a fixed path,
 // which makes it the only supported way to find an installation — the
 // registry keys and %VS...COMNTOOLS% variables it replaced are gone.
