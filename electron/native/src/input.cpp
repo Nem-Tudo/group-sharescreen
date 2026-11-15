@@ -17,7 +17,7 @@
 //
 // Usage
 // -----
-//   golive-input (--monitor <x> <y> | --window <hwnd>) --protect-pid <pid>
+//   golive-input (--monitor <x> <y> | --window <hwnd>) --protect-pid <pid> [--allow-app]
 //   golive-input --grab-keys --protect-pid <pid>
 //
 //   --monitor x y     the shared monitor, named by a point inside it, in
@@ -25,6 +25,10 @@
 //                     takes, worked out by the same code in the shell)
 //   --window hwnd     the shared window
 //   --protect-pid pid GoLive's own main process — see "What can't be touched"
+//   --allow-app       GoLive's ordinary windows may be clicked and typed into
+//                     too: the person at the computer ticked that in the
+//                     prompt. Its always-on-top windows (the prompt itself,
+//                     the "Parar" banner, a ringing call) stay out of reach.
 //   --grab-keys       the other side: the computer of the person *controlling*.
 //                     See "Grabbing the system shortcuts" below.
 //
@@ -144,6 +148,9 @@ struct Options {
   HWND window = nullptr;
   DWORD protectPid = 0;
   bool grabKeys = false;
+  // GoLive's own windows may be clicked too — the person ticked "também o Go
+  // Live" in the prompt. Its always-on-top ones never (see AlwaysOnTop).
+  bool allowApp = false;
 };
 
 static bool ParseLong(const wchar_t* text, long long& out) {
@@ -172,6 +179,8 @@ static bool ParseArgs(int argc, wchar_t** argv, Options& options) {
       i += 1;
     } else if (arg == L"--grab-keys") {
       options.grabKeys = true;
+    } else if (arg == L"--allow-app") {
+      options.allowApp = true;
     } else {
       return false;
     }
@@ -456,8 +465,24 @@ static bool ProcessAbove(DWORD pid) {
 enum Zone { ZONE_OK = 0, ZONE_GOLIVE, ZONE_COVERED, ZONE_ELEVATED, ZONE_COUNT };
 static const char* const kZoneLines[ZONE_COUNT] = {"ZONE ok", "ZONE golive", "ZONE covered", "ZONE elevated"};
 
-static Zone ZoneOf(DWORD pid) {
-  if (pid == g_options.protectPid) return ZONE_GOLIVE;
+// GoLive's always-on-top windows: the consent prompt, the "Parar" banner, the
+// ringing call, the tray menu. Out of reach even with --allow-app — they are
+// how the person at the computer says yes and stops, and nobody else may
+// press them.
+static bool AlwaysOnTop(HWND window) {
+  HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
+  if (!root) return false;
+  return (GetWindowLongPtrW(root, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+}
+
+static Zone ZoneOf(HWND window) {
+  const DWORD pid = OwnerPid(window);
+  if (pid == g_options.protectPid) {
+    // GoLive itself only when the person said so in the prompt (--allow-app),
+    // and even then never its always-on-top windows.
+    if (!g_options.allowApp || AlwaysOnTop(window)) return ZONE_GOLIVE;
+    return ZONE_OK;
+  }
   // A window share's picture is that window alone, even where something else
   // is on top of it on the real desktop. A click there would land on the
   // thing on top — which the person clicking cannot see.
@@ -466,7 +491,7 @@ static Zone ZoneOf(DWORD pid) {
   return ZONE_OK;
 }
 
-static Zone ZoneAt(POINT point) { return ZoneOf(OwnerPid(WindowFromPoint(point))); }
+static Zone ZoneAt(POINT point) { return ZoneOf(WindowFromPoint(point)); }
 
 static bool Allowed(Zone zone) {
   switch (zone) {
@@ -483,7 +508,7 @@ static bool PointAllowed(POINT point) { return Allowed(ZoneAt(point)); }
 // Whether keys may go to whatever has the focus right now. Typing into an
 // application that is not the one being shared would be typing somewhere the
 // other person cannot see.
-static bool KeysAllowed() { return Allowed(ZoneOf(OwnerPid(GetForegroundWindow()))); }
+static bool KeysAllowed() { return Allowed(ZoneOf(GetForegroundWindow())); }
 
 // The zone under the pointer, told to the shell when it changes.
 static int g_zoneShown = -1;

@@ -890,7 +890,14 @@ export function RemoteControlPrompt() {
         </div>
       ) : shownNotice ? (
         <div className="pointer-events-auto rounded-full bg-zinc-900/95 px-4 py-2 text-sm text-white shadow-xl">
-          {t(`remoteControl.notice.${shownNotice.key}`, { name: shownNotice.name ?? "?" })}
+          {t(`remoteControl.notice.${shownNotice.key}`, {
+            name: shownNotice.name ?? "?",
+            // "Espere 30 s" / "Espere 4 min" — see the server's remoteControlKnock.
+            time:
+              (shownNotice.seconds ?? 0) < 60
+                ? `${shownNotice.seconds ?? 0} s`
+                : `${Math.ceil((shownNotice.seconds ?? 0) / 60)} min`,
+          })}
         </div>
       ) : null}
     </div>

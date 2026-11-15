@@ -15,6 +15,65 @@ import { UserAvatar } from "./UserAvatar";
 import { VolumeSlider } from "./VolumeSlider";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { useT } from "@/lib/useI18n";
+import {
+  REMOTE_CONTROL_EVENTS,
+  blockRemoteControl,
+  trackRemoteControlEvent,
+  unblockRemoteControl,
+  useRemoteControlBlocked,
+} from "@/lib/remoteControl";
+
+/**
+ * "Bloquear pedidos de controle" for an hour or for good, or "Desbloquear" —
+ * the same blocks the consent window's "Bloquear" makes. Their requests are
+ * then answered as if the switch were off, and nobody is asked.
+ */
+function RemoteControlBlockRows({
+  target,
+  className,
+  iconClassName,
+  onDone,
+}: {
+  target: { userId: string; name: string | null };
+  className: string;
+  iconClassName: string;
+  onDone: () => void;
+}) {
+  const t = useT();
+  const blocked = useRemoteControlBlocked(target.userId);
+  if (blocked) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          unblockRemoteControl(target.userId);
+          onDone();
+        }}
+        className={className}
+      >
+        <MdMouse className={iconClassName} />
+        {t("remoteControl.unblock")}
+      </button>
+    );
+  }
+  const block = (length: "hour" | "forever") => {
+    blockRemoteControl(target.userId, target.name, length);
+    trackRemoteControlEvent(REMOTE_CONTROL_EVENTS.block);
+    onDone();
+  };
+  return (
+    <>
+      <button type="button" onClick={() => block("hour")} className={className}>
+        <MdBlock className={iconClassName} />
+        {t("remoteControl.blockHour")}
+      </button>
+      <button type="button" onClick={() => block("forever")} className={className}>
+        <MdBlock className={iconClassName} />
+        {t("remoteControl.blockForever")}
+      </button>
+    </>
+  );
+}
 
 // Same look as the group's member menu (see GroupMemberActions.tsx) — one
 // person opens one kind of menu, wherever they're found, so it never reads as
@@ -77,6 +136,9 @@ export type MemberActions = {
   // viewer shares their screen from the app and the remote control
   // experiment is on. The shell asks again in a window of its own.
   onGiveRemoteControl?: () => void;
+  // "Bloquear pedidos de controle" (see lib/remoteControl's blocks): only on
+  // a computer that can be controlled, about somebody with an account.
+  remoteControlBlock?: { userId: string; name: string | null };
   // This listener's own dial for them — never sent anywhere, just how loud
   // they play locally. Omitted where there is no audio to turn down (your own
   // row, or a peer this client isn't receiving audio from).
@@ -130,6 +192,7 @@ export function MemberActionsMenu({
     onOpenProfile,
     onSendMessage,
     onGiveRemoteControl,
+    remoteControlBlock,
     volume,
     muted,
     onVolumeChange,
@@ -230,6 +293,14 @@ export function MemberActionsMenu({
             <MdMouse className={menuIcon} />
             {t("remoteControl.give")}
           </button>
+        )}
+        {remoteControlBlock && (
+          <RemoteControlBlockRows
+            target={remoteControlBlock}
+            className={menuItem}
+            iconClassName={menuIcon}
+            onDone={onDone}
+          />
         )}
 
         {onVolumeChange && (

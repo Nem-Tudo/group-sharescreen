@@ -412,7 +412,12 @@ export interface DesktopBridge {
 /** The shell's answer to a remote control request — see electron/channels.ts. */
 export type RemoteControlConsent =
   | { ok: true }
-  | { ok: false; reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed" };
+  | {
+      ok: false;
+      reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed";
+      /** "Bloquear" in the prompt: this person may not ask again for an hour, or ever. */
+      block?: "hour" | "forever";
+    };
 
 /** One input event for golive-input — see electron/channels.ts's RemoteControlInput. */
 export type RemoteControlInputEvent =

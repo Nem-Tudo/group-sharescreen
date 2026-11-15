@@ -269,6 +269,11 @@ export function usePinchZoom({
     function onPointerDown(event: PointerEvent) {
       if (event.pointerType !== "mouse" || event.button !== 0) return;
       if (transformRef.current.scale <= 1) return;
+      // Keeps the press from starting a text selection or a native drag (of
+      // the video, or of whatever text was left selected on the page) — either
+      // one takes the pointer away from the pan. `click` and `dblclick` still
+      // fire, so a plain click on the picture behaves as before.
+      event.preventDefault();
       gestureRef.current = false;
       pan = {
         pointerX: event.clientX,
@@ -301,11 +306,22 @@ export function usePinchZoom({
       pointerId = null;
     }
 
+    // The browser's own drag-and-drop. Pressing on the picture and moving can
+    // start a native drag of the <video> before our pan has captured the
+    // pointer (that only happens past the slop): the page then shows the
+    // "not allowed" cursor, fires pointercancel and the pan dies mid-drag.
+    // Nobody drags a live video anywhere, so it is refused outright.
+    function onDragStart(event: DragEvent) {
+      event.preventDefault();
+    }
+
+    video.addEventListener("dragstart", onDragStart);
     video.addEventListener("pointerdown", onPointerDown);
     video.addEventListener("pointermove", onPointerMove);
     video.addEventListener("pointerup", onPointerUp);
     video.addEventListener("pointercancel", onPointerUp);
     return () => {
+      video.removeEventListener("dragstart", onDragStart);
       video.removeEventListener("pointerdown", onPointerDown);
       video.removeEventListener("pointermove", onPointerMove);
       video.removeEventListener("pointerup", onPointerUp);

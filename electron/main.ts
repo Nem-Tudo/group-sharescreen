@@ -1198,6 +1198,23 @@ function createWindow(initialUrl: string = APP_URL) {
   // Same rule for in-place navigation. Anything that is not our own origin
   // leaves the app rather than replacing the UI inside it — without this, a
   // single stray link turns the shell into an uncontrolled browser.
+  // A redirect from our own server to somewhere else — /github, /stats and
+  // /blog are exactly that (see next.config.ts) — does not fire will-navigate,
+  // and used to load the other site *inside* the app, with the whole desktop
+  // bridge in reach of its scripts. Same rule as below: it leaves the app.
+  mainWindow.webContents.on("will-redirect", (event, url, _isInPlace, isMainFrame) => {
+    if (!isMainFrame) return;
+    let origin = "";
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      // Not a URL anything should load; refused below.
+    }
+    if (origin === APP_ORIGIN) return;
+    event.preventDefault();
+    if (/^https?:$/.test(safeProtocol(url))) void shell.openExternal(url);
+  });
+
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (new URL(url).origin === APP_ORIGIN) return;
     event.preventDefault();
@@ -2396,8 +2413,17 @@ if (!gotLock) {
     screenPen.registerIpc((sender) => Boolean(mainWindow && sender === mainWindow.webContents));
 
     // "Controle remoto" — see remoteControl.ts. Only the main window's page
-    // may ask, and only the shell's own window can say yes.
-    remoteControl.registerIpc((sender) => Boolean(mainWindow && sender === mainWindow.webContents));
+    // may ask, and only the shell's own window can say yes. The page has to
+    // be ours, too, not merely the window: a page from anywhere else that
+    // ended up in it (see will-redirect above) gets nothing out of this.
+    remoteControl.registerIpc((sender) => {
+      if (!mainWindow || sender !== mainWindow.webContents) return false;
+      try {
+        return new URL(sender.getURL()).origin === APP_ORIGIN;
+      } catch {
+        return false;
+      }
+    });
 
     ipcMain.on(IPC.pushToTalkSet, (_event, accelerator) => {
       // Released first, and unconditionally: a page that reloaded while the

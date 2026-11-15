@@ -94,7 +94,97 @@ export const REMOTE_CONTROL_EVENTS = {
   shortcut: "rc_shortcut", // a Windows shortcut sent from the bar's menu
   fullscreen: "rc_fullscreen", // the bar's fullscreen button
   dockClick: "rc_dock_click", // the button in the room's bottom bar
+  block: "rc_block", // "Bloquear" in the prompt or the member menu
 } as const;
+
+// ---------------------------------------------------------------------------
+// Blocks: people this person does not take requests from, for an hour or for
+// good. Kept on this computer (the one that would be controlled), per
+// account. A blocked request is answered "closed" without asking anybody —
+// the same answer as a switch that is off, so the block is never announced.
+
+const BLOCKS_KEY = "golive:remoteControl:blocks";
+const BLOCK_HOUR_MS = 60 * 60_000;
+
+/** userId -> when the block ends (0: never), and the name it had. */
+type Blocks = Record<string, { until: number; name: string | null }>;
+
+const blockListeners = new Set<() => void>();
+// Bumped on every change, so the hook below re-reads.
+let blocksVersion = 0;
+
+function blocksOwner(): string {
+  return signalingClient.state.selfUserId ?? "";
+}
+
+function readAllBlocks(): Record<string, Blocks> {
+  try {
+    const all = JSON.parse(window.localStorage.getItem(BLOCKS_KEY) ?? "{}") as unknown;
+    return all && typeof all === "object" ? (all as Record<string, Blocks>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function readBlocks(): Blocks {
+  const mine = readAllBlocks()[blocksOwner()];
+  return mine && typeof mine === "object" ? mine : {};
+}
+
+function writeBlocks(blocks: Blocks) {
+  const all = readAllBlocks();
+  // Expired hour-long ones go whenever anything is written.
+  const now = Date.now();
+  for (const [id, entry] of Object.entries(blocks)) {
+    if (!entry || typeof entry.until !== "number" || (entry.until !== 0 && entry.until <= now)) delete blocks[id];
+  }
+  all[blocksOwner()] = blocks;
+  try {
+    window.localStorage.setItem(BLOCKS_KEY, JSON.stringify(all));
+  } catch {
+    // No storage: the block lasts as long as nothing — said in the menu by
+    // it simply not showing as blocked.
+  }
+  blocksVersion += 1;
+  for (const listener of blockListeners) listener();
+}
+
+export function isRemoteControlBlocked(userId: string): boolean {
+  const entry = readBlocks()[userId];
+  return Boolean(entry && typeof entry.until === "number" && (entry.until === 0 || entry.until > Date.now()));
+}
+
+/** "Bloquear pedidos de controle": for an hour, or until unblocked. */
+export function blockRemoteControl(userId: string, name: string | null, length: "hour" | "forever") {
+  if (!userId) return;
+  const blocks = readBlocks();
+  blocks[userId] = { until: length === "hour" ? Date.now() + BLOCK_HOUR_MS : 0, name };
+  writeBlocks(blocks);
+}
+
+export function unblockRemoteControl(userId: string) {
+  const blocks = readBlocks();
+  if (!(userId in blocks)) return;
+  delete blocks[userId];
+  writeBlocks(blocks);
+}
+
+/** Whether `userId` is blocked from asking, kept current — for the member menu. */
+export function useRemoteControlBlocked(userId: string | null | undefined): boolean {
+  const version = useSyncExternalStore(
+    (onChange) => {
+      blockListeners.add(onChange);
+      return () => {
+        blockListeners.delete(onChange);
+      };
+    },
+    () => blocksVersion,
+    () => 0
+  );
+  // `version` is what makes this re-read after a change; an hour-long block
+  // running out is picked up the next time the menu draws.
+  return version >= 0 && userId ? isRemoteControlBlocked(userId) : false;
+}
 
 const CHANNEL = "remote-control";
 const RESUME_MS = 20_000;
@@ -202,7 +292,7 @@ export interface RemoteControlSnapshot {
     rtt: number | null;
   } | null;
   /** A short message for the room to show once (refused, ended...). */
-  notice: { key: string; name: string | null; at: number } | null;
+  notice: { key: string; name: string | null; at: number; seconds?: number } | null;
 }
 
 let snapshot: RemoteControlSnapshot = { enabled: false, host: null, controller: null, notice: null };
@@ -217,8 +307,8 @@ const NOTICE_MS = 6000;
 const BLOCKED_HINT_MS = 4000;
 
 /** A short message for the room; it clears itself. */
-function notice(key: string, name: string | null) {
-  const next = { key, name, at: Date.now() };
+function notice(key: string, name: string | null, seconds?: number) {
+  const next = { key, name, at: Date.now(), ...(seconds ? { seconds } : {}) };
   publish({ notice: next });
   setTimeout(() => {
     if (snapshot.notice === next) publish({ notice: null });
@@ -586,7 +676,7 @@ function startHostSession(peerId: string, userId: string, name: string | null, k
 
 async function askShell(
   kind: "request" | "offer",
-  peer: { name: string | null; avatar: string | null }
+  peer: { name: string | null; avatar: string | null; handle?: string | null }
 ): Promise<RemoteControlConsent | null> {
   const bridge = getDesktopBridge()?.remoteControl;
   if (!bridge) return null;
@@ -597,6 +687,9 @@ async function askShell(
       kind,
       name: peer.name || "?",
       avatar: peer.avatar ?? undefined,
+      // Shown as @username under the name: a display name and a picture are
+      // easy to copy, the username is not (it comes from the server).
+      handle: peer.handle ?? undefined,
       lang,
     });
   } catch {
@@ -612,14 +705,22 @@ async function hostOnRequest(msg: Record<string, unknown>) {
   const userId = typeof msg.fromUserId === "string" ? msg.fromUserId : "";
   const name = typeof msg.fromName === "string" ? msg.fromName : null;
   const avatar = typeof msg.fromAvatar === "string" ? msg.fromAvatar : null;
+  const handle = typeof msg.fromHandle === "string" ? msg.fromHandle : null;
   if (!from || !userId) return;
   const answer = (ok: boolean, reason?: string) =>
     signalingClient.sendMessage({ type: "remote-control-answer", to: from, ok, ...(reason ? { reason } : {}) });
   if (!hostCapable || !hostOpen || !hostSharing) return answer(false, "closed");
+  // Somebody this person blocked: answered like a closed door, so the block
+  // is not something the other side gets told about.
+  if (isRemoteControlBlocked(userId)) return answer(false, "closed");
   if (host || hostConsent) return answer(false, "busy");
-  const result = await askShell("request", { name, avatar });
+  const result = await askShell("request", { name, avatar, handle });
   if (!result) return answer(false, "closed");
   if (!result.ok) {
+    if (result.block) {
+      blockRemoteControl(userId, name, result.block);
+      track(REMOTE_CONTROL_EVENTS.block);
+    }
     if (result.reason === "declined" || result.reason === "timeout") track(REMOTE_CONTROL_EVENTS.declined);
     if (result.reason === "failed") track(REMOTE_CONTROL_EVENTS.helperFail);
     return answer(false, result.reason === "timeout" ? "timeout" : result.reason === "declined" ? "declined" : "unavailable");
@@ -1023,7 +1124,8 @@ function controllerOnServerMessage(msg: Record<string, unknown>) {
         if (active.pingTimer) clearInterval(active.pingTimer);
         if (active.answerTimer) clearTimeout(active.answerTimer);
         publish({ controller: null });
-        notice(`refused.${reason}`, active.hostName);
+        const retryIn = typeof msg.retryIn === "number" && msg.retryIn > 0 ? Math.ceil(msg.retryIn) : undefined;
+        notice(reason === "cooldown" && retryIn ? "refused.cooldownIn" : `refused.${reason}`, active.hostName, retryIn);
       }
       return;
     }
@@ -1161,7 +1263,11 @@ function wire() {
       return;
     }
     if (msg.type === "remote-control-result" && msg.offer === true && host && msg.to === host.peerId && msg.ok !== true) {
+      const name = host.name;
       endHost("declined");
+      // Offering again and again is held back the same way as asking.
+      const retryIn = typeof msg.retryIn === "number" && msg.retryIn > 0 ? Math.ceil(msg.retryIn) : undefined;
+      if (msg.reason === "cooldown" && retryIn) notice("refused.cooldownIn", name, retryIn);
       return;
     }
     controllerOnServerMessage(msg);

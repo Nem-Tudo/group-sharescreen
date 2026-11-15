@@ -110,6 +110,33 @@
       #decline:hover { background: var(--neutral-hover); }
       #allow { background: var(--blue); }
       #allow:not(:disabled):hover { background: var(--blue-hover); }
+      #appRow {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 10px 16px 0;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #appRow input { margin: 2px 0 0; accent-color: var(--blue); flex: none; }
+      #appRow small { display: block; color: var(--muted); font-size: 11px; }
+      #blockRow { display: flex; align-items: center; gap: 6px; padding: 0 16px 14px; margin-top: -6px; font-size: 12px; }
+      #blockToggle {
+        background: none;
+        color: var(--muted);
+        font-weight: 500;
+        padding: 0;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      #blockToggle:hover { color: var(--text); }
+      #blockChoices { display: flex; align-items: center; gap: 6px; }
+      #blockChoices span { color: var(--muted); }
+      #blockChoices button { background: var(--neutral); padding: 4px 10px; border-radius: 8px; font-size: 12px; }
+      #blockChoices button:hover { background: var(--red); }
 
       /* ── Banner ──────────────────────────────────────────────────────── */
       #banner {
@@ -158,9 +185,20 @@
       </div>
       <div id="question"></div>
       <ul id="details"></ul>
+      <label id="appRow"
+        ><input id="allowApp" type="checkbox" /><span><span id="appLabel"></span><small id="appHint"></small></span
+      ></label>
       <div id="actions">
         <button id="decline" type="button"></button>
         <button id="allow" type="button" disabled></button>
+      </div>
+      <div id="blockRow" hidden>
+        <button id="blockToggle" type="button"></button>
+        <div id="blockChoices" hidden>
+          <span id="blockLabel"></span>
+          <button id="blockHour" type="button"></button>
+          <button id="blockForever" type="button"></button>
+        </div>
       </div>
     </section>
 
@@ -191,6 +229,13 @@
           allow: "Permitir",
           allowIn: "Permitir ({s})",
           decline: "Recusar",
+          app: "Deixar mexer no Go Live também",
+          appHint: "Sem isso, a pessoa não consegue clicar nas janelas do Go Live. Nesta janela e no botão Parar, nunca.",
+          appDetail: "A pessoa também vai poder mexer no Go Live (menos nesta janela e no botão Parar).",
+          blockToggle: "Bloquear pedidos dessa pessoa",
+          blockLabel: "Bloquear:",
+          blockHour: "Por 1 hora",
+          blockForever: "Sempre",
           banner: "<b></b> está controlando este computador",
           stop: "Parar",
         },
@@ -208,6 +253,13 @@
           allow: "Allow",
           allowIn: "Allow ({s})",
           decline: "Decline",
+          app: "Let them use Go Live too",
+          appHint: "Without this, they can't click Go Live's windows. This window and the Stop button, never.",
+          appDetail: "They will also be able to use Go Live (except this window and the Stop button).",
+          blockToggle: "Block requests from this person",
+          blockLabel: "Block:",
+          blockHour: "For 1 hour",
+          blockForever: "Always",
           banner: "<b></b> is controlling this computer",
           stop: "Stop",
         },
@@ -225,6 +277,13 @@
           allow: "Permitir",
           allowIn: "Permitir ({s})",
           decline: "Rechazar",
+          app: "Dejar usar Go Live también",
+          appHint: "Sin esto, no puede hacer clic en las ventanas de Go Live. Esta ventana y el botón Detener, nunca.",
+          appDetail: "También podrá usar Go Live (excepto esta ventana y el botón Detener).",
+          blockToggle: "Bloquear solicitudes de esta persona",
+          blockLabel: "Bloquear:",
+          blockHour: "Por 1 hora",
+          blockForever: "Siempre",
           banner: "<b></b> está controlando esta computadora",
           stop: "Detener",
         },
@@ -266,6 +325,16 @@
           li.textContent = line;
           details.appendChild(li);
         }
+        // "Também o Go Live": off unless ticked here, by the person at this
+        // computer — the page has no say in it. The line about Go Live in the
+        // list follows the box, so what it says is what will happen.
+        const allowApp = document.getElementById("allowApp");
+        document.getElementById("appLabel").textContent = t.app;
+        document.getElementById("appHint").textContent = t.appHint;
+        const appLine = details.children[1];
+        allowApp.addEventListener("change", () => {
+          appLine.textContent = allowApp.checked ? t.appDetail : t.details[1];
+        });
         const allow = document.getElementById("allow");
         const decline = document.getElementById("decline");
         decline.textContent = t.decline;
@@ -288,9 +357,24 @@
           window.goliveRemoteControl.choose(choice);
         };
         allow.addEventListener("click", () => {
-          if (!allow.disabled) choose("allow");
+          if (!allow.disabled) choose(allowApp.checked ? "allow-app" : "allow");
         });
         decline.addEventListener("click", () => choose("decline"));
+        // Blocking is about somebody asking; an offer is this person's own.
+        if (data.kind !== "offer") {
+          document.getElementById("blockRow").hidden = false;
+          const toggle = document.getElementById("blockToggle");
+          toggle.textContent = t.blockToggle;
+          document.getElementById("blockLabel").textContent = t.blockLabel;
+          document.getElementById("blockHour").textContent = t.blockHour;
+          document.getElementById("blockForever").textContent = t.blockForever;
+          toggle.addEventListener("click", () => {
+            toggle.hidden = true;
+            document.getElementById("blockChoices").hidden = false;
+          });
+          document.getElementById("blockHour").addEventListener("click", () => choose("block-hour"));
+          document.getElementById("blockForever").addEventListener("click", () => choose("block-forever"));
+        }
         document.addEventListener("keydown", (event) => {
           // Esc declines. Enter deliberately does nothing: a yes has to be a
           // click on the button that says so.

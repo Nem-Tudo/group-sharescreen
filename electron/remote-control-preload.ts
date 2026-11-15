@@ -14,8 +14,8 @@ contextBridge.exposeInMainWorld("goliveRemoteControl", {
   data(): Promise<RemoteControlWindowData | null> {
     return ipcRenderer.invoke(IPC.remoteControlWindowData);
   },
-  choose(choice: "allow" | "decline" | "stop"): void {
-    if (choice === "allow" || choice === "decline" || choice === "stop") {
+  choose(choice: "allow" | "allow-app" | "decline" | "block-hour" | "block-forever" | "stop"): void {
+    if (["allow", "allow-app", "decline", "block-hour", "block-forever", "stop"].includes(choice)) {
       ipcRenderer.send(IPC.remoteControlWindowChoose, choice);
     }
   },

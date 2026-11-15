@@ -5465,6 +5465,13 @@ function WatchRoomView({
         peer.userId !== state.selfUserId
           ? () => void offerRemoteControl(peer)
           : undefined,
+      // "Bloquear pedidos de controle": on a computer that can be controlled
+      // at all, about another person with an account — sharing or not, so a
+      // block can be set before the requests start.
+      remoteControlBlock:
+        remoteControlHost && peer.userId && !peer.isGuest && peer.userId !== state.selfUserId
+          ? { userId: peer.userId, name: peer.name ?? null }
+          : undefined,
       volume: peerVolumes[volumeKey] ?? 1,
       muted: micsMuted || mutedPeerIds.has(peer.id) || isPeerSilenced(peer),
       onVolumeChange: (v) => setPeerVolume(volumeKey, v),

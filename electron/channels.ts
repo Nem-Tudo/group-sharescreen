@@ -710,6 +710,8 @@ export type RemoteControlConsent =
   | {
       ok: false;
       reason: "declined" | "timeout" | "busy" | "no-source" | "unsupported" | "failed";
+      /** A no that also stops this person asking: for an hour, or for good. */
+      block?: "hour" | "forever";
     };
 
 /**

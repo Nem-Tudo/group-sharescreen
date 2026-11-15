@@ -51,7 +51,7 @@ const IDLE_TIMEOUT_MS = 15 * 60_000;
 const RATE_PER_SECOND = 400;
 const MAX_BATCH = 64;
 const CONSENT_WIDTH = 420;
-const CONSENT_HEIGHT = 300;
+const CONSENT_HEIGHT = 420;
 const BANNER_WIDTH = 560;
 const BANNER_HEIGHT = 64;
 
@@ -86,10 +86,18 @@ interface Session {
   ending: RemoteControlEndReason | null;
 }
 
+/**
+ * What the person pressed in the prompt. "allow-app" is a yes that also lets
+ * GoLive itself be controlled (the box ticked); "block-*" is a no that also
+ * stops this person asking again, for an hour or for good.
+ */
+type ConsentChoice = "allow" | "allow-app" | "decline" | "block-hour" | "block-forever" | "timeout";
+const CONSENT_CHOICES = new Set<string>(["allow", "allow-app", "decline", "block-hour", "block-forever"]);
+
 interface PendingConsent {
   info: RemoteControlRequestInfo;
   window: BrowserWindow;
-  resolve: (allowed: boolean | "timeout") => void;
+  resolve: (choice: ConsentChoice) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -178,7 +186,7 @@ export function createRemoteControl(options: {
     return Boolean(window && !window.isDestroyed());
   }
 
-  function createOverlay(width: number, height: number, focusable: boolean): BrowserWindow {
+  function createOverlay(width: number, height: number, focusable: boolean, hideFromViewers: boolean): BrowserWindow {
     const window = new BrowserWindow({
       width,
       height,
@@ -206,10 +214,13 @@ export function createRemoteControl(options: {
     // Above full-screen games too, like the ringing window.
     window.setAlwaysOnTop(true, "screen-saver", 2);
     window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    // For the person at this computer only. The people watching the share
-    // have nothing to do with the prompt or the banner, and a "Parar" button
-    // they can see is one they would try to aim at.
-    if (options.canHideFromViewers) window.setContentProtection(true);
+    // The banner is for the person at this computer only: the people watching
+    // the share have nothing to do with it. The prompt is not hidden — the
+    // room seeing "Fulano quer controlar" is fine, and the person asking
+    // seeing it come up is useful — and nobody but the person here can press
+    // it either way: golive-input never lets a click reach GoLive's
+    // always-on-top windows, --allow-app or not.
+    if (hideFromViewers && options.canHideFromViewers) window.setContentProtection(true);
     return window;
   }
 
@@ -250,10 +261,10 @@ export function createRemoteControl(options: {
 
   // ── Consent ───────────────────────────────────────────────────────────
 
-  function askConsent(info: RemoteControlRequestInfo): Promise<boolean | "timeout"> {
+  function askConsent(info: RemoteControlRequestInfo): Promise<ConsentChoice> {
     return new Promise((resolve) => {
-      const window = createOverlay(CONSENT_WIDTH, CONSENT_HEIGHT, true);
-      const settle = (answer: boolean | "timeout") => {
+      const window = createOverlay(CONSENT_WIDTH, CONSENT_HEIGHT, true, false);
+      const settle = (answer: ConsentChoice) => {
         if (!pending || pending.window !== window) return;
         clearTimeout(pending.timer);
         pending = null;
@@ -281,19 +292,19 @@ export function createRemoteControl(options: {
         });
         window.showInactive();
       });
-      window.on("closed", () => settle(false));
+      window.on("closed", () => settle("decline"));
       void window.loadFile(html);
     });
   }
 
   function cancelConsent() {
-    pending?.resolve(false);
+    pending?.resolve("decline");
   }
 
   // ── Session ───────────────────────────────────────────────────────────
 
   function openBanner(active: Session) {
-    const window = createOverlay(BANNER_WIDTH, BANNER_HEIGHT, false);
+    const window = createOverlay(BANNER_WIDTH, BANNER_HEIGHT, false, true);
     active.banner = window;
     window.once("ready-to-show", () => {
       const { x, y, width } = bannerDisplay().workArea;
@@ -352,12 +363,14 @@ export function createRemoteControl(options: {
     }, IDLE_TIMEOUT_MS);
   }
 
-  function startHelper(info: RemoteControlRequestInfo): Promise<RemoteControlConsent> {
+  function startHelper(info: RemoteControlRequestInfo, allowApp: boolean): Promise<RemoteControlConsent> {
     const sourceArgs = sharedSourceArgs();
     if (!sourceArgs) return Promise.resolve({ ok: false, reason: "no-source" });
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(helperPath(), [...sourceArgs, "--protect-pid", String(process.pid)], {
+      const args = [...sourceArgs, "--protect-pid", String(process.pid)];
+      if (allowApp) args.push("--allow-app");
+      child = spawn(helperPath(), args, {
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -464,9 +477,14 @@ export function createRemoteControl(options: {
     if (!sharedSourceArgs()) return { ok: false, reason: "no-source" };
     const answer = await askConsent(info);
     if (answer === "timeout") return { ok: false, reason: "timeout" };
-    if (!answer) return { ok: false, reason: "declined" };
+    if (answer === "block-hour" || answer === "block-forever") {
+      // The page keeps the block (see lib/remoteControl's blocks): it is
+      // the one that knows who asked.
+      return { ok: false, reason: "declined", block: answer === "block-hour" ? "hour" : "forever" };
+    }
+    if (answer !== "allow" && answer !== "allow-app") return { ok: false, reason: "declined" };
     if (session) return { ok: false, reason: "busy" };
-    return startHelper(info);
+    return startHelper(info, answer === "allow-app");
   }
 
   function input(raw: unknown) {
@@ -648,7 +666,7 @@ export function createRemoteControl(options: {
     ipcMain.handle(IPC.remoteControlWindowData, (event) => windowData(event.sender));
     ipcMain.on(IPC.remoteControlWindowChoose, (event, raw: unknown) => {
       if (pending && alive(pending.window) && event.sender === pending.window.webContents) {
-        pending.resolve(raw === "allow");
+        pending.resolve(typeof raw === "string" && CONSENT_CHOICES.has(raw) ? (raw as ConsentChoice) : "decline");
         return;
       }
       if (session && alive(session.banner) && event.sender === session.banner.webContents && raw === "stop") {
