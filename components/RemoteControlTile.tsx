@@ -751,7 +751,7 @@ function AllowRemoteControlDialog({ onConfirm, onClose }: { onConfirm: () => voi
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  const points = ["request", "consent", "stop", "limits", "everywhere"] as const;
+  const points = ["request", "consent", "stop", "limits"] as const;
   return createPortal(
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
