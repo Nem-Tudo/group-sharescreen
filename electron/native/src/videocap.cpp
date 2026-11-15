@@ -58,7 +58,8 @@
 //           carries its SPS and PPS.
 //   stderr  "READY <width> <height> <encoder name>" once frames can flow;
 //           otherwise diagnostics.
-//   stdin   text commands, one per line: "bitrate <kbps>", "key".
+//   stdin   text commands, one per line: "bitrate <kbps>", "key",
+//           "cursor 0|1" (pointer in the picture or not; see SetCursorShown).
 //           Closing stdin is the shutdown signal.
 //
 //   exit 0  stopped through stdin
@@ -1314,8 +1315,9 @@ class Capture {
     pool_frames_ = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(
         winrtDevice_, wgd::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size_);
     session_ = pool_frames_.CreateCaptureSession(item);
+    cursorWanted_ = cursor;
     try {
-      session_.IsCursorCaptureEnabled(cursor);
+      session_.IsCursorCaptureEnabled(cursor && !cursorHidden_);
     } catch (...) {
     }
     // The yellow frame Windows draws around what is being captured. Off
@@ -1375,6 +1377,27 @@ class Capture {
   // that arrives while nothing on screen is changing (a capture delivers no
   // frames then, and the request would wait for the next one).
   void RequestRepeat() { repeatRequested_ = true; }
+
+  // "cursor 0|1" on stdin: whether the pointer goes into the picture, while
+  // running. Remote control turns it off for the length of a session — the
+  // person driving aims with their own pointer, drawn on their side with no
+  // delay (the way AnyDesk does it), and a second, late copy of it in the
+  // picture is what made the pointer feel slow. Only ever narrows what
+  // --cursor allowed: "cursor 1" on a capture started without one does not
+  // add it.
+  void SetCursorShown(bool shown) {
+    cursorHidden_ = !shown;
+    if (session_) {
+      try {
+        session_.IsCursorCaptureEnabled(shown && cursorWanted_);
+      } catch (...) {
+      }
+    }
+    // Duplication draws the pointer itself: compose a frame without (or
+    // with) it now, rather than leaving the last one showing until the
+    // screen next changes.
+    pending_ = true;
+  }
 
   // The applications whose windows are painted over (see HiddenWindows).
   // Called before the capture starts, so nothing races the first frame, and
@@ -1470,7 +1493,7 @@ class Capture {
         continue;
       }
       const bool image = info.LastPresentTime.QuadPart != 0;
-      const bool pointer = info.LastMouseUpdateTime.QuadPart != 0 && cursorEnabled_;
+      const bool pointer = info.LastMouseUpdateTime.QuadPart != 0 && cursorEnabled_ && !cursorHidden_;
       if (image || pointer) {
         LONGLONG now = Now100ns();
         std::lock_guard<std::mutex> lock(gpuMutex_);
@@ -1508,7 +1531,7 @@ class Capture {
     // The cover first, the pointer over it: a pointer hovering a hidden
     // window is where the person's hand is, not something the window holds.
     hidden_.Draw(input_.get(), hideOrigin_);
-    if (cursorEnabled_) cursor_.Draw(input_.get(), monitorRect_);
+    if (cursorEnabled_ && !cursorHidden_) cursor_.Draw(input_.get(), monitorRect_);
   }
 
   void OnFrame(wgc::Direct3D11CaptureFramePool const& sender) {
@@ -1734,6 +1757,9 @@ class Capture {
   RECT hideOrigin_ = {0, 0, 0, 0};
   CursorOverlay cursor_;
   bool cursorEnabled_ = false;
+  // See SetCursorShown. Written by the stdin thread, read by the capture ones.
+  std::atomic<bool> cursorHidden_{false};
+  bool cursorWanted_ = true;
   std::thread duplicator_;
 };
 
@@ -1938,6 +1964,8 @@ static void WatchStdin(Encoder* encoder, Capture* capture) {
       if (line == "key") {
         encoder->ForceKey();
         capture->RequestRepeat();
+      } else if (line == "cursor 0" || line == "cursor 1") {
+        capture->SetCursorShown(line == "cursor 1");
       } else if (line.rfind("bitrate ", 0) == 0) {
         int kbps = atoi(line.c_str() + 8);
         if (kbps >= 100 && kbps <= 100000) encoder->SetBitrate(kbps);

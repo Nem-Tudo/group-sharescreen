@@ -252,6 +252,8 @@ export async function startNativeVideo(
 
   const active: Capture = { child, target, stopping: false, detach: () => {}, framePort: null };
   capture = active;
+  // Read by the helper once it is running; a pipe holds it until then.
+  if (cursorHidden) writeCursor(active);
   if (options.framePort) {
     const { port1, port2 } = new MessageChannelMain();
     active.framePort = port1;
@@ -338,6 +340,29 @@ export async function startNativeVideo(
 
     active.detach = watchTarget(active);
   });
+}
+
+// The pointer kept out of the picture while somebody controls this computer
+// (see remoteControl.ts): they aim with their own, drawn on their side with
+// no delay, and the real one arriving late in the video is a second pointer
+// trailing the first. Held here rather than only sent, so a capture restarted
+// mid-session (a quality change) starts without it too.
+let cursorHidden = false;
+
+function writeCursor(active: Capture) {
+  try {
+    active.child.stdin.write(`cursor ${cursorHidden ? 0 : 1}\n`);
+  } catch {
+    // The helper is on its way out.
+  }
+}
+
+/** Remote control's switch. Does nothing to a share that is not the native capture. */
+export function setNativeVideoCursorHidden(hidden: boolean): void {
+  if (cursorHidden === hidden) return;
+  cursorHidden = hidden;
+  const active = capture;
+  if (active && !active.stopping) writeCursor(active);
 }
 
 export function controlNativeVideo(command: { bitrateKbps?: number; keyFrame?: boolean }): void {

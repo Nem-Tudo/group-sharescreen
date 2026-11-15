@@ -37,7 +37,7 @@ import {
   type RemoteControlWindowData,
   type RemoteControlZone,
 } from "./channels";
-import { onSharedSourceChanged, sharedDisplayId, sharedSourceArgs } from "./nativeVideo";
+import { onSharedSourceChanged, setNativeVideoCursorHidden, sharedDisplayId, sharedSourceArgs } from "./nativeVideo";
 import { codeForScanCode, scanCodeFor } from "./remoteControlKeys";
 
 const HELPER = "golive-input.exe";
@@ -340,6 +340,7 @@ export function createRemoteControl(options: {
     }, 2000).unref?.();
     if (alive(active.banner)) active.banner.close();
     active.banner = null;
+    setNativeVideoCursorHidden(false);
     options.send({ type: "ended", reason });
     options.onActiveChange();
   }
@@ -410,6 +411,10 @@ export function createRemoteControl(options: {
             session = active;
             armIdle(active);
             openBanner(active);
+            // The person driving aims with their own pointer, with no delay
+            // (see RemoteControlTile); the real one, late in the picture,
+            // only trails it. Out of the share for the session.
+            setNativeVideoCursorHidden(true);
             options.onActiveChange();
             resolve({ ok: true });
           } else if (session !== active) {
