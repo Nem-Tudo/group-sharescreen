@@ -8342,15 +8342,20 @@ function WatchRoomView({
         />
       </div>
       {/* "Controle remoto", next to the screen it is about: the switch to
-          take requests while sharing from the app, "Pedir controle" when
+          take requests (greyed out, saying why, outside the app or without
+          an account; turning it on explains first), "Pedir controle" when
           somebody takes them, and the way out of a session from either side.
           It used to be only a row deep in the settings, where nobody found
-          it. Draws nothing when none of that applies. */}
-      {remoteControlEnabled && (
+          it. For everybody in the experiment, account or not. */}
+      {remoteControlMode.available && (
         <RemoteControlDockButton
-          canHost={remoteControlHost && remoteControlSharing}
+          isApp={remoteControlBridge}
+          // The Windows app without the bridge: one from before remote
+          // control, which an update fixes — said instead of "needs the app".
+          appOutdated={!remoteControlBridge && getDesktopBridge()?.platform === "win32"}
+          hasAccount={Boolean(account)}
           allowOn={remoteControlMode.on}
-          onToggleAllow={() => setTileExperimentMode("remoteControl", !remoteControlMode.on, handle)}
+          onSetAllow={(on) => setTileExperimentMode("remoteControl", on, handle)}
         />
       )}
     </>

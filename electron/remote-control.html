@@ -294,8 +294,11 @@
       const ARM_DELAY_MS = 900;
 
       function fillFace(root, data) {
-        const initial = root.querySelector(".initial");
-        const img = root.querySelector("img");
+        // ".face img", not the first img: in the prompt that is the Go Live
+        // logo in the header, which then showed the person's picture while
+        // the circle beside their name was left with only the initial.
+        const initial = root.querySelector(".face .initial");
+        const img = root.querySelector(".face img");
         initial.textContent = (Array.from(data.name)[0] || "?").toUpperCase();
         if (data.avatar) {
           img.src = data.avatar;

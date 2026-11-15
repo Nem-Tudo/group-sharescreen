@@ -18,6 +18,7 @@
 // pointing never waits for it.
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   MdClose,
   MdFullscreen,
@@ -725,29 +726,103 @@ function subscribeFinePointer(onChange: () => void): () => void {
 }
 
 /**
+ * What turning requests on means, before it is on. Opened by the bar's
+ * button; nothing changes until "Ativar".
+ */
+function AllowRemoteControlDialog({ onConfirm, onClose }: { onConfirm: () => void; onClose: () => void }) {
+  const t = useT();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const points = ["request", "consent", "stop", "limits", "everywhere"] as const;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rc-allow-title"
+        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+            <MdMouse className="h-5 w-5" />
+          </span>
+          <h2 id="rc-allow-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            {t("remoteControl.allowDialog.title")}
+          </h2>
+        </div>
+        <ul className="mt-4 flex flex-col gap-2.5 text-sm text-zinc-700 dark:text-zinc-300">
+          {points.map((point) => (
+            <li key={point} className="flex gap-2">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+              <span>{t(`remoteControl.allowDialog.${point}`)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-xl bg-zinc-100 px-3 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            {t("remoteControl.allowDialog.confirm")}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
  * "Controle remoto" in the room's bottom bar, next to the screen button —
  * where people look for it, rather than in the settings:
- *   - sharing from the Windows app: the switch to take requests, or "stop"
- *     while somebody is in control;
- *   - controlling somebody: "Soltar controle";
- *   - somebody in the room takes requests: "Pedir controle" (a list when more
- *     than one does).
+ *   - the switch to take requests: for everybody in the experiment, greyed
+ *     out with the reason where it cannot work here (the browser: it takes
+ *     the app; no account: it takes one). Turning it on explains first, in a
+ *     dialog. On is on everywhere and stays on (lib/clipsMode's stored mode)
+ *     until turned off;
+ *   - "stop" while somebody is in control, "Soltar controle" while you are;
+ *   - "Pedir controle" when somebody takes requests and this switch is off
+ *     (a list when more than one does).
  */
 export function RemoteControlDockButton({
-  canHost,
+  isApp,
+  appOutdated = false,
+  hasAccount,
   allowOn,
-  onToggleAllow,
+  onSetAllow,
   className = "",
 }: {
-  /** This page can be controlled right now: feature, Windows app, sharing one screen. */
-  canHost: boolean;
+  /** The Windows app, with the helper: the only place a computer can be controlled. */
+  isApp: boolean;
+  /** The Windows app, but from before remote control: it needs updating first. */
+  appOutdated?: boolean;
+  hasAccount: boolean;
   /** The "take requests" switch. */
   allowOn: boolean;
-  onToggleAllow: () => void;
+  onSetAllow: (on: boolean) => void;
   className?: string;
 }) {
   const t = useT();
-  const { enabled, host, controller } = useRemoteControlState();
+  const { host, controller } = useRemoteControlState();
+  const [dialogOpen, setDialogOpen] = useState(false);
   const canRequest = useCanRequest();
   const [listOpen, setListOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -779,9 +854,16 @@ export function RemoteControlDockButton({
   // GoLive (see useTileExperimentTip).
   const inSession = Boolean(host) || Boolean(controller && controller.phase !== "offered");
   const canAsk = canRequest && finePointer && hosts.length > 0 && !controller;
-  const tip = useTileExperimentTip("remoteControl", enabled && !inSession && (canHost || canAsk));
-
-  if (!enabled) return null;
+  // Why this computer cannot take requests here, if it cannot. The app comes
+  // first: an account in a browser still could not be controlled.
+  const hostBlock: "app" | "update" | "account" | null = appOutdated
+    ? "update"
+    : !isApp
+      ? "app"
+      : !hasAccount
+        ? "account"
+        : null;
+  const tip = useTileExperimentTip("remoteControl", !inSession && (hostBlock === null || canAsk));
 
   const withTip = (node: ReactElement, text: string) => (
     <Tippy
@@ -872,31 +954,65 @@ export function RemoteControlDockButton({
     );
   }
 
-  // Sharing from the app: the switch.
-  if (canHost) {
-    const label = allowOn ? t("remoteControl.dock.allowOn") : t("remoteControl.dock.allowOff");
-    return withTip(
-      <Tooltip content={label}>
-        <button
-          type="button"
-          onClick={() => {
-            click();
-            tipClicked();
-            onToggleAllow();
-          }}
-          aria-pressed={allowOn}
-          aria-label={label}
-          className={`${base} ${allowOn ? "bg-blue-600 hover:bg-blue-700" : "bg-zinc-500 hover:bg-zinc-600 dark:bg-zinc-700 dark:hover:bg-zinc-600"}`}
-        >
-          <MdMouse className={`h-5 w-5 ${allowOn ? "" : "opacity-70"}`} />
-        </button>
-      </Tooltip>,
-      t("watch.watchRoom.remoteControlTip")
+  // The switch. On: a click turns it off. Off: a click explains first (the
+  // dialog), and "Ativar" there is what turns it on. Where it cannot work,
+  // greyed out, saying why — the tooltip on a wrapper, since a disabled
+  // button fires no hover of its own.
+  const allowButton = (on: boolean) => {
+    const label = hostBlock
+      ? t(
+          hostBlock === "app"
+            ? "remoteControl.dock.needsApp"
+            : hostBlock === "update"
+              ? "remoteControl.dock.needsUpdate"
+              : "remoteControl.dock.needsAccount"
+        )
+      : on
+        ? t("remoteControl.dock.allowOn")
+        : t("remoteControl.dock.allowOff");
+    return (
+      <>
+        {withTip(
+          <Tooltip content={label} wrapperClassName="flex">
+            <button
+              type="button"
+              disabled={hostBlock !== null}
+              onClick={() => {
+                click();
+                tipClicked();
+                if (on) onSetAllow(false);
+                else setDialogOpen(true);
+              }}
+              aria-pressed={on}
+              aria-label={label}
+              className={`${base} disabled:cursor-not-allowed disabled:opacity-50 ${
+                on ? "bg-blue-600 hover:bg-blue-700" : "bg-zinc-500 hover:bg-zinc-600 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+              }`}
+            >
+              <MdMouse className={`h-5 w-5 ${on ? "" : "opacity-70"}`} />
+            </button>
+          </Tooltip>,
+          t("watch.watchRoom.remoteControlTip")
+        )}
+        {dialogOpen && (
+          <AllowRemoteControlDialog
+            onClose={() => setDialogOpen(false)}
+            onConfirm={() => {
+              setDialogOpen(false);
+              onSetAllow(true);
+            }}
+          />
+        )}
+      </>
     );
-  }
+  };
 
-  // Somebody to ask.
-  if (!canRequest || !finePointer || hosts.length === 0 || controller) return null;
+  // Taking requests here: the switch, on, whoever else is in the room.
+  if (allowOn && hostBlock === null) return allowButton(true);
+
+  // Nobody to ask: the switch, off (or greyed out, saying why).
+  if (!canAsk) return allowButton(false);
+
   const ask = (id: string) => {
     const peer = signalingClient.state.peers.find((p) => p.id === id);
     if (peer) requestRemoteControl(peer);
