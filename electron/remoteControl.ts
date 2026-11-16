@@ -91,6 +91,8 @@ interface Session {
   clipboardTimer: NodeJS.Timeout | null;
   /** The clipboard as last seen or set, so a change is told once and an echo never. */
   lastClipboard: string;
+  /** The helper draws the name beside the pointer (--label), told "l 0/1" as the mouse comes and goes. */
+  label: boolean;
 }
 
 // ── Permissions ──────────────────────────────────────────────────────────
@@ -459,9 +461,19 @@ export function createRemoteControl(options: {
     active.perms = { ...active.perms, [key]: on };
     // Taken away: whatever it was holding down is let go.
     if (!on && key !== "clipboard") write(active, "r\n");
+    if (key === "mouse") syncLabel(active);
     if (key === "clipboard") watchClipboard(active);
     savePerms(active.perms);
     options.send({ type: "perms", perms: livePerms(active.perms) });
+  }
+
+  /**
+   * The name beside the pointer stays for as long as the other side has the
+   * mouse: allowed on the banner and not reconnecting. (The helper itself
+   * hides it while the person here is using the mouse or keyboard.)
+   */
+  function syncLabel(active: Session) {
+    if (active.label) write(active, `l ${active.perms.mouse && !active.paused ? 1 : 0}\n`);
   }
 
   function end(reason: RemoteControlEndReason) {
@@ -544,6 +556,7 @@ export function createRemoteControl(options: {
       perms,
       clipboardTimer: null,
       lastClipboard: "",
+      label: withLabel,
     };
 
     return new Promise<RemoteControlConsent>((resolve) => {
@@ -582,6 +595,7 @@ export function createRemoteControl(options: {
             // only trails it. Out of the share for the session.
             setNativeVideoCursorHidden(true);
             watchClipboard(active);
+            syncLabel(active);
             options.onActiveChange();
             resolve({ ok: true, perms: livePerms(active.perms) });
             if (info.cursorLabel) options.send({ type: "label", shown: withLabel && labelShown });
@@ -816,6 +830,7 @@ export function createRemoteControl(options: {
     // Everything held is let go while nobody is on the other end to let go
     // of it. The idle timer keeps running: a pause that never resumes ends.
     if (paused) write(active, "r\n");
+    syncLabel(active);
   }
 
   function registerIpc(fromApp: (sender: WebContents) => boolean) {

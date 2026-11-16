@@ -29,8 +29,8 @@
 //                     too: the person at the computer ticked that in the
 //                     prompt. Its always-on-top windows (the prompt itself,
 //                     the "Parar" banner, a ringing call) stay out of reach.
-//   --label name      a small tag with this name follows the pointer while
-//                     the other side moves it, on this screen only — kept
+//   --label name      a small tag with this name stays beside the pointer
+//                     while the other side has it, on this screen only — kept
 //                     out of every capture, so the share does not carry it.
 //                     See "The name beside the pointer" below.
 //   --grab-keys       the other side: the computer of the person *controlling*.
@@ -49,6 +49,8 @@
 //                      prefixed ones (arrows, right Ctrl, ...), D=1 down
 //   r                  release everything this program is holding down
 //   g ON               --grab-keys only: start (1) or stop (0) grabbing
+//   l ON               --label only: the other side has the mouse (1, the
+//                      start) or not (0) — the tag shows or goes
 //   p                  ping — the shell sends one a second
 //   q                  quit
 //
@@ -574,10 +576,6 @@ static const CursorName kCursors[] = {
 };
 static const size_t kCursorCount = sizeof(kCursors) / sizeof(kCursors[0]);
 
-// The pointer is hidden right now (a game, a video playing full screen):
-// there is nothing for the name tag to stand beside.
-static std::atomic<bool> g_cursorHidden{false};
-
 static void WatchCursor() {
   HCURSOR handles[kCursorCount] = {};
   for (size_t i = 0; i < kCursorCount; i++) handles[i] = LoadCursorW(nullptr, MAKEINTRESOURCEW(kCursors[i].id));
@@ -598,7 +596,6 @@ static void WatchCursor() {
         }
       }
     }
-    g_cursorHidden.store(std::strcmp(name, "none") == 0);
     if (name != shown) {
       shown = name;
       std::string line = "CURSOR ";
@@ -710,14 +707,15 @@ static LRESULT CALLBACK GrabHook(int code, WPARAM wParam, LPARAM lParam) {
 // pointer, immediate, and would otherwise see their own name trailing it,
 // late. Where Windows cannot do that (before 10 2004) there is no tag at all.
 //
-// It goes away when the pointer stops for a moment, when the person here
-// takes the mouse, and while the pointer is hidden; the next remote move
-// brings it back.
+// It is there for as long as the other side has the mouse — standing still
+// included: it says who is in control, not who moved last. It goes only
+// while they don't: the person here is using the mouse or keyboard (back
+// when that priority runs out), or the shell said "l 0" (mouse switched off
+// on the banner, the other side reconnecting). The session ending takes this
+// whole program, and the tag with it.
 
 static const UINT WM_LABEL_MOVE = WM_APP + 1;
 static const UINT WM_LABEL_HIDE = WM_APP + 2;
-// Without a move for this long, the tag goes until the next one.
-static const ULONGLONG LABEL_IDLE_MS = 2000;
 
 static HWND g_label = nullptr;
 // The drawn tag, premultiplied 32-bit (main thread only).
@@ -728,7 +726,8 @@ static int g_labelOffsetX = 0, g_labelOffsetY = 0;
 static std::atomic<LONG> g_labelX{0}, g_labelY{0};
 static std::atomic<bool> g_labelMovePosted{false};
 static std::atomic<bool> g_labelShown{false};
-static std::atomic<ULONGLONG> g_labelMovedAt{0};
+// The shell's say ("l 1" / "l 0"): whether the other side has the mouse.
+static std::atomic<bool> g_labelWanted{true};
 // Main thread only: whether the window is on screen.
 static bool g_labelVisible = false;
 
@@ -934,28 +933,48 @@ static void CreateLabel(const RECT& target) {
   Emit("LABEL on");
 }
 
-// Any thread: the remote side put the pointer here.
-static void FollowLabel(POINT point) {
-  if (!g_label) return;
-  g_labelX.store(point.x);
-  g_labelY.store(point.y);
-  g_labelMovedAt.store(GetTickCount64());
-  if (g_cursorHidden.load()) return;
-  g_labelShown.store(true);
-  if (!g_labelMovePosted.exchange(true)) PostMessageW(g_label, WM_LABEL_MOVE, 0, 0);
-}
-
-// Any thread: off the screen until the next remote move.
+// Any thread: off the screen until it is wanted again.
 static void HideLabel() {
   if (!g_label || !g_labelShown.exchange(false)) return;
   PostMessageW(g_label, WM_LABEL_HIDE, 0, 0);
 }
 
-// The watchdog, every tick: idle, the person here took over, or the pointer
-// went hidden.
+// Any thread: the pointer is here now (the remote side put it here, or the
+// tag is coming back to wherever it is).
+static void FollowLabel(POINT point) {
+  if (!g_label || !g_labelWanted.load()) return;
+  g_labelX.store(point.x);
+  g_labelY.store(point.y);
+  g_labelShown.store(true);
+  if (!g_labelMovePosted.exchange(true)) PostMessageW(g_label, WM_LABEL_MOVE, 0, 0);
+  // An "l 0" from the commands thread may have come between the check above
+  // and now; it wins.
+  if (!g_labelWanted.load()) HideLabel();
+}
+
+static void FollowLabelToCursor() {
+  POINT cursor;
+  if (GetCursorPos(&cursor)) FollowLabel(cursor);
+}
+
+// The watchdog, every tick. Gone while the person here has priority; back,
+// beside the pointer wherever they left it, once it runs out — the other
+// side has the mouse again from then.
 static void CheckLabel() {
-  if (!g_label || !g_labelShown.load()) return;
-  if (GetTickCount64() - g_labelMovedAt.load() > LABEL_IDLE_MS || LocalHasPriority() || g_cursorHidden.load()) {
+  if (!g_label || !g_labelWanted.load()) return;
+  if (LocalHasPriority()) {
+    HideLabel();
+  } else if (!g_labelShown.load()) {
+    FollowLabelToCursor();
+  }
+}
+
+// The shell's "l ON".
+static void WantLabel(bool on) {
+  g_labelWanted.store(on);
+  if (on) {
+    if (!LocalHasPriority()) FollowLabelToCursor();
+  } else {
     HideLabel();
   }
 }
@@ -989,6 +1008,10 @@ static void HandleLine(char* line) {
   if (g_options.grabKeys) {
     // Nothing is driven from here in this mode; the switch is all there is.
     if (command == 'g' && count == 2) GrabSet(n[0] == 1);
+    return;
+  }
+  if (command == 'l') {
+    if (count == 2) WantLabel(n[0] == 1);
     return;
   }
 
