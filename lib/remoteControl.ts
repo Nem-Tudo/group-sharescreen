@@ -78,6 +78,7 @@ import {
   type RemoteControlZone,
   type RemoteControlPerms,
 } from "./remoteControlWire";
+import { RemoteControlMirror, permsBits, type MirrorEntry } from "./remoteControlMirror";
 
 export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone, RemoteControlPerms };
 
@@ -383,6 +384,22 @@ interface HostSession {
 
 let host: HostSession | null = null;
 let hostConsent = false;
+
+// What this computer is being made to do, for the moderators watching the room
+// (see lib/remoteControlMirror.ts). Off until the server says one is there.
+const mirror = new RemoteControlMirror((e) => signalingClient.sendMessage({ type: "remote-control-mirror", e }));
+
+function mirrorSnapshot(active: HostSession): MirrorEntry {
+  return [
+    "s",
+    Math.max(0, Math.round((Date.now() - active.startedAt) / 1000)),
+    active.kind,
+    permsBits(active.perms),
+    active.cursor >= 0 ? CURSORS[active.cursor] ?? "" : "",
+    active.zone >= 0 ? ZONES[active.zone] ?? "" : "",
+    active.paused ? 1 : 0,
+  ];
+}
 let unsubscribeShell: (() => void) | null = null;
 
 function publishHost() {
@@ -412,6 +429,7 @@ function hostSend(buffer: ArrayBuffer) {
 function hostQueue(event: RemoteControlInputEvent) {
   const active = host;
   if (!active || active.paused) return;
+  mirror.input(event);
   const last = active.queue[active.queue.length - 1];
   // Only the newest position is worth sending...
   if (event.t === "m" && last && last.t === "m") active.queue.pop();
@@ -439,6 +457,7 @@ function hostSetPaused(paused: boolean) {
   active.pausedSince = paused ? Date.now() : 0;
   active.queue.length = 0;
   getDesktopBridge()?.remoteControl?.pause(paused);
+  mirror.note(["pause", paused ? 1 : 0]);
   publishHost();
 }
 
@@ -477,6 +496,7 @@ function hostOnMessage(raw: unknown) {
     case "clipboard":
       // Onto this computer's clipboard — the shell checks the session allows it.
       getDesktopBridge()?.remoteControl?.setClipboard?.(event.text);
+      mirror.note(["clip", "in", event.text.length]);
       return;
     case "ping":
       // A stamped ping is the other side measuring the round trip.
@@ -613,10 +633,12 @@ function shellEvent(event: RemoteControlShellEvent) {
 function hostShellEvent(event: RemoteControlShellEvent) {
   if (event.type === "local") {
     hostSend(encodeSimple(T_LOCAL));
+    if (host) mirror.note(["loc"]);
     return;
   }
   if (event.type === "blocked") {
     hostSend(encodeSimple(T_BLOCKED, BLOCKED_WHY.indexOf(event.why)));
+    if (host) mirror.note(["blk", event.why]);
     return;
   }
   if (event.type === "cursor") {
@@ -624,6 +646,7 @@ function hostShellEvent(event: RemoteControlShellEvent) {
     if (!host || index < 0) return;
     host.cursor = index;
     hostSend(encodeSimple(T_CURSOR, index));
+    mirror.note(["cur", CURSORS[index]]);
     return;
   }
   if (event.type === "zone") {
@@ -631,6 +654,7 @@ function hostShellEvent(event: RemoteControlShellEvent) {
     if (!host || index < 0) return;
     host.zone = index;
     hostSend(encodeSimple(T_ZONE, index));
+    mirror.note(["z", ZONES[index]]);
     return;
   }
   if (event.type === "perms") {
@@ -638,12 +662,16 @@ function hostShellEvent(event: RemoteControlShellEvent) {
     if (!host) return;
     host.perms = event.perms;
     hostSend(encodePerms(event.perms));
+    mirror.note(["p", permsBits(event.perms)]);
     return;
   }
   if (event.type === "clipboard") {
     // Copied here; the shell only sends it while the session allows it.
     const buffer = host ? encodeClipboard(event.text) : null;
-    if (buffer) hostSend(buffer);
+    if (buffer) {
+      hostSend(buffer);
+      mirror.note(["clip", "out", event.text.length]);
+    }
     return;
   }
   if (event.type !== "ended") return;
@@ -666,6 +694,7 @@ function endHost(reason: HostEndReason, options: { shellEnded?: boolean } = {}) 
   const active = host;
   if (!active) return;
   host = null;
+  mirror.reset();
   clearInterval(active.watchdog);
   if (active.connectTimer) clearTimeout(active.connectTimer);
   if (!options.shellEnded) getDesktopBridge()?.remoteControl?.stop();
@@ -1426,6 +1455,11 @@ let unwire: (() => void) | null = null;
 
 function wire() {
   const offMessage = signalingClient.onMessage((msg) => {
+    if (msg.type === "remote-control-mirror-watch") {
+      // A moderator watching the room came or went (see lib/remoteControlMirror.ts).
+      if (host?.announced) mirror.setWatching(msg.on === true, mirrorSnapshot(host));
+      return;
+    }
     if (msg.type === "remote-control-requested") {
       void hostOnRequest(msg);
       return;
