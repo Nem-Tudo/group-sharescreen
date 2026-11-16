@@ -155,7 +155,7 @@ import {
 } from "@/lib/remoteControl";
 import { RemoteControlDockButton, RemoteControlPrompt } from "@/components/RemoteControlTile";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
-import { CallStage, type CallStagePerson } from "@/components/CallStage";
+import { CallPeopleStrip, CallStage, type CallStagePerson } from "@/components/CallStage";
 import { NotificationInboxBell } from "@/components/NotificationInboxBell";
 import { PartnerCard } from "@/components/PartnerCard";
 import { QualitySelect } from "@/components/QualitySelect";
@@ -8712,6 +8712,7 @@ function WatchRoomView({
           isGuest: !state.account,
           micOn: isMicOn,
           silenced: selfSilenced,
+          deafened: micsMuted,
           micStream: localMicStream,
         },
         ...visiblePeers.map((p) => ({
@@ -8722,6 +8723,7 @@ function WatchRoomView({
           isGuest: p.isGuest,
           micOn: p.mic && !isPeerSilenced(p),
           silenced: isPeerSilenced(p),
+          deafened: p.micsMuted === true,
           micStream: remoteMicStreams[p.id] ?? null,
         })),
       ]
@@ -10462,6 +10464,9 @@ function WatchRoomView({
                   </div>
                 )}
               </div>
+              {/* The call's faces, shrunk to a row: the shared screen took
+                  the stage, but whose mic is off is still worth seeing. */}
+              {callLayout && <CallPeopleStrip people={callStagePeople} />}
             </>
           )}
           {dockInStage && (

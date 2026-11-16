@@ -3,6 +3,9 @@
 import type { ReactNode } from "react";
 import { MdMicOff } from "react-icons/md";
 import { UserAvatar } from "@/components/UserAvatar";
+import { HeadphonesOffIcon, MicOffIcon } from "@/components/icons";
+import { Tooltip } from "@/components/Tooltip";
+import { useT } from "@/lib/useI18n";
 import { useSpeaking } from "@/lib/useSpeaking";
 import { avatarShapeClass } from "@/lib/avatarShape";
 
@@ -27,6 +30,8 @@ export type CallStagePerson = {
   micOn: boolean;
   /** A room manager turned their mic off — the badge goes red. */
   silenced?: boolean;
+  /** They turned everybody else's sound off: talking to them reaches nobody. */
+  deafened?: boolean;
   /** Their microphone, for the ring that says they are talking. */
   micStream: MediaStream | null;
 };
@@ -73,10 +78,74 @@ function CallStageFace({ person, size }: { person: CallStagePerson; size: number
             <MdMicOff className="h-3.5 w-3.5" />
           </span>
         )}
+        {/* The other corner, since it is a different fact from the mic and
+            both can be true at once (deafening closes the mic too). */}
+        {person.deafened && (
+          <span className="absolute -bottom-0.5 -left-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-white ring-2 ring-zinc-100 dark:bg-zinc-950 dark:ring-zinc-900">
+            <HeadphonesOffIcon className="h-3.5 w-3.5" />
+          </span>
+        )}
       </span>
       <span className="w-full truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
         {person.name}
       </span>
+    </li>
+  );
+}
+
+// The same people while something *is* being shared, as one slim row under
+// the video. The screen takes the stage over, and with it went the only place
+// a call said whose mic was off or who had deafened — the participants column
+// is not drawn in a call at all — so somebody watching a screen had no way to
+// tell whether the other end could hear them. A row of small faces costs the
+// video one short line and says it all again.
+export function CallPeopleStrip({ people }: { people: CallStagePerson[] }) {
+  return (
+    <ul className="flex shrink-0 items-center justify-center gap-2 overflow-x-auto py-0.5">
+      {people.map((person) => (
+        <CallStripChip key={person.key} person={person} />
+      ))}
+    </ul>
+  );
+}
+
+function CallStripChip({ person }: { person: CallStagePerson }) {
+  const t = useT();
+  const speaking = useSpeaking(person.micOn ? person.micStream : null);
+  const micOff = !person.micOn || person.silenced;
+  return (
+    <li className="flex min-w-0 max-w-48 shrink-0 items-center gap-2 rounded-full border border-zinc-200 bg-white py-1 pr-3 pl-1 dark:border-zinc-800 dark:bg-zinc-950">
+      <span
+        className={`flex shrink-0 ${avatarShapeClass(person.avatarUrl)} transition-shadow duration-150 ${
+          speaking ? "shadow-[0_0_0_2px_var(--color-emerald-500)]" : "shadow-[0_0_0_2px_transparent]"
+        }`}
+      >
+        <UserAvatar
+          src={person.avatarUrl}
+          name={person.name}
+          size={24}
+          userId={person.userId}
+          isGuest={person.isGuest}
+        />
+      </span>
+      <span className="min-w-0 truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">{person.name}</span>
+      {micOff &&
+        (person.silenced ? (
+          <Tooltip content={t("participantRow.mutedByAdmin", { name: person.name })}>
+            <span className="flex shrink-0 items-center">
+              <MicOffIcon className="h-4 w-4 text-red-500" />
+            </span>
+          </Tooltip>
+        ) : (
+          <MicOffIcon className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500" />
+        ))}
+      {person.deafened && (
+        <Tooltip content={t("participantRow.nameHasMutedTheMicrophonesAnd", { name: person.name })}>
+          <span className="flex shrink-0 items-center">
+            <HeadphonesOffIcon className="h-4 w-4 text-zinc-500" />
+          </span>
+        </Tooltip>
+      )}
     </li>
   );
 }
