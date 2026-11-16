@@ -386,7 +386,9 @@ let host: HostSession | null = null;
 let hostConsent = false;
 
 // What this computer is being made to do, for the moderators watching the room
-// (see lib/remoteControlMirror.ts). Off until the server says one is there.
+// (see lib/remoteControlMirror.ts). On for the whole session: the server drops
+// it when no moderator asked, and never says whether one did.
+const MIRROR_SNAPSHOT_EVERY_S = 10;
 const mirror = new RemoteControlMirror((e) => signalingClient.sendMessage({ type: "remote-control-mirror", e }));
 
 function mirrorSnapshot(active: HostSession): MirrorEntry {
@@ -534,6 +536,7 @@ function hostAttachChannel(active: HostSession, channel: RTCDataChannel) {
       // nobody is controlling anything.
       hostAnnounce(active.peerId);
       active.announced = true;
+      mirror.setWatching(true, mirrorSnapshot(active));
       publishHost();
     };
     if (channel.readyState === "open") opened();
@@ -618,6 +621,11 @@ function hostWatchdog() {
   const now = Date.now();
   if (!active.paused && now - active.lastHeardAt > SILENCE_MS) hostSetPaused(true);
   if (active.paused && active.pausedSince && now - active.pausedSince > RESUME_MS) endHost("lost");
+  // Now and then the whole picture again (duration, permissions, pointer
+  // shape), for a moderator who started watching mid-session.
+  if (active.announced && Math.round((now - active.startedAt) / 1000) % MIRROR_SNAPSHOT_EVERY_S === 0) {
+    mirror.note(mirrorSnapshot(active));
+  }
 }
 
 function shellEvent(event: RemoteControlShellEvent) {
@@ -1455,11 +1463,6 @@ let unwire: (() => void) | null = null;
 
 function wire() {
   const offMessage = signalingClient.onMessage((msg) => {
-    if (msg.type === "remote-control-mirror-watch") {
-      // A moderator watching the room came or went (see lib/remoteControlMirror.ts).
-      if (host?.announced) mirror.setWatching(msg.on === true, mirrorSnapshot(host));
-      return;
-    }
     if (msg.type === "remote-control-requested") {
       void hostOnRequest(msg);
       return;

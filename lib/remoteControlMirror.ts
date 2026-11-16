@@ -3,9 +3,9 @@
 // shared screen sees the other person's pointer, clicks and shortcuts drawn
 // over it (sharescreen-admin's RemoteControlMirror).
 //
-// Sent only while a moderator asked for it and is in the room — the server
-// says so with "remote-control-mirror-watch" (see the API's
-// syncRemoteControlMirror) — through the server, batched every BATCH_MS. Never
+// Sent through the server for the whole session, batched every BATCH_MS, and
+// dropped there when no moderator asked for it. Never told whether one did:
+// that would tell the person being controlled a moderator walked in. Never
 // the text typed: a key that writes a character goes out as "•", unless Ctrl,
 // Alt or the Windows key is held (a shortcut, not a letter of a password).
 // Clipboard text never goes, only its size.
@@ -82,7 +82,7 @@ export class RemoteControlMirror {
     return this.on;
   }
 
-  /** The server's word on whether a moderator is watching; `snapshot` is told first when it turns on. */
+  /** On for a session (off between them); `snapshot` is told first when it turns on. */
   setWatching(on: boolean, snapshot: MirrorEntry | null) {
     if (this.on === on) return;
     this.on = on;

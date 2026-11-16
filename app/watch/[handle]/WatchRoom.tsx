@@ -2889,7 +2889,10 @@ function WatchRoomView({
   const hasLocalCamera = Boolean(localCameraStream) || extraCamerasActive > 0;
   // A screen shared in a conversation's call is not a broadcast to sum up.
   const summaryPeople = useMemo(
-    () => state.peers.filter((p) => p.id !== state.selfId && !p.bot && !isObsPeer(p)).map((p) => p.userId ?? p.id),
+    () =>
+      state.peers
+        .filter((p) => p.id !== state.selfId && !p.bot && p.role !== "moderator" && !isObsPeer(p))
+        .map((p) => p.userId ?? p.id),
     [state.peers, state.selfId]
   );
   useStreamEndSummary(hasLocalScreen && !callLayout, summaryPeople);
@@ -3709,6 +3712,7 @@ function WatchRoomView({
   const toolPeople = useMemo<ToolPerson[]>(() => {
     const seen = new Map<string, string>();
     for (const peer of state.peers) {
+      if (peer.role === "moderator" || isObsPeer(peer)) continue;
       if (peer.userId && peer.userId !== state.selfUserId && !seen.has(peer.userId)) seen.set(peer.userId, peer.name);
     }
     return [...seen].map(([userId, name]) => ({ userId, name }));

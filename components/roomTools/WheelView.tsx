@@ -420,6 +420,8 @@ function roomNames(): string[] {
   const names = new Map<string, string>();
   if (snapshot.selfUserId && snapshot.name) names.set(snapshot.selfUserId, snapshot.name);
   for (const peer of snapshot.peers) {
+    // A moderator watching and an OBS source are not people in the room.
+    if (peer.role === "moderator" || peer.role === "obs") continue;
     const key = peer.userId ?? peer.id;
     if (!names.has(key) && peer.name) names.set(key, peer.name);
   }
