@@ -84,6 +84,26 @@ export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone, Remo
 
 export const REMOTE_CONTROL_FEATURE = "remote-control";
 
+/**
+ * The experiment "the name beside the pointer": on the computer being
+ * controlled, a small tag with the controller's name follows the pointer
+ * (golive-input --label). A *user* feature of the person being controlled —
+ * it is their screen. Its stats compare sessions on both sides.
+ */
+export const REMOTE_CONTROL_LABEL_FEATURE = "remote-control-label";
+export const REMOTE_CONTROL_LABEL_EVENTS = {
+  /** A session started on this computer (both sides of the experiment). */
+  session: "rc_label_session",
+  /** It ended; value: seconds. */
+  seconds: "rc_label_seconds",
+  /** The person here ended it (Parar, tray, Ctrl+Alt+Esc). */
+  hostStop: "rc_label_host_stop",
+  /** The tag was on screen for the session. */
+  shown: "rc_label_shown",
+  /** It was asked for and could not be (old app or helper, old Windows). */
+  off: "rc_label_off",
+} as const;
+
 /** Usage stats. Each name has to be in the feature's "site events" to count. */
 export const REMOTE_CONTROL_EVENTS = {
   openOn: "rc_open_on",
@@ -265,8 +285,15 @@ let hostOpen = false;
 /** The host is sharing a screen right now. */
 let hostSharing = false;
 
+/** The "remote-control-label" experiment says this person gets the tag. */
+let cursorLabel = false;
+
 function track(name: string, value?: number) {
   trackFeatureEvent(name, { room, feature: REMOTE_CONTROL_FEATURE, ...(value ? { value } : {}) });
+}
+
+function trackLabel(name: string, value?: number) {
+  trackFeatureEvent(name, { feature: REMOTE_CONTROL_LABEL_FEATURE, ...(value ? { value } : {}) });
 }
 
 /** For the UI's own events (REMOTE_CONTROL_EVENTS): counted against this room, like the rest. */
@@ -639,6 +666,10 @@ function shellEvent(event: RemoteControlShellEvent) {
 }
 
 function hostShellEvent(event: RemoteControlShellEvent) {
+  if (event.type === "label") {
+    trackLabel(event.shown ? REMOTE_CONTROL_LABEL_EVENTS.shown : REMOTE_CONTROL_LABEL_EVENTS.off);
+    return;
+  }
   if (event.type === "local") {
     hostSend(encodeSimple(T_LOCAL));
     if (host) mirror.note(["loc"]);
@@ -712,7 +743,10 @@ function endHost(reason: HostEndReason, options: { shellEnded?: boolean } = {}) 
   const pc = active.pc;
   setTimeout(() => closePc(pc), 250);
   if (active.announced) hostAnnounce(null);
-  if (active.announced) track(REMOTE_CONTROL_EVENTS.sessionEnd, Math.max(1, Math.round((Date.now() - active.startedAt) / 1000)));
+  const seconds = Math.max(1, Math.round((Date.now() - active.startedAt) / 1000));
+  if (active.announced) track(REMOTE_CONTROL_EVENTS.sessionEnd, seconds);
+  trackLabel(REMOTE_CONTROL_LABEL_EVENTS.seconds, seconds);
+  if (reason === "hotkey" || reason === "sharer") trackLabel(REMOTE_CONTROL_LABEL_EVENTS.hostStop);
   if (reason === "hotkey") track(REMOTE_CONTROL_EVENTS.stopHotkey);
   else if (reason === "sharer") track(REMOTE_CONTROL_EVENTS.stopSharer);
   else if (reason === "helper") track(REMOTE_CONTROL_EVENTS.helperFail);
@@ -776,6 +810,7 @@ async function askShell(
       // easy to copy, the username is not (it comes from the server).
       handle: peer.handle ?? undefined,
       lang,
+      cursorLabel,
     });
   } catch {
     return { ok: false, reason: "failed" };
@@ -816,6 +851,7 @@ async function hostOnRequest(msg: Record<string, unknown>) {
     return answer(false, "unavailable");
   }
   track(REMOTE_CONTROL_EVENTS.granted);
+  trackLabel(REMOTE_CONTROL_LABEL_EVENTS.session);
   startHostSession(from, userId, name, "request", result.perms ?? ALL_INPUT);
   answer(true);
 }
@@ -835,6 +871,7 @@ export async function offerRemoteControl(peer: PeerInfo): Promise<void> {
     return;
   }
   track(REMOTE_CONTROL_EVENTS.granted);
+  trackLabel(REMOTE_CONTROL_LABEL_EVENTS.session);
   startHostSession(peer.id, peer.userId, peer.name, "offer", result.perms ?? ALL_INPUT);
   signalingClient.sendMessage({ type: "remote-control-offer", to: peer.id });
 }
@@ -1557,6 +1594,8 @@ export function useRemoteControl(options: {
   sharingScreen: boolean;
   forceRelay: boolean;
   lang: "pt" | "en" | "es";
+  /** The "remote-control-label" experiment: the controller's name follows the pointer here. */
+  cursorLabel?: boolean;
 }) {
   const { enabled, hostEnabled, open, sharingScreen } = options;
 
@@ -1564,7 +1603,8 @@ export function useRemoteControl(options: {
     room = options.room;
     forceRelay = options.forceRelay;
     lang = options.lang;
-  }, [options.room, options.forceRelay, options.lang]);
+    cursorLabel = options.cursorLabel === true;
+  }, [options.room, options.forceRelay, options.lang, options.cursorLabel]);
 
   useEffect(() => {
     if (!enabled) return;

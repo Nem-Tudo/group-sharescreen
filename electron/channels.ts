@@ -716,6 +716,11 @@ export interface RemoteControlRequestInfo {
   /** https only; anything else is dropped. */
   avatar?: string;
   lang: RemoteControlLang;
+  /**
+   * The name follows the pointer on this screen while they move it (the
+   * "remote-control-label" experiment; see golive-input's --label).
+   */
+  cursorLabel?: boolean;
 }
 
 /**
@@ -791,7 +796,9 @@ export type RemoteControlEvent =
   /** The banner changed what is allowed, during the session. */
   | { type: "perms"; perms: RemoteControlLivePermissions }
   /** Text copied on this computer during a session that allows the clipboard. */
-  | { type: "clipboard"; text: string };
+  | { type: "clipboard"; text: string }
+  /** A session asked for the name beside the pointer: whether it could be shown. */
+  | { type: "label"; shown: boolean };
 
 export const REMOTE_CONTROL_ZONES = ["ok", "golive", "covered", "elevated"] as const;
 export type RemoteControlZone = (typeof REMOTE_CONTROL_ZONES)[number];

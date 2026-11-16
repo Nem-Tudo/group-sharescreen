@@ -201,6 +201,7 @@ function readRequest(raw: unknown): RemoteControlRequestInfo | null {
     handle,
     avatar,
     lang: readLang(value.lang),
+    cursorLabel: value.cursorLabel === true,
   };
 }
 
@@ -501,13 +502,20 @@ export function createRemoteControl(options: {
     }, IDLE_TIMEOUT_MS);
   }
 
-  function startHelper(info: RemoteControlRequestInfo, perms: RemoteControlPermissions): Promise<RemoteControlConsent> {
+  function startHelper(
+    info: RemoteControlRequestInfo,
+    perms: RemoteControlPermissions,
+    withLabel = info.cursorLabel === true
+  ): Promise<RemoteControlConsent> {
     const sourceArgs = sharedSourceArgs();
     if (!sourceArgs) return Promise.resolve({ ok: false, reason: "no-source" });
     let child: ChildProcessWithoutNullStreams;
     try {
       const args = [...sourceArgs, "--protect-pid", String(process.pid)];
       if (perms.app) args.push("--allow-app");
+      // The name beside the pointer. A value of its own after the flag, so a
+      // name that looks like a flag is still just a name.
+      if (withLabel) args.push("--label", info.name);
       child = spawn(helperPath(), args, {
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
@@ -541,6 +549,8 @@ export function createRemoteControl(options: {
     return new Promise<RemoteControlConsent>((resolve) => {
       let ready = false;
       let buffered = "";
+      // Said by the helper before READY; told to the page once the session is on.
+      let labelShown = false;
       const readyTimer = setTimeout(() => {
         if (ready) return;
         clearInterval(active.pingTimer);
@@ -559,7 +569,9 @@ export function createRemoteControl(options: {
         while ((newline = buffered.indexOf("\n")) >= 0) {
           const line = buffered.slice(0, newline).trim();
           buffered = buffered.slice(newline + 1);
-          if (line === "READY" && !ready) {
+          if (line === "LABEL on" || line === "LABEL off") {
+            labelShown = line === "LABEL on";
+          } else if (line === "READY" && !ready) {
             ready = true;
             clearTimeout(readyTimer);
             session = active;
@@ -572,6 +584,7 @@ export function createRemoteControl(options: {
             watchClipboard(active);
             options.onActiveChange();
             resolve({ ok: true, perms: livePerms(active.perms) });
+            if (info.cursorLabel) options.send({ type: "label", shown: withLabel && labelShown });
           } else if (session !== active) {
             continue;
           } else if (line === "LOCAL") {
@@ -600,10 +613,16 @@ export function createRemoteControl(options: {
           resolve({ ok: false, reason: "failed" });
         }
       });
-      child.on("exit", () => {
+      child.on("exit", (code) => {
         clearInterval(active.pingTimer);
         if (!ready) {
           clearTimeout(readyTimer);
+          // A helper from before --label refuses the whole command line (exit
+          // 2, bad arguments): the session goes ahead without the name.
+          if (withLabel && code === 2) {
+            resolve(startHelper(info, perms, false));
+            return;
+          }
           resolve({ ok: false, reason: "failed" });
           return;
         }

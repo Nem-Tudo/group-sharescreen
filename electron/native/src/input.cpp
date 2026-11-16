@@ -29,6 +29,10 @@
 //                     too: the person at the computer ticked that in the
 //                     prompt. Its always-on-top windows (the prompt itself,
 //                     the "Parar" banner, a ringing call) stay out of reach.
+//   --label name      a small tag with this name follows the pointer while
+//                     the other side moves it, on this screen only — kept
+//                     out of every capture, so the share does not carry it.
+//                     See "The name beside the pointer" below.
 //   --grab-keys       the other side: the computer of the person *controlling*.
 //                     See "Grabbing the system shortcuts" below.
 //
@@ -67,6 +71,9 @@
 //                              picture is — the way AnyDesk does it.
 //   KEY SC EXT D               --grab-keys only: a system shortcut key that
 //                              was kept from Windows here, to be sent across
+//   LABEL on|off               --label only, once, before READY: whether the
+//                              tag could be shown (off: this Windows cannot
+//                              keep a window out of captures, so there is none)
 //   GONE                       the shared window or monitor no longer exists
 //
 // Exit codes: 0 stopped, 1 failure, 2 bad arguments, 4 target gone.
@@ -118,6 +125,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
@@ -155,6 +163,8 @@ struct Options {
   // GoLive's own windows may be clicked too — the person ticked "também o Go
   // Live" in the prompt. Its always-on-top ones never (see AlwaysOnTop).
   bool allowApp = false;
+  // The name on the tag beside the pointer; empty: no tag.
+  std::wstring label;
 };
 
 static bool ParseLong(const wchar_t* text, long long& out) {
@@ -185,6 +195,10 @@ static bool ParseArgs(int argc, wchar_t** argv, Options& options) {
       options.grabKeys = true;
     } else if (arg == L"--allow-app") {
       options.allowApp = true;
+    } else if (arg == L"--label" && i + 1 < argc) {
+      // The shell already trims it to 64 characters; this is a second fence.
+      options.label = std::wstring(argv[i + 1]).substr(0, 64);
+      i += 1;
     } else {
       return false;
     }
@@ -215,6 +229,11 @@ static void Emit(const char* line) {
 static void Log(const char* text) {
   fputs(text, stderr);
   fputc('\n', stderr);
+  fflush(stderr);
+}
+
+static void LogError(const char* what) {
+  fprintf(stderr, "%s failed: %lu\n", what, static_cast<unsigned long>(GetLastError()));
   fflush(stderr);
 }
 
@@ -555,6 +574,10 @@ static const CursorName kCursors[] = {
 };
 static const size_t kCursorCount = sizeof(kCursors) / sizeof(kCursors[0]);
 
+// The pointer is hidden right now (a game, a video playing full screen):
+// there is nothing for the name tag to stand beside.
+static std::atomic<bool> g_cursorHidden{false};
+
 static void WatchCursor() {
   HCURSOR handles[kCursorCount] = {};
   for (size_t i = 0; i < kCursorCount; i++) handles[i] = LoadCursorW(nullptr, MAKEINTRESOURCEW(kCursors[i].id));
@@ -575,6 +598,7 @@ static void WatchCursor() {
         }
       }
     }
+    g_cursorHidden.store(std::strcmp(name, "none") == 0);
     if (name != shown) {
       shown = name;
       std::string line = "CURSOR ";
@@ -667,6 +691,276 @@ static LRESULT CALLBACK GrabHook(int code, WPARAM wParam, LPARAM lParam) {
 }
 
 // ---------------------------------------------------------------------------
+// The name beside the pointer (--label)
+//
+// The person at this computer sees who is moving their mouse: a small blue
+// tag with the name, below and to the right of the pointer's tip, the way
+// Figma shows the people in a file.
+//
+// It follows without delay because it is moved here, by the same program
+// that puts the pointer there, right after it does — no trip through the
+// shell or a browser window, which would trail the pointer by a few frames.
+// The commands thread only records where and posts a message; the window is
+// moved by the thread that owns it (the main one, which already pumps
+// messages for the hooks). Moves arriving faster than it gets to them are
+// folded into one: only the newest position matters.
+//
+// It is for this screen only. WDA_EXCLUDEFROMCAPTURE keeps it out of every
+// capture, ours included — the person controlling already has their own
+// pointer, immediate, and would otherwise see their own name trailing it,
+// late. Where Windows cannot do that (before 10 2004) there is no tag at all.
+//
+// It goes away when the pointer stops for a moment, when the person here
+// takes the mouse, and while the pointer is hidden; the next remote move
+// brings it back.
+
+static const UINT WM_LABEL_MOVE = WM_APP + 1;
+static const UINT WM_LABEL_HIDE = WM_APP + 2;
+// Without a move for this long, the tag goes until the next one.
+static const ULONGLONG LABEL_IDLE_MS = 2000;
+
+static HWND g_label = nullptr;
+// The drawn tag, premultiplied 32-bit (main thread only).
+static HBITMAP g_labelBitmap = nullptr;
+static SIZE g_labelSize = {0, 0};
+// The tag's offset from the pointer's tip, scaled with the monitor's DPI.
+static int g_labelOffsetX = 0, g_labelOffsetY = 0;
+static std::atomic<LONG> g_labelX{0}, g_labelY{0};
+static std::atomic<bool> g_labelMovePosted{false};
+static std::atomic<bool> g_labelShown{false};
+static std::atomic<ULONGLONG> g_labelMovedAt{0};
+// Main thread only: whether the window is on screen.
+static bool g_labelVisible = false;
+
+// Draws the tag for a DPI: a blue pill with the name in white, antialiased
+// edges and text, alpha per pixel.
+static void RenderLabel(UINT dpi) {
+  if (!g_label) return;
+  const double scale = dpi / 96.0;
+  auto px = [scale](double value) { return static_cast<int>(value * scale + 0.5); };
+  HDC screen = GetDC(nullptr);
+  HDC memory = CreateCompatibleDC(screen);
+  HFONT font = CreateFontW(-px(12), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                           CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+  HGDIOBJ oldFont = SelectObject(memory, font);
+  const std::wstring& text = g_options.label;
+  SIZE extent = {0, 0};
+  GetTextExtentPoint32W(memory, text.c_str(), static_cast<int>(text.size()), &extent);
+  const int padX = px(8), padY = px(3);
+  const int textWidth = std::min<int>(extent.cx, px(200));
+  const int width = textWidth + padX * 2;
+  const int height = extent.cy + padY * 2;
+
+  BITMAPINFO info = {};
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = width;
+  info.bmiHeader.biHeight = -height;  // top-down
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bitmap = CreateDIBSection(memory, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!bitmap || !bits) {
+    SelectObject(memory, oldFont);
+    DeleteObject(font);
+    DeleteDC(memory);
+    ReleaseDC(nullptr, screen);
+    return;
+  }
+  HGDIOBJ oldBitmap = SelectObject(memory, bitmap);
+
+  // The text first, white on black: GDI does not write alpha, so its
+  // grayscale antialiasing is read back as how much of each pixel is text.
+  std::memset(bits, 0, static_cast<size_t>(width) * height * 4);
+  SetBkMode(memory, TRANSPARENT);
+  SetTextColor(memory, RGB(255, 255, 255));
+  RECT textRect = {padX, padY, padX + textWidth, padY + extent.cy};
+  DrawTextW(memory, text.c_str(), static_cast<int>(text.size()), &textRect,
+            DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS | DT_LEFT | DT_TOP);
+  GdiFlush();
+
+  // Then the pill under it, with GoLive's blue (#2563eb) and a faint light
+  // edge so it reads on a blue page too. Premultiplied, as layered windows
+  // take it.
+  const double radius = height / 2.0;
+  const double borderWidth = std::max(1.0, scale);
+  uint8_t* pixel = static_cast<uint8_t*>(bits);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++, pixel += 4) {
+      const double cx = x + 0.5, cy = y + 0.5;
+      const double nearestX = std::min(std::max(cx, radius), width - radius);
+      const double dx = cx - nearestX, dy = cy - radius;
+      const double distance = std::sqrt(dx * dx + dy * dy) - radius;  // < 0 inside
+      const double shape = std::min(1.0, std::max(0.0, 0.5 - distance));
+      const double edge = std::min(1.0, std::max(0.0, borderWidth + 0.5 + distance)) * 0.35;
+      const double ink = pixel[2] / 255.0;  // red channel: the text's coverage
+      double r = 37, g = 99, b = 235;
+      r += (255 - r) * edge, g += (255 - g) * edge, b += (255 - b) * edge;
+      r += (255 - r) * ink, g += (255 - g) * ink, b += (255 - b) * ink;
+      const double alpha = shape * 0.96;
+      pixel[0] = static_cast<uint8_t>(b * alpha + 0.5);
+      pixel[1] = static_cast<uint8_t>(g * alpha + 0.5);
+      pixel[2] = static_cast<uint8_t>(r * alpha + 0.5);
+      pixel[3] = static_cast<uint8_t>(255 * alpha + 0.5);
+    }
+  }
+
+  SelectObject(memory, oldBitmap);
+  // Kept for WM_PAINT, which copies it as is: DWM reads its alpha (see
+  // CreateLabel).
+  if (g_labelBitmap) DeleteObject(g_labelBitmap);
+  g_labelBitmap = bitmap;
+  g_labelSize = {width, height};
+  // Clear of the arrow: Windows' pointer is about 12x19 at 100%.
+  g_labelOffsetX = px(12);
+  g_labelOffsetY = px(18);
+  SetWindowPos(g_label, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+  InvalidateRect(g_label, nullptr, FALSE);
+
+  SelectObject(memory, oldFont);
+  DeleteObject(font);
+  DeleteDC(memory);
+  ReleaseDC(nullptr, screen);
+}
+
+// Main thread: puts the tag beside the newest pointer position.
+static void PlaceLabel() {
+  g_labelMovePosted.store(false);
+  if (!g_labelShown.load()) return;
+  const POINT tip = {g_labelX.load(), g_labelY.load()};
+  int x = tip.x + g_labelOffsetX;
+  int y = tip.y + g_labelOffsetY;
+  // Near the right or bottom edge of the monitor it flips to the other side
+  // of the pointer rather than leave the screen.
+  HMONITOR monitor = MonitorFromPoint(tip, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO info = {};
+  info.cbSize = sizeof(info);
+  if (monitor && GetMonitorInfoW(monitor, &info)) {
+    if (x + g_labelSize.cx > info.rcMonitor.right) x = tip.x - g_labelSize.cx - g_labelOffsetX / 3;
+    if (y + g_labelSize.cy > info.rcMonitor.bottom) y = tip.y - g_labelSize.cy - g_labelOffsetY / 3;
+  }
+  // Brought back to the top when it appears; moves after that leave the
+  // order alone, which is the cheaper call.
+  const UINT flags = SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | (g_labelVisible ? SWP_NOZORDER : SWP_SHOWWINDOW);
+  SetWindowPos(g_label, HWND_TOPMOST, x, y, 0, 0, flags);
+  g_labelVisible = true;
+}
+
+static LRESULT CALLBACK LabelProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+  switch (message) {
+    case WM_LABEL_MOVE:
+      PlaceLabel();
+      return 0;
+    case WM_LABEL_HIDE:
+      if (!g_labelShown.load() && g_labelVisible) {
+        ShowWindow(window, SW_HIDE);
+        g_labelVisible = false;
+      }
+      return 0;
+    case WM_DPICHANGED:
+      // Taken to a monitor with another scale: drawn again for it. The
+      // suggested rectangle is ignored — the next move places it.
+      RenderLabel(HIWORD(wParam));
+      return 0;
+    case WM_PAINT: {
+      PAINTSTRUCT paint;
+      HDC dc = BeginPaint(window, &paint);
+      if (g_labelBitmap) {
+        HDC memory = CreateCompatibleDC(dc);
+        HGDIOBJ old = SelectObject(memory, g_labelBitmap);
+        BitBlt(dc, 0, 0, g_labelSize.cx, g_labelSize.cy, memory, 0, 0, SRCCOPY);
+        SelectObject(memory, old);
+        DeleteDC(memory);
+      }
+      EndPaint(window, &paint);
+      return 0;
+    }
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_NCHITTEST:
+      return HTTRANSPARENT;
+    case WM_MOUSEACTIVATE:
+      return MA_NOACTIVATE;
+    default:
+      return DefWindowProcW(window, message, wParam, lParam);
+  }
+}
+
+// Main thread, before the message loop. Reports LABEL on|off.
+static void CreateLabel(const RECT& target) {
+  if (g_options.label.empty()) return;
+  WNDCLASSEXW windowClass = {};
+  windowClass.cbSize = sizeof(windowClass);
+  windowClass.lpfnWndProc = LabelProc;
+  windowClass.hInstance = GetModuleHandleW(nullptr);
+  windowClass.lpszClassName = L"GoLiveRemoteControlLabel";
+  windowClass.hCursor = nullptr;
+  if (!RegisterClassExW(&windowClass)) {
+    LogError("label: RegisterClassExW");
+    Emit("LABEL off");
+    return;
+  }
+  // Layered and transparent to the mouse: clicks, hover and WindowFromPoint
+  // (see ZoneAt) all go straight through it. Never activated, never in the
+  // taskbar or Alt+Tab.
+  g_label = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                            windowClass.lpszClassName, L"", WS_POPUP, target.left, target.top, 1, 1, nullptr, nullptr,
+                            windowClass.hInstance, nullptr);
+  if (!g_label) {
+    LogError("label: CreateWindowExW");
+    Emit("LABEL off");
+    return;
+  }
+  // Per-pixel alpha without UpdateLayeredWindow: Windows refuses to keep an
+  // UpdateLayeredWindow window out of captures (error 8, tried). Instead the
+  // window is layered only through SetLayeredWindowAttributes — what makes
+  // WS_EX_TRANSPARENT let clicks through — and DWM is told the whole client
+  // area is "glass", so it takes the alpha of what WM_PAINT draws.
+  SetLayeredWindowAttributes(g_label, 0, 255, LWA_ALPHA);
+  const MARGINS glass = {-1, -1, -1, -1};
+  DwmExtendFrameIntoClientArea(g_label, &glass);
+  RenderLabel(GetDpiForWindow(g_label));
+  // WDA_EXCLUDEFROMCAPTURE, spelled out for older SDKs. Refused before
+  // Windows 10 2004 — and a tag that would ride along in the share is worse
+  // than none (see above).
+  const DWORD kExcludeFromCapture = 0x00000011;
+  if (!SetWindowDisplayAffinity(g_label, kExcludeFromCapture)) {
+    LogError("label: SetWindowDisplayAffinity");
+    DestroyWindow(g_label);
+    g_label = nullptr;
+    Emit("LABEL off");
+    return;
+  }
+  Emit("LABEL on");
+}
+
+// Any thread: the remote side put the pointer here.
+static void FollowLabel(POINT point) {
+  if (!g_label) return;
+  g_labelX.store(point.x);
+  g_labelY.store(point.y);
+  g_labelMovedAt.store(GetTickCount64());
+  if (g_cursorHidden.load()) return;
+  g_labelShown.store(true);
+  if (!g_labelMovePosted.exchange(true)) PostMessageW(g_label, WM_LABEL_MOVE, 0, 0);
+}
+
+// Any thread: off the screen until the next remote move.
+static void HideLabel() {
+  if (!g_label || !g_labelShown.exchange(false)) return;
+  PostMessageW(g_label, WM_LABEL_HIDE, 0, 0);
+}
+
+// The watchdog, every tick: idle, the person here took over, or the pointer
+// went hidden.
+static void CheckLabel() {
+  if (!g_label || !g_labelShown.load()) return;
+  if (GetTickCount64() - g_labelMovedAt.load() > LABEL_IDLE_MS || LocalHasPriority() || g_cursorHidden.load()) {
+    HideLabel();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 
 static std::atomic<ULONGLONG> g_lastPing{0};
@@ -718,6 +1012,7 @@ static void HandleLine(char* line) {
       if (LocalHasPriority()) return;
       const POINT point = ToDesktop(rect, n[0], n[1]);
       MoveTo(point);
+      FollowLabel(point);
       ShowZone(ZoneAt(point));
       return;
     }
@@ -741,6 +1036,7 @@ static void HandleLine(char* line) {
       const POINT point = ToDesktop(rect, n[2], n[3]);
       if (!PointAllowed(point)) return;
       MoveTo(point);
+      FollowLabel(point);
       g_buttonsDown[button] = true;
       SendButton(button, true);
       return;
@@ -766,6 +1062,7 @@ static void HandleLine(char* line) {
         inside.x = std::min(std::max(inside.x, rect.left), rect.right - 1);
         inside.y = std::min(std::max(inside.y, rect.top), rect.bottom - 1);
         if (inside.x != cursor.x || inside.y != cursor.y) SetCursorPos(inside.x, inside.y);
+        FollowLabel(inside);
         ShowZone(ZoneAt(inside));
       }
       return;
@@ -871,6 +1168,7 @@ static void Watchdog() {
       Finish(EXIT_OK);
     }
     if (g_options.grabKeys) continue;
+    CheckLabel();
     if (now - lastTargetCheck >= 1000) {
       lastTargetCheck = now;
       RECT rect;
@@ -933,6 +1231,9 @@ int wmain(int argc, wchar_t** argv) {
     Log("could not install the input hooks");
     return EXIT_FAILED;
   }
+
+  // Before the commands thread starts: it reads g_label without a lock.
+  CreateLabel(rect);
 
   g_lastPing.store(GetTickCount64());
   std::thread(ReadStdin).detach();

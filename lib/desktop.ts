@@ -287,6 +287,8 @@ export interface DesktopBridge {
       handle?: string;
       avatar?: string;
       lang: "pt" | "en" | "es";
+      /** Their name follows the pointer on this screen (ignored by an app from before it). */
+      cursorLabel?: boolean;
     }): Promise<RemoteControlConsent>;
     input(events: RemoteControlInputEvent[]): void;
     /** Holds the input (and lets go of every key) while the other side is reconnecting. */
@@ -449,7 +451,8 @@ export type RemoteControlShellEvent =
   | { type: "cursor"; shape: string }
   | { type: "key"; code: string; down: boolean }
   | { type: "perms"; perms: RemoteControlShellPermissions }
-  | { type: "clipboard"; text: string };
+  | { type: "clipboard"; text: string }
+  | { type: "label"; shown: boolean };
 
 declare global {
   interface Window {

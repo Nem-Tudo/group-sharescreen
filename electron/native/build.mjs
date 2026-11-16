@@ -92,12 +92,13 @@ const HELPERS = [
   },
   // input: SendInput and the low-level hooks are user32; dwmapi.lib is
   // DwmGetWindowAttribute, for the shared window's visible frame; advapi32.lib
-  // reads a window's process token, to tell an elevated program apart.
+  // reads a window's process token, to tell an elevated program apart;
+  // gdi32.lib draws the name tag beside the pointer (--label).
   {
     name: "golive-input",
     stem: "input",
     flags: ["/std:c++17"],
-    libs: ["user32.lib", "dwmapi.lib", "advapi32.lib"],
+    libs: ["user32.lib", "dwmapi.lib", "advapi32.lib", "gdi32.lib"],
   },
 ].map((helper) => {
   const output = path.join(outdir, `${helper.name}.exe`);

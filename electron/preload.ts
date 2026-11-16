@@ -442,6 +442,7 @@ contextBridge.exposeInMainWorld("golive", {
             handle: typeof value.handle === "string" ? value.handle : undefined,
             avatar: typeof value.avatar === "string" ? value.avatar : undefined,
             lang: typeof value.lang === "string" ? value.lang : "pt",
+            cursorLabel: value.cursorLabel === true,
           });
         },
         input(events: unknown): void {

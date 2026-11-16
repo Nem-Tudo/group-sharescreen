@@ -152,6 +152,7 @@ import {
   onRemoteControlDriving,
   useRemoteControl,
   useRemoteControlState,
+  REMOTE_CONTROL_LABEL_FEATURE,
 } from "@/lib/remoteControl";
 import { RemoteControlDockButton, RemoteControlPrompt } from "@/components/RemoteControlTile";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
@@ -3684,7 +3685,11 @@ function WatchRoomView({
   // picked last, and with several going out that is a guess.
   const remoteControlSharing = Boolean(isSharing && localStream) && extraScreensActive === 0;
   const remoteControlLang = useLocale();
+  // The controller's name beside the pointer, on the screen being controlled
+  // (see REMOTE_CONTROL_LABEL_FEATURE). Exposure: whoever could be controlled.
+  const remoteControlLabel = useFeature(REMOTE_CONTROL_LABEL_FEATURE, { track: remoteControlHost });
   useRemoteControl({
+    cursorLabel: remoteControlLabel.enabled,
     room: handle,
     enabled: remoteControlEnabled,
     hostEnabled: remoteControlBridge,
