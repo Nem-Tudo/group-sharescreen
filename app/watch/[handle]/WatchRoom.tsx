@@ -294,6 +294,7 @@ import {
   useTileExperiment,
   useTileExperimentTip,
 } from "@/lib/clipsMode";
+import { noteClipsSwitched, useClipsIdleOff } from "@/lib/clipsIdleOff";
 import { FullscreenChatSlotContext } from "@/lib/fullscreenChat";
 import {
   isDefaultOrientation,
@@ -2387,6 +2388,8 @@ function WatchRoomView({
   // The tile experiments, "Modo clipes" and "Gravação" (see lib/clipsMode).
   // Tracked here, where their switches are shown, rather than in every tile.
   const clipsMode = useTileExperiment("clips", { track: true });
+  // Switched off by itself after a week without a clip (lib/clipsIdleOff).
+  const clipsIdle = useClipsIdleOff(clipsMode.available, clipsMode.on);
   const recordingMode = useTileExperiment("recording", { track: true });
   const clipsTip = useTileExperimentTip("clips", clipsMode.available);
   const recordingTip = useTileExperimentTip("recording", recordingMode.available);
@@ -7799,9 +7802,19 @@ function WatchRoomView({
           label={translate("watch.watchRoom.clipsMode")}
           badge={<NewBadge id="room-clips" />}
           active={clipsMode.on && roomAllowsClips}
-          onToggle={() => setTileExperimentMode("clips", !clipsMode.on)}
+          onToggle={() => {
+            const next = !clipsMode.on;
+            setTileExperimentMode("clips", next);
+            noteClipsSwitched(next);
+          }}
           disabled={!roomAllowsClips}
-          hint={translate(roomAllowsClips ? "watch.watchRoom.clipsModeHint" : "watch.watchRoom.roomClipsOff")}
+          hint={translate(
+            !roomAllowsClips
+              ? "watch.watchRoom.roomClipsOff"
+              : clipsIdle.autoOff
+                ? "watch.watchRoom.clipsIdleOffHint"
+                : "watch.watchRoom.clipsModeHint"
+          )}
           activeIcon={<ClipIcon className="h-4 w-4" />}
           inactiveIcon={<ClipIcon className="h-4 w-4 opacity-50" />}
         />

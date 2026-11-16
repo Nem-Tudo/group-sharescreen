@@ -3677,6 +3677,7 @@
   "watch.watchRoom.moreOptions": "Más opciones",
   "watch.watchRoom.clipsMode": "Activar clips",
   "watch.watchRoom.clipsModeHint": "Agrega un botón a cada pantalla y cámara para guardar los últimos 30 segundos en video.",
+  "watch.watchRoom.clipsIdleOffHint": "Desactivado automáticamente tras 7 días sin ningún clip, para no cargar tu computadora. Actívalo de nuevo cuando quieras.",
   "watch.watchRoom.clipsModeTip": "Nuevo: activa los clips aquí para guardar los últimos 30s de cualquier pantalla o cámara.",
   "watch.watchRoom.clipsModeTipDismiss": "Cerrar",
   "watch.watchRoom.recordingMode": "Grabación",

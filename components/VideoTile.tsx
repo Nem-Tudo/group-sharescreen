@@ -51,6 +51,7 @@ import {
   trackTileExperiment,
   useTileExperiment,
 } from "@/lib/clipsMode";
+import { noteClipMade } from "@/lib/clipsIdleOff";
 import { FullscreenChatSlotContext } from "@/lib/fullscreenChat";
 import { announceRecording } from "@/lib/recordingNotice";
 import { registerTileCommands } from "@/lib/tileCommands";
@@ -481,6 +482,7 @@ const VideoTileView = memo(function VideoTileView({
       if (result) {
         trackTileExperiment(TILE_EXPERIMENT_EVENTS.clips.create, result.durationMs / 1000);
         markFeatureUsed("room-clips");
+        noteClipMade();
         setRecording({ ...result, kind: "clip" });
       }
     } finally {

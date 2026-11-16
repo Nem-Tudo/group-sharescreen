@@ -422,8 +422,16 @@ function write(key: string, value: string) {
   emit();
 }
 
-export function setTileExperimentMode(experiment: TileExperiment, on: boolean, room?: string | null) {
+// `track: false` for a change the person did not make (see lib/clipsIdleOff),
+// so the mode events keep counting only what people do.
+export function setTileExperimentMode(
+  experiment: TileExperiment,
+  on: boolean,
+  room?: string | null,
+  options: { track?: boolean } = {}
+) {
   write(CONFIG[experiment].modeKey, on ? "1" : "0");
+  if (options.track === false) return;
   const events = TILE_EXPERIMENT_EVENTS[experiment];
   trackTileExperiment(on ? events.modeOn : events.modeOff, undefined, room);
 }
