@@ -12,6 +12,7 @@ import { useGroupNavigation } from "@/lib/groupNavigation";
 import { useAccountToken } from "@/lib/accountApi";
 import { getSignalingHttpBase } from "@/lib/roomsApi";
 import { setNativeNotificationSession } from "@/lib/androidNotifications";
+import { setIOSLiveActivitySession, trackLiveActivityOpen } from "@/lib/iosLiveActivities";
 
 // Three jobs, all of them invisible, all of them about the app being *closed*.
 //
@@ -58,7 +59,13 @@ export function PushRegistrar() {
   const token = useAccountToken();
   useEffect(() => {
     setNativeNotificationSession(account ? token : null, getSignalingHttpBase());
+    setIOSLiveActivitySession(account ? token : null, getSignalingHttpBase());
   }, [account, token]);
+
+  // A room opened from the iPhone's "fulano está ao vivo" card.
+  useEffect(() => {
+    trackLiveActivityOpen();
+  }, []);
 
   // ─── Foreground / background ────────────────────────────────────────────
   useEffect(() => {

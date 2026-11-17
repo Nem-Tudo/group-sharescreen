@@ -7,6 +7,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // From launch, not from the page: iOS wakes the app in the background
+        // to hand over a live card's token, with no page loaded to ask for it.
+        LiveActivityRegistrar.shared.start()
         return true
     }
 

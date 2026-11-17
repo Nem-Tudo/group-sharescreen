@@ -34,7 +34,8 @@ export type NotifyKind =
   | "profile-comment"
   | "friend-request"
   | "gift"
-  | "billing";
+  | "billing"
+  | "friend-live";
 
 /** One device this account receives notifications on. */
 export interface PushDevice {

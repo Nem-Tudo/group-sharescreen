@@ -6173,5 +6173,6 @@
   "oAuthButtons.continueWithLabel": "Continuar com {label}",
   "iosScreen.couldNotStart": "Não foi possível começar a compartilhar a tela. Tente de novo.",
   "iosScreen.notAllowedInRoom": "Esta sala não permite que você compartilhe a tela.",
-  "iosScreen.banned": "Você não pode compartilhar a tela agora."
+  "iosScreen.banned": "Você não pode compartilhar a tela agora.",
+  "notificationSettings.kindFriendLive": "Amigos ao vivo (card na ilha e na tela bloqueada)"
 }

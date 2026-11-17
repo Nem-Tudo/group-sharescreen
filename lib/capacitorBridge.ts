@@ -109,8 +109,11 @@ function handleDeepLink(rawUrl: string) {
     // React tree (there is no router instance to call), and it is what
     // electron/main.ts's own openRoom does too (loadURL, not an SPA
     // transition) for the exact same deep-link case.
+    // The live card's marker rides along, to be counted on arrival (see
+    // lib/iosLiveActivities.ts) — nothing else from the link is.
+    const via = parsed.searchParams.get("via") === "live-activity" ? "?via=live-activity" : "";
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.href = `/watch/${encodeURIComponent(handle)}`;
+    window.location.href = `/watch/${encodeURIComponent(handle)}${via}`;
     return;
   }
 

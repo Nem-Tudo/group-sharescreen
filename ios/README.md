@@ -14,6 +14,9 @@ vêm de lá. O que é nativo está em `App/App/`:
 | `AppDelegate.swift` | Repassa o token do APNs para o `@capacitor/push-notifications`. |
 | `ScreenBroadcastPlugin.swift` | "Compartilhar tela": deixa as instruções para a extensão no App Group, abre a janela "Iniciar transmissão" do iOS e repassa o estado da extensão para o site (`lib/iosScreenBroadcast.ts`). |
 | `BackgroundCallPlugin.swift` | Voz em segundo plano: registra a sala como uma chamada no CallKit enquanto a pessoa está nela (`lib/iosBackgroundCall.ts`). |
+| `LiveActivityPlugin.swift` | Card "fulano está ao vivo": entrega ao servidor o token de push-to-start do aparelho e o token de cada card aberto (`LiveActivityRegistrar`, iniciado no `AppDelegate`). O login vem do site (`lib/iosLiveActivities.ts`). |
+| `FriendLiveAttributes.swift` | Os dados do card; compilado no app e em `Widgets/`. O nome do tipo e dos campos tem que bater com o `friendLive.ts` da API. |
+| `../Widgets/` | Extensão de widget (`me.nemtudo.golive.widgets`, iOS 16.2+) que desenha o card na Dynamic Island e na tela bloqueada. |
 | `BroadcastShared.swift` | Chaves do App Group e notificações que o app e a extensão usam; compilado nos dois. |
 | `../Broadcast/` | A extensão ReplayKit (Broadcast Upload Extension, `me.nemtudo.golive.broadcast`): entra na sala como outro aparelho da pessoa e envia a tela inteira com WebRTC nativo (pacote `stasel/WebRTC`). Veja `ScreenSession.swift`. |
 | `Info.plist` + `*.lproj/InfoPlist.strings` | Textos de permissão (câmera, microfone, fotos) em pt/en/es, esquema `golive://`, áudio em segundo plano, `ITSAppUsesNonExemptEncryption = false`. |
@@ -76,8 +79,11 @@ GitHub roda `npm ci` e precisa dele no lock.
    `me.nemtudo.golive.broadcast` (a extensão), com **App Groups →**
    `group.me.nemtudo.golive`. Nenhuma outra capacidade.
 
-   O build com assinatura automática costuma criar 5-7 sozinho; feitos à mão,
-   não tem como ele travar neles.
+8. **Identifiers → App IDs → +**: Bundle ID explícito
+   `me.nemtudo.golive.widgets` (o card "ao vivo"), sem nenhuma capacidade.
+
+   O build com assinatura automática costuma criar 5-8 sozinho; feitos à mão,
+   não tem como ele travar neles. O card usa a mesma chave do APNs do passo 3.
 
 ### 3. Variáveis da API (produção)
 

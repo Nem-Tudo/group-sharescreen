@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		60A1D0000000000000000037 /* FriendLiveAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000036 /* FriendLiveAttributes.swift */; };
+		60A1D0000000000000000038 /* FriendLiveAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000036 /* FriendLiveAttributes.swift */; };
+		60A1D000000000000000003A /* LiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000039 /* LiveActivityPlugin.swift */; };
+		60A1D000000000000000003C /* GoLiveWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D000000000000000003B /* GoLiveWidgets.swift */; };
+		60A1D0000000000000000040 /* Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 60A1D000000000000000003F /* Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		60A1D0000000000000000035 /* BackgroundCallPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000034 /* BackgroundCallPlugin.swift */; };
 		60A1D0000000000000000018 /* BroadcastShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000017 /* BroadcastShared.swift */; };
 		60A1D0000000000000000019 /* BroadcastShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000017 /* BroadcastShared.swift */; };
@@ -34,6 +39,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		60A1D0000000000000000045 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 60A1D0000000000000000041;
+			remoteInfo = Widgets;
+		};
 		60A1D000000000000000002A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
@@ -51,6 +63,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				60A1D0000000000000000024 /* Broadcast.appex in Embed Foundation Extensions */,
+				60A1D0000000000000000040 /* Widgets.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -58,6 +71,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		60A1D0000000000000000036 /* FriendLiveAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendLiveAttributes.swift; sourceTree = "<group>"; };
+		60A1D0000000000000000039 /* LiveActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPlugin.swift; sourceTree = "<group>"; };
+		60A1D000000000000000003B /* GoLiveWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoLiveWidgets.swift; sourceTree = "<group>"; };
+		60A1D000000000000000003D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		60A1D000000000000000003F /* Widgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Widgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		60A1D0000000000000000034 /* BackgroundCallPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundCallPlugin.swift; sourceTree = "<group>"; };
 		60A1D0000000000000000017 /* BroadcastShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastShared.swift; sourceTree = "<group>"; };
 		60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenBroadcastPlugin.swift; sourceTree = "<group>"; };
@@ -89,6 +107,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		60A1D0000000000000000043 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		60A1D0000000000000000028 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -109,6 +134,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		60A1D000000000000000003E /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				60A1D000000000000000003B /* GoLiveWidgets.swift */,
+				60A1D000000000000000003D /* Info.plist */,
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
 		60A1D0000000000000000022 /* Broadcast */ = {
 			isa = PBXGroup;
 			children = (
@@ -126,6 +160,7 @@
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				60A1D0000000000000000022 /* Broadcast */,
+				60A1D000000000000000003E /* Widgets */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -135,6 +170,7 @@
 			children = (
 				504EC3041FED79650016851F /* App.app */,
 				60A1D0000000000000000023 /* Broadcast.appex */,
+				60A1D000000000000000003F /* Widgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -149,6 +185,8 @@
 				60A1D0000000000000000015 /* WebAuthPlugin.swift */,
 				60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */,
 				60A1D0000000000000000034 /* BackgroundCallPlugin.swift */,
+				60A1D0000000000000000039 /* LiveActivityPlugin.swift */,
+				60A1D0000000000000000036 /* FriendLiveAttributes.swift */,
 				60A1D0000000000000000017 /* BroadcastShared.swift */,
 				60A1D0000000000000000005 /* App.entitlements */,
 				60A1D0000000000000000006 /* PrivacyInfo.xcprivacy */,
@@ -168,6 +206,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		60A1D0000000000000000041 /* Widgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 60A1D0000000000000000047 /* Build configuration list for PBXNativeTarget "Widgets" */;
+			buildPhases = (
+				60A1D0000000000000000042 /* Sources */,
+				60A1D0000000000000000043 /* Frameworks */,
+				60A1D0000000000000000044 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Widgets;
+			productName = Widgets;
+			productReference = 60A1D000000000000000003F /* Widgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		60A1D0000000000000000026 /* Broadcast */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 60A1D000000000000000002C /* Build configuration list for PBXNativeTarget "Broadcast" */;
@@ -201,6 +256,7 @@
 			);
 			dependencies = (
 				60A1D000000000000000002B /* PBXTargetDependency */,
+				60A1D0000000000000000046 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -229,6 +285,10 @@
 						CreatedOnToolsVersion = 16.0;
 						ProvisioningStyle = Automatic;
 					};
+					60A1D0000000000000000041 = {
+						CreatedOnToolsVersion = 16.0;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
@@ -252,11 +312,19 @@
 			targets = (
 				504EC3031FED79650016851F /* App */,
 				60A1D0000000000000000026 /* Broadcast */,
+				60A1D0000000000000000041 /* Widgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		60A1D0000000000000000044 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		60A1D0000000000000000029 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -282,6 +350,15 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		60A1D0000000000000000042 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				60A1D000000000000000003C /* GoLiveWidgets.swift in Sources */,
+				60A1D0000000000000000038 /* FriendLiveAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		60A1D0000000000000000027 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -304,6 +381,8 @@
 				60A1D0000000000000000016 /* WebAuthPlugin.swift in Sources */,
 				60A1D000000000000000001B /* ScreenBroadcastPlugin.swift in Sources */,
 				60A1D0000000000000000035 /* BackgroundCallPlugin.swift in Sources */,
+				60A1D000000000000000003A /* LiveActivityPlugin.swift in Sources */,
+				60A1D0000000000000000037 /* FriendLiveAttributes.swift in Sources */,
 				60A1D0000000000000000018 /* BroadcastShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -311,6 +390,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		60A1D0000000000000000046 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 60A1D0000000000000000041 /* Widgets */;
+			targetProxy = 60A1D0000000000000000045 /* PBXContainerItemProxy */;
+		};
 		60A1D000000000000000002B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 60A1D0000000000000000026 /* Broadcast */;
@@ -348,6 +432,54 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		60A1D0000000000000000048 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = me.nemtudo.golive.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		60A1D0000000000000000049 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = me.nemtudo.golive.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		60A1D000000000000000002D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -556,6 +688,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		60A1D0000000000000000047 /* Build configuration list for PBXNativeTarget "Widgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				60A1D0000000000000000048 /* Debug */,
+				60A1D0000000000000000049 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		60A1D000000000000000002C /* Build configuration list for PBXNativeTarget "Broadcast" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

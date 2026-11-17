@@ -26,6 +26,7 @@ class GoLiveViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(WebAuthPlugin())
         bridge?.registerPluginInstance(ScreenBroadcastPlugin())
         bridge?.registerPluginInstance(BackgroundCallPlugin())
+        bridge?.registerPluginInstance(LiveActivityPlugin())
     }
 
     override func viewDidLoad() {

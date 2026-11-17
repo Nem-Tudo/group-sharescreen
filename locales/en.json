@@ -6173,5 +6173,6 @@
   "oAuthButtons.continueWithLabel": "Continue with {label}",
   "iosScreen.couldNotStart": "Couldn't start sharing your screen. Try again.",
   "iosScreen.notAllowedInRoom": "This room doesn't let you share your screen.",
-  "iosScreen.banned": "You can't share your screen right now."
+  "iosScreen.banned": "You can't share your screen right now.",
+  "notificationSettings.kindFriendLive": "Friends going live (card on the island and lock screen)"
 }

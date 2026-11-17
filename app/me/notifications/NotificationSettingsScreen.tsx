@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   MdArrowBack,
+  MdLiveTv,
   MdBedtime,
   MdAutoAwesome,
   MdCall,
@@ -35,6 +36,8 @@ import {
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { CAMERA_WORKSHOP_FEATURE } from "@/lib/cameraEffectWorkshop";
 import { PROFILE_COMMENTS_FEATURE } from "@/lib/profileComments";
+import { FRIEND_LIVE_FEATURE } from "@/lib/iosLiveActivities";
+import { isIOSApp } from "@/lib/desktop";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { NOTIFICATION_SETTINGS_BADGE, NOTIFICATION_SETTINGS_EVENTS } from "@/lib/notificationSettings";
 import { useT } from "@/lib/useI18n";
@@ -73,6 +76,8 @@ const KINDS: { kind: NotifyKind; icon: typeof MdChatBubbleOutline; labelKey: str
   { kind: "profile-comment", icon: MdComment, labelKey: "notificationSettings.kindProfileComment" },
   { kind: "gift", icon: MdCardGiftcard, labelKey: "notificationSettings.kindGift" },
   { kind: "billing", icon: MdCreditCard, labelKey: "notificationSettings.kindBilling" },
+  // The iPhone's "fulano está ao vivo" card (lib/iosLiveActivities.ts).
+  { kind: "friend-live", icon: MdLiveTv, labelKey: "notificationSettings.kindFriendLive" },
 ];
 
 export function NotificationSettingsScreen({ embedded = false }: { embedded?: boolean } = {}) {
@@ -82,6 +87,8 @@ export function NotificationSettingsScreen({ embedded = false }: { embedded?: bo
   const effectsWorkshop = useFeature(CAMERA_WORKSHOP_FEATURE, { track: false }).enabled;
   // Only a profile in the experiment gets comments to be told about.
   const profileComments = useFeature(PROFILE_COMMENTS_FEATURE, { track: false }).enabled;
+  // Only where the card can appear: the iPhone app, in the experiment.
+  const friendLive = useFeature(FRIEND_LIVE_FEATURE, { track: false }).enabled && isIOSApp();
   const { supported, permission, muted, enable, setMuted } = useNotifications();
   const { prefs, ready, setKindMuted, setQuietHours, setQuietAllowCalls } = useNotifyPrefs();
   const [devices, setDevices] = useState<PushDevice[] | null>(null);
@@ -220,7 +227,9 @@ export function NotificationSettingsScreen({ embedded = false }: { embedded?: bo
         <div className="flex flex-col gap-1">
           {KINDS.filter(
             ({ kind }) =>
-              (kind !== "camera-effect-like" || effectsWorkshop) && (kind !== "profile-comment" || profileComments)
+              (kind !== "camera-effect-like" || effectsWorkshop) &&
+              (kind !== "profile-comment" || profileComments) &&
+              (kind !== "friend-live" || friendLive)
           ).map(({ kind, icon: Icon, labelKey }) => (
             <Toggle
               key={kind}
