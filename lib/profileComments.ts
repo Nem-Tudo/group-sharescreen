@@ -31,6 +31,13 @@ export const PROFILE_COMMENT_EVENTS = {
   toggleOn: "pc_on",
   /** Pressed "load more". value 1 = popup, 2 = page. */
   more: "pc_more",
+  /** Put an emoji on a comment. value 1 = joined one already there, 2 = a new one. */
+  react: "pc_react",
+  /** Took one's own reaction back. */
+  unreact: "pc_unreact",
+  /** The owner switched reactions off / on. */
+  reactionsOff: "pc_react_off",
+  reactionsOn: "pc_react_on",
 } as const;
 
 /** Also the API's — see its PROFILE_COMMENT_SERVER_EVENTS. */
@@ -52,10 +59,27 @@ export interface ProfileCommentGif {
   height: number;
 }
 
+/**
+ * One emoji on a comment, as this viewer sees it (see the API's WireReaction):
+ * how many, whether one of them is this viewer, and the first few names for
+ * the tooltip. Never the ids: on a profile anybody can react.
+ */
+export interface ProfileCommentReaction {
+  emoji: string;
+  count: number;
+  me: boolean;
+  names: string[];
+}
+
+/** Different emoji on one comment (the API's PROFILE_COMMENT_MAX_REACTIONS). */
+export const PROFILE_COMMENT_MAX_REACTIONS = 12;
+
 export interface ProfileComment {
   id: string;
   text: string;
   gif: ProfileCommentGif | null;
+  /** Empty when nobody reacted, and for a visitor when the owner switched reactions off. */
+  reactions: ProfileCommentReaction[];
   ts: number;
   author: ProfileCommentUser;
 }
@@ -73,6 +97,10 @@ export type ProfileCommentsPage =
       canModerate: boolean;
       canComment: boolean;
       reason: ProfileCommentBlockReason;
+      /** The owner has reactions on. Absent from an older API, read as on. */
+      reactionsEnabled?: boolean;
+      /** This viewer may react (same doors as commenting, plus the switch). */
+      canReact?: boolean;
       /** Only on the first page. */
       total?: number;
       comments: ProfileComment[];
@@ -95,6 +123,8 @@ async function errorOf(res: Response): Promise<string> {
   if (data.reason === "slow_down") return translate("profileComments.slowDown");
   if (data.reason === "blocked") return translate("profileComments.cannotComment");
   if (data.reason === "disabled") return translate("profileComments.disabledVisitor");
+  if (data.reason === "reactions_disabled") return translate("profileComments.reactionsDisabled");
+  if (data.reason === "limit") return translate("profileComments.reactionLimit");
   return data.error ?? translate("common.couldNotComplete");
 }
 
@@ -110,7 +140,16 @@ export async function fetchProfileComments(
   );
   if (res.status === 404) return { available: false };
   if (!res.ok) throw new Error(await errorOf(res));
-  return (await res.json()) as ProfileCommentsPage;
+  const page = (await res.json()) as ProfileCommentsPage;
+  return page.available ? { ...page, comments: page.comments.map(withReactions) } : page;
+}
+
+/**
+ * An API from before reactions sends none; the site may be deployed first
+ * (the two are separate deploys), so a missing list reads as empty.
+ */
+function withReactions(comment: ProfileComment): ProfileComment {
+  return Array.isArray(comment.reactions) ? comment : { ...comment, reactions: [] };
 }
 
 export async function postProfileComment(
@@ -125,10 +164,60 @@ export async function postProfileComment(
     });
     if (!res.ok) return { ok: false, error: await errorOf(res) };
     const data = (await res.json()) as { comment: ProfileComment };
-    return { ok: true, comment: data.comment };
+    return { ok: true, comment: withReactions(data.comment) };
   } catch {
     return { ok: false, error: translate("common.noConnectionToTheServer") };
   }
+}
+
+/** Puts this account's emoji on a comment (`on`) or takes it back. */
+export async function reactToProfileComment(
+  profileId: string,
+  commentId: string,
+  emoji: string,
+  on: boolean
+): Promise<{ ok: true; reactions: ProfileCommentReaction[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getSignalingHttpBase()}/users/${encodeURIComponent(profileId)}/comments/${encodeURIComponent(commentId)}/reactions`,
+      { method: "POST", headers: authHeaders(true), body: JSON.stringify({ emoji, on }) }
+    );
+    if (!res.ok) return { ok: false, error: await errorOf(res) };
+    const data = (await res.json()) as { reactions: ProfileCommentReaction[] };
+    return { ok: true, reactions: data.reactions };
+  } catch {
+    return { ok: false, error: translate("common.noConnectionToTheServer") };
+  }
+}
+
+/**
+ * The comment's reactions with this viewer put on `emoji` or taken off it,
+ * ahead of the server (the chip lights up on the click). The API's answer
+ * replaces it. Same order rule as the server: an emoji keeps its place while
+ * anybody is on it, a new one goes at the end, one nobody is left on goes.
+ */
+export function toggleProfileReaction(
+  reactions: ProfileCommentReaction[],
+  emoji: string,
+  on: boolean,
+  myName: string
+): ProfileCommentReaction[] {
+  const index = reactions.findIndex((r) => r.emoji === emoji);
+  if (on) {
+    if (index < 0) return [...reactions, { emoji, count: 1, me: true, names: [myName] }];
+    const current = reactions[index];
+    if (current.me) return reactions;
+    return reactions.map((r, i) =>
+      i === index ? { ...r, count: r.count + 1, me: true, names: [...r.names, myName].slice(0, 5) } : r
+    );
+  }
+  if (index < 0 || !reactions[index].me) return reactions;
+  const current = reactions[index];
+  if (current.count <= 1) return reactions.filter((_, i) => i !== index);
+  const names = [...current.names];
+  const at = names.indexOf(myName);
+  if (at >= 0) names.splice(at, 1);
+  return reactions.map((r, i) => (i === index ? { ...r, count: r.count - 1, me: false, names } : r));
 }
 
 export async function deleteProfileComment(
@@ -149,6 +238,8 @@ export async function deleteProfileComment(
 
 export interface ProfileCommentSettings {
   disabled: boolean;
+  /** Absent from an older API, read as on. */
+  reactionsDisabled?: boolean;
   blocked: ProfileCommentUser[];
 }
 
@@ -162,12 +253,16 @@ export async function fetchProfileCommentSettings(): Promise<ProfileCommentSetti
   }
 }
 
-export async function setProfileCommentsDisabled(disabled: boolean): Promise<boolean> {
+/** Saves the owner's switches; a field left out is left alone. */
+export async function setProfileCommentSwitches(patch: {
+  disabled?: boolean;
+  reactionsDisabled?: boolean;
+}): Promise<boolean> {
   try {
     const res = await fetch(`${getSignalingHttpBase()}/account/profile-comments`, {
       method: "PATCH",
       headers: authHeaders(true),
-      body: JSON.stringify({ disabled }),
+      body: JSON.stringify(patch),
     });
     return res.ok;
   } catch {

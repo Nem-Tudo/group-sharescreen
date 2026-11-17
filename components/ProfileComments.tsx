@@ -3,24 +3,38 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
-import { MdBlock, MdChatBubbleOutline, MdClose, MdDeleteOutline, MdMoreHoriz, MdSend, MdSettings } from "react-icons/md";
+import {
+  MdBlock,
+  MdChatBubbleOutline,
+  MdClose,
+  MdDeleteOutline,
+  MdMoreHoriz,
+  MdOutlineAddReaction,
+  MdSend,
+  MdSettings,
+} from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useFeature, trackFeatureEvent } from "@/lib/features";
 import { useI18n } from "@/lib/useI18n";
-import { formatLocale } from "@/lib/i18n";
+import { formatLocale, translate, translateCount } from "@/lib/i18n";
+import { emojiLabel } from "@/lib/customEmojiTokens";
 import { nameStyleOf } from "@/lib/nameStyle";
 import {
   PROFILE_COMMENT_EVENTS,
   PROFILE_COMMENT_MAX_LENGTH,
+  PROFILE_COMMENT_MAX_REACTIONS,
   PROFILE_COMMENTS_FEATURE,
   blockProfileCommenter,
   deleteProfileComment,
   fetchProfileCommentSettings,
   fetchProfileComments,
   postProfileComment,
-  setProfileCommentsDisabled,
+  reactToProfileComment,
+  setProfileCommentSwitches,
+  toggleProfileReaction,
   unblockProfileCommenter,
   type ProfileComment,
+  type ProfileCommentReaction,
   type ProfileCommentBlockReason,
   type ProfileCommentGif,
   type ProfileCommentUser,
@@ -34,6 +48,8 @@ import { GifPicker } from "@/components/GifPicker";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import { ReactionPicker } from "@/components/groups/ReactionPicker";
+import { Twemoji } from "@/components/Twemoji";
 
 // Comments on a profile (experiment "profile-comments"), as a card of its own
 // under the profile card — on the /user page and in the room's profile popup.
@@ -50,6 +66,12 @@ import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 //    "ver mais", inside the dialog's own scroll, so nobody leaves the room.
 //    An author's name there opens their profile in a new tab for the same
 //    reason.
+//
+// Reactions sit under each comment the way they sit under a message: one chip
+// per emoji, lit when one of them is yours, clicking it joins or leaves; the
+// smiley beside the comment's "⋯" opens the picker. The owner can switch them
+// off (visitors then see none), and somebody kept from commenting is kept
+// from reacting too (the API enforces both).
 //
 // Nothing renders for a profile outside the experiment: the API answers
 // `available: false` (it decides per profile owner, see its
@@ -71,6 +93,23 @@ function relativeTime(ts: number): string {
   if (abs < 86400) return rtf.format(Math.round(seconds / 3600), "hour");
   if (abs < 86400 * 30) return rtf.format(Math.round(seconds / 86400), "day");
   return new Date(ts).toLocaleDateString(formatLocale(), { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * The chip's tooltip: "Você, Bia e Caio reagiram com 👍" — the group chat's
+ * sentences (see lib/groupReactions), from the few names the API sends and
+ * the total.
+ */
+function describeProfileReaction(reaction: ProfileCommentReaction, myName: string | null): string {
+  const names = reaction.names.map((name) => (reaction.me && name === myName ? translate("common.you") : name));
+  const rest = Math.max(0, reaction.count - names.length);
+  const list =
+    rest > 0
+      ? translate("groupReactions.andMore", { names: names.join(", "), rest })
+      : names.length > 1
+        ? translate("groupReactions.nameListLast", { names: names.slice(0, -1).join(", "), last: names[names.length - 1] })
+        : names[0] ?? "";
+  return translateCount("groupReactions.reacted", reaction.count, { list, emoji: emojiLabel(reaction.emoji) });
 }
 
 function sameProfile(account: { id: string; username: string } | null, profileId: string): boolean {
@@ -109,6 +148,8 @@ export function ProfileComments({
         canModerate: boolean;
         canComment: boolean;
         reason: ProfileCommentBlockReason;
+        reactionsEnabled: boolean;
+        canReact: boolean;
         total: number;
         comments: ProfileComment[];
         hasMore: boolean;
@@ -135,6 +176,8 @@ export function ProfileComments({
             canModerate: page.canModerate,
             canComment: page.canComment,
             reason: page.reason,
+            reactionsEnabled: page.reactionsEnabled !== false,
+            canReact: page.canReact === true,
             total: page.total ?? page.comments.length,
             comments: page.comments,
             hasMore: page.hasMore,
@@ -168,7 +211,10 @@ export function ProfileComments({
   if (state.status === "hidden" || state.status === "loading") return null;
   if (state.status === "error") return null;
 
-  const { comments, total, hasMore, isOwner, canModerate, enabled, canComment, reason } = state;
+  const { comments, total, hasMore, isOwner, canModerate, enabled, canComment, reason, reactionsEnabled, canReact } =
+    state;
+  // Signed out on a profile whose reactions are on: a chip click asks to sign in.
+  const reactNeedsLogin = reason === "login" && reactionsEnabled;
   const visible = expanded ? comments : comments.slice(0, COMPACT_VISIBLE);
   const canShowMore = (!expanded && comments.length > COMPACT_VISIBLE) || (expanded && hasMore);
 
@@ -212,6 +258,34 @@ export function ProfileComments({
     });
   }
 
+  function setReactions(commentId: string, reactions: ProfileCommentReaction[]) {
+    setState((previous) =>
+      previous.status === "ready"
+        ? { ...previous, comments: previous.comments.map((c) => (c.id === commentId ? { ...c, reactions } : c)) }
+        : previous
+    );
+  }
+
+  async function react(comment: ProfileComment, emoji: string) {
+    if (!account) return;
+    const existing = comment.reactions.find((r) => r.emoji === emoji);
+    const on = !existing?.me;
+    if (on && !existing && comment.reactions.length >= PROFILE_COMMENT_MAX_REACTIONS) return;
+    const before = comment.reactions;
+    // Lit on the click, then replaced by what the server answers.
+    setReactions(comment.id, toggleProfileReaction(before, emoji, on, account.displayName));
+    const result = await reactToProfileComment(profileId, comment.id, emoji, on);
+    if (!result.ok) {
+      setReactions(comment.id, before);
+      return;
+    }
+    setReactions(comment.id, result.reactions);
+    trackFeatureEvent(on ? PROFILE_COMMENT_EVENTS.react : PROFILE_COMMENT_EVENTS.unreact, {
+      feature: PROFILE_COMMENTS_FEATURE,
+      ...(on ? { value: existing ? 1 : 2 } : {}),
+    });
+  }
+
   function confirmDelete(comment: ProfileComment) {
     const own = comment.author.id === account?.id;
     void openPopup("confirm", {
@@ -250,6 +324,8 @@ export function ProfileComments({
           trackFeatureEvent(PROFILE_COMMENT_EVENTS.block, { feature: PROFILE_COMMENTS_FEATURE });
           markFeatureUsed(PROFILE_COMMENTS_FEATURE);
           removeLocally((c) => c.author.id === user.id);
+          // Their reactions on the other comments went too — read them back.
+          void load();
         },
       },
     });
@@ -281,11 +357,18 @@ export function ProfileComments({
             tooltip={t("profileComments.settings")}
             content={
               <OwnerSettings
-                onChanged={(disabled) => {
+                onChanged={({ disabled, reactionsDisabled }) => {
                   markFeatureUsed(PROFILE_COMMENTS_FEATURE);
                   setState((previous) =>
                     previous.status === "ready"
-                      ? { ...previous, enabled: !disabled, canComment: !disabled, reason: disabled ? "disabled" : null }
+                      ? {
+                          ...previous,
+                          enabled: !disabled,
+                          canComment: !disabled,
+                          reason: disabled ? "disabled" : null,
+                          reactionsEnabled: !reactionsDisabled,
+                          canReact: !disabled && !reactionsDisabled,
+                        }
                       : previous
                   );
                 }}
@@ -359,6 +442,13 @@ export function ProfileComments({
               canBlock={isOwner && comment.author.id !== account?.id}
               onDelete={() => confirmDelete(comment)}
               onBlock={() => confirmBlock(comment.author)}
+              canReact={canReact}
+              reactNeedsLogin={reactNeedsLogin}
+              // The owner still sees reactions they switched off, dimmed.
+              reactionsMuted={!reactionsEnabled}
+              myName={account?.displayName ?? null}
+              onReact={(emoji) => void react(comment, emoji)}
+              onRequestLogin={() => setAccountModal("login")}
             />
           ))}
         </ul>
@@ -553,6 +643,12 @@ function CommentItem({
   canBlock,
   onDelete,
   onBlock,
+  canReact,
+  reactNeedsLogin,
+  reactionsMuted,
+  myName,
+  onReact,
+  onRequestLogin,
 }: {
   comment: ProfileComment;
   compact: boolean;
@@ -560,9 +656,17 @@ function CommentItem({
   canBlock: boolean;
   onDelete: () => void;
   onBlock: () => void;
+  canReact: boolean;
+  reactNeedsLogin: boolean;
+  reactionsMuted: boolean;
+  myName: string | null;
+  onReact: (emoji: string) => void;
+  onRequestLogin: () => void;
 }) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const roomForMore = comment.reactions.length < PROFILE_COMMENT_MAX_REACTIONS;
   const { author } = comment;
   const nameStyle = nameStyleOf(author.nameColor);
   const href = `/user/${encodeURIComponent(author.username)}`;
@@ -602,6 +706,40 @@ function CommentItem({
               {relativeTime(comment.ts)}
             </time>
           </div>
+          {(canReact || reactNeedsLogin) && roomForMore && (
+            <Popover
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              placement="bottom-end"
+              tooltip={t("profileComments.react")}
+              content={
+                <ReactionPicker
+                  onSelect={(emoji) => {
+                    setPickerOpen(false);
+                    onReact(emoji);
+                  }}
+                />
+              }
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (!canReact) {
+                    onRequestLogin();
+                    return;
+                  }
+                  setPickerOpen((open) => !open);
+                }}
+                aria-label={t("profileComments.react")}
+                aria-expanded={pickerOpen}
+                className={`flex shrink-0 cursor-pointer rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/comment:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200 ${
+                  pickerOpen ? "opacity-100" : "opacity-60"
+                }`}
+              >
+                <MdOutlineAddReaction className="h-4 w-4" />
+              </button>
+            </Popover>
+          )}
           {(canDelete || canBlock) && (
             <Popover
               open={menuOpen}
@@ -667,6 +805,40 @@ function CommentItem({
             style={gifRatio ? { aspectRatio: gifRatio, height: "auto" } : undefined}
           />
         )}
+        {comment.reactions.length > 0 && (
+          <div className={`mt-1.5 flex flex-wrap items-center gap-1 ${reactionsMuted ? "opacity-50" : ""}`}>
+            {comment.reactions.map((reaction) => {
+              const clickable = canReact || reactNeedsLogin;
+              return (
+                <button
+                  key={reaction.emoji}
+                  type="button"
+                  aria-pressed={reaction.me}
+                  // Not `disabled`: a disabled button shows no tooltip in some
+                  // browsers, and who reacted is worth reading either way.
+                  aria-disabled={!clickable}
+                  onClick={() => {
+                    if (canReact) onReact(reaction.emoji);
+                    else if (reactNeedsLogin) onRequestLogin();
+                  }}
+                  title={describeProfileReaction(reaction, myName)}
+                  className={`inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs font-medium transition ${
+                    clickable ? "cursor-pointer" : "cursor-default"
+                  } ${
+                    reaction.me
+                      ? "border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
+                      : `border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 ${
+                          clickable ? "hover:border-zinc-400 dark:hover:border-zinc-600" : ""
+                        }`
+                  }`}
+                >
+                  <Twemoji emoji={reaction.emoji} size={16} />
+                  <span className="tabular-nums">{reaction.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </li>
   );
@@ -674,39 +846,53 @@ function CommentItem({
 
 // ---------------------------------------------------------------------------
 
+type OwnerSwitches = { disabled: boolean; reactionsDisabled: boolean };
+
 function OwnerSettings({
   onChanged,
   onUnblocked,
 }: {
-  onChanged: (disabled: boolean) => void;
+  onChanged: (switches: OwnerSwitches) => void;
   onUnblocked: () => void;
 }) {
   const { t } = useI18n();
-  const [settings, setSettings] = useState<{ disabled: boolean; blocked: ProfileCommentUser[] } | null>(null);
+  const [settings, setSettings] = useState<(OwnerSwitches & { blocked: ProfileCommentUser[] }) | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void fetchProfileCommentSettings().then((result) => {
-      if (!cancelled) setSettings(result ?? { disabled: false, blocked: [] });
+      if (cancelled) return;
+      setSettings({
+        disabled: result?.disabled === true,
+        reactionsDisabled: result?.reactionsDisabled === true,
+        blocked: result?.blocked ?? [],
+      });
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  async function toggle() {
+  async function toggle(field: keyof OwnerSwitches) {
     if (!settings || saving) return;
-    const disabled = !settings.disabled;
+    const value = !settings[field];
     setSaving(true);
-    const ok = await setProfileCommentsDisabled(disabled);
+    const ok = await setProfileCommentSwitches({ [field]: value });
     setSaving(false);
     if (!ok) return;
-    setSettings({ ...settings, disabled });
-    trackFeatureEvent(disabled ? PROFILE_COMMENT_EVENTS.toggleOff : PROFILE_COMMENT_EVENTS.toggleOn, {
-      feature: PROFILE_COMMENTS_FEATURE,
-    });
-    onChanged(disabled);
+    const next = { ...settings, [field]: value };
+    setSettings(next);
+    const event =
+      field === "disabled"
+        ? value
+          ? PROFILE_COMMENT_EVENTS.toggleOff
+          : PROFILE_COMMENT_EVENTS.toggleOn
+        : value
+          ? PROFILE_COMMENT_EVENTS.reactionsOff
+          : PROFILE_COMMENT_EVENTS.reactionsOn;
+    trackFeatureEvent(event, { feature: PROFILE_COMMENTS_FEATURE });
+    onChanged({ disabled: next.disabled, reactionsDisabled: next.reactionsDisabled });
   }
 
   async function unblock(user: ProfileCommentUser) {
@@ -717,37 +903,23 @@ function OwnerSettings({
     onUnblocked();
   }
 
-  const on = settings ? !settings.disabled : true;
-
   return (
     <div className="flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
+      <SwitchRow
+        on={settings ? !settings.disabled : true}
         disabled={!settings || saving}
-        onClick={() => void toggle()}
-        className="flex cursor-pointer items-start justify-between gap-3 rounded-lg p-1 text-left disabled:cursor-wait disabled:opacity-60"
-      >
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {t("profileComments.allowComments")}
-          </span>
-          <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
-            {t("profileComments.allowCommentsHint")}
-          </span>
-        </span>
-        <span
-          aria-hidden
-          className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 rounded-full transition ${
-            on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[1.125rem]" : "left-0.5"}`}
-          />
-        </span>
-      </button>
+        onToggle={() => void toggle("disabled")}
+        label={t("profileComments.allowComments")}
+        hint={t("profileComments.allowCommentsHint")}
+      />
+      <SwitchRow
+        on={settings ? !settings.reactionsDisabled : true}
+        // Nothing to react to while the comments themselves are off.
+        disabled={!settings || saving || settings.disabled}
+        onToggle={() => void toggle("reactionsDisabled")}
+        label={t("profileComments.allowReactions")}
+        hint={t("profileComments.allowReactionsHint")}
+      />
 
       <div className="border-t border-zinc-200 pt-2 dark:border-zinc-800">
         <p className="px-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
@@ -779,5 +951,45 @@ function OwnerSettings({
         )}
       </div>
     </div>
+  );
+}
+
+function SwitchRow({
+  on,
+  disabled,
+  onToggle,
+  label,
+  hint,
+}: {
+  on: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      onClick={onToggle}
+      className="flex cursor-pointer items-start justify-between gap-3 rounded-lg p-1 text-left disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</span>
+        <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">{hint}</span>
+      </span>
+      <span
+        aria-hidden
+        className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 rounded-full transition ${
+          on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[1.125rem]" : "left-0.5"}`}
+        />
+      </span>
+    </button>
   );
 }

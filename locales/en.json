@@ -6058,11 +6058,11 @@
   "profileComments.block": "Block",
   "profileComments.blockFromCommenting": "Block from commenting",
   "profileComments.blockTitle": "Block {name} from commenting?",
-  "profileComments.blockMessage": "They will no longer be able to comment on your profile, and their comments here will be deleted. You can unblock them in the comment settings.",
+  "profileComments.blockMessage": "They will no longer be able to comment or react on your profile, and their comments and reactions here will be deleted. You can unblock them in the comment settings.",
   "profileComments.settings": "Comment settings",
   "profileComments.allowComments": "Allow comments",
   "profileComments.allowCommentsHint": "When off, nobody can comment and comments are hidden from visitors.",
-  "profileComments.blockedTitle": "Blocked from commenting",
+  "profileComments.blockedTitle": "Blocked from commenting and reacting",
   "profileComments.blockedEmpty": "Nobody blocked.",
   "profileComments.disabledOwner": "Comments are turned off. Only you can see the existing ones.",
   "profileComments.disabledVisitor": "Comments are turned off on this profile.",
@@ -6099,5 +6099,10 @@
   "passwordLink.doneTitle": "Password changed",
   "passwordLink.doneBody": "@{username}'s password was changed. Signing in…",
   "passwordLink.doneOtherAccount": "@{username}'s password was changed. You're still signed in to your current account.",
-  "passwordLink.signInAs": "Sign in as @{username}"
+  "passwordLink.signInAs": "Sign in as @{username}",
+  "profileComments.react": "React",
+  "profileComments.allowReactions": "Allow reactions",
+  "profileComments.allowReactionsHint": "When off, nobody can react and reactions are hidden from visitors.",
+  "profileComments.reactionsDisabled": "Reactions are turned off on this profile.",
+  "profileComments.reactionLimit": "This comment already has the most different reactions it can."
 }

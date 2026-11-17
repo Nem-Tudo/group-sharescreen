@@ -6058,11 +6058,11 @@
   "profileComments.block": "Bloquear",
   "profileComments.blockFromCommenting": "Bloquear de comentar",
   "profileComments.blockTitle": "Bloquear {name} de comentar?",
-  "profileComments.blockMessage": "Essa pessoa não vai mais poder comentar no seu perfil, e os comentários dela aqui serão apagados. Você pode desbloquear nas configurações dos comentários.",
+  "profileComments.blockMessage": "Essa pessoa não vai mais poder comentar nem reagir no seu perfil, e os comentários e reações dela aqui serão apagados. Você pode desbloquear nas configurações dos comentários.",
   "profileComments.settings": "Configurações dos comentários",
   "profileComments.allowComments": "Permitir comentários",
   "profileComments.allowCommentsHint": "Desligado, ninguém comenta e os comentários ficam escondidos para quem visita.",
-  "profileComments.blockedTitle": "Bloqueados de comentar",
+  "profileComments.blockedTitle": "Bloqueados de comentar e reagir",
   "profileComments.blockedEmpty": "Ninguém bloqueado.",
   "profileComments.disabledOwner": "Os comentários estão desativados. Só você vê os que já existem.",
   "profileComments.disabledVisitor": "Os comentários estão desativados neste perfil.",
@@ -6099,5 +6099,10 @@
   "passwordLink.doneTitle": "Senha alterada",
   "passwordLink.doneBody": "A senha de @{username} foi alterada. Entrando…",
   "passwordLink.doneOtherAccount": "A senha de @{username} foi alterada. Você continua conectado na sua conta atual.",
-  "passwordLink.signInAs": "Entrar como @{username}"
+  "passwordLink.signInAs": "Entrar como @{username}",
+  "profileComments.react": "Reagir",
+  "profileComments.allowReactions": "Permitir reações",
+  "profileComments.allowReactionsHint": "Desligado, ninguém reage e as reações ficam escondidas para quem visita.",
+  "profileComments.reactionsDisabled": "As reações estão desativadas neste perfil.",
+  "profileComments.reactionLimit": "Este comentário já tem o máximo de reações diferentes."
 }

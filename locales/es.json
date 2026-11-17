@@ -6059,11 +6059,11 @@
   "profileComments.block": "Bloquear",
   "profileComments.blockFromCommenting": "Bloquear para comentar",
   "profileComments.blockTitle": "¿Bloquear a {name} para comentar?",
-  "profileComments.blockMessage": "Esa persona ya no podrá comentar en tu perfil y sus comentarios aquí se eliminarán. Puedes desbloquearla en la configuración de comentarios.",
+  "profileComments.blockMessage": "Esa persona ya no podrá comentar ni reaccionar en tu perfil, y sus comentarios y reacciones aquí se eliminarán. Puedes desbloquearla en la configuración de comentarios.",
   "profileComments.settings": "Configuración de comentarios",
   "profileComments.allowComments": "Permitir comentarios",
   "profileComments.allowCommentsHint": "Desactivado, nadie puede comentar y los comentarios quedan ocultos para quien visita.",
-  "profileComments.blockedTitle": "Bloqueados para comentar",
+  "profileComments.blockedTitle": "Bloqueados para comentar y reaccionar",
   "profileComments.blockedEmpty": "Nadie bloqueado.",
   "profileComments.disabledOwner": "Los comentarios están desactivados. Solo tú ves los que ya existen.",
   "profileComments.disabledVisitor": "Los comentarios están desactivados en este perfil.",
@@ -6100,5 +6100,10 @@
   "passwordLink.doneTitle": "Contraseña cambiada",
   "passwordLink.doneBody": "La contraseña de @{username} fue cambiada. Iniciando sesión…",
   "passwordLink.doneOtherAccount": "La contraseña de @{username} fue cambiada. Sigues conectado en tu cuenta actual.",
-  "passwordLink.signInAs": "Entrar como @{username}"
+  "passwordLink.signInAs": "Entrar como @{username}",
+  "profileComments.react": "Reaccionar",
+  "profileComments.allowReactions": "Permitir reacciones",
+  "profileComments.allowReactionsHint": "Desactivado, nadie puede reaccionar y las reacciones quedan ocultas para quien visita.",
+  "profileComments.reactionsDisabled": "Las reacciones están desactivadas en este perfil.",
+  "profileComments.reactionLimit": "Este comentario ya tiene el máximo de reacciones distintas."
 }
