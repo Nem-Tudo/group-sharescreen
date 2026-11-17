@@ -74,7 +74,7 @@ jobs:
         if: always()
         run: |
           app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/App.app"
-          find "$app" -maxdepth 4 ( -name "*.framework" -o -name "*.appex" -o -name Frameworks -o -name PlugIns ) | sed "s|$app/||" || true
+          find "$app" -maxdepth 4 "(" -name "*.framework" -o -name "*.appex" -o -name Frameworks -o -name PlugIns ")" | sed "s|$app/||" || true
           echo "--- extension Info.plist"
           plutil -p "$app/PlugIns/Broadcast.appex/Info.plist" || true
           echo "--- extension load commands"
