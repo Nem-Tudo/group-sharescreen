@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { MdRefresh } from "react-icons/md";
-import { fetchDesktopUpdateClicks, launchDesktopUpdate, type DesktopUpdateClicks } from "@/lib/adminApi";
+import {
+  fetchDesktopUpdateClicks,
+  launchDesktopUpdate,
+  setDesktopMinVersion,
+  type DesktopUpdateClicks,
+} from "@/lib/adminApi";
+import { fetchDesktopMinVersion } from "@/lib/desktopUpdate";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -28,6 +34,33 @@ export function DesktopUpdatePanel() {
   const [notified, setNotified] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clicks, setClicks] = useState<DesktopUpdateClicks | null>(null);
+  // "Piso de versão" — see components/DesktopVersionGate.
+  const [minVersion, setMinVersion] = useState<string | null>(null);
+  const [minDraft, setMinDraft] = useState("");
+  const [savingMin, setSavingMin] = useState(false);
+  const [minError, setMinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchDesktopMinVersion().then((value) => {
+      setMinVersion(value);
+      setMinDraft(value ?? "");
+    });
+  }, []);
+
+  async function saveMinVersion(value: string) {
+    if (savingMin) return;
+    setSavingMin(true);
+    setMinError(null);
+    try {
+      const stored = await setDesktopMinVersion(value);
+      setMinVersion(stored);
+      setMinDraft(stored ?? "");
+    } catch (err) {
+      setMinError(err instanceof Error ? err.message : t("admin.desktopUpdatePanel.minVersionError"));
+    } finally {
+      setSavingMin(false);
+    }
+  }
 
   const readClicks = useCallback(
     () =>
@@ -136,6 +169,54 @@ export function DesktopUpdatePanel() {
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+          {t("admin.desktopUpdatePanel.minVersionTitle")}
+        </span>
+        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          {t("admin.desktopUpdatePanel.minVersionHint")}
+        </p>
+        <form
+          className="mt-2 flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveMinVersion(minDraft);
+          }}
+        >
+          <input
+            type="text"
+            value={minDraft}
+            onChange={(event) => setMinDraft(event.target.value)}
+            placeholder="1.2.3"
+            inputMode="decimal"
+            className="w-28 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm tabular-nums text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          />
+          <button
+            type="submit"
+            disabled={savingMin || minDraft.trim() === (minVersion ?? "")}
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {t("admin.desktopUpdatePanel.minVersionSave")}
+          </button>
+          {minVersion && (
+            <button
+              type="button"
+              disabled={savingMin}
+              onClick={() => void saveMinVersion("")}
+              className="rounded-md px-3 py-1.5 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+            >
+              {t("admin.desktopUpdatePanel.minVersionClear")}
+            </button>
+          )}
+        </form>
+        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          {minVersion
+            ? t("admin.desktopUpdatePanel.minVersionCurrent", { version: minVersion })
+            : t("admin.desktopUpdatePanel.minVersionNone")}
+        </p>
+        {minError && <p className="mt-1 text-xs text-red-500">{minError}</p>}
       </div>
     </div>
   );

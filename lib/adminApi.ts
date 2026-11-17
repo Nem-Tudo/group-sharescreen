@@ -571,6 +571,18 @@ export async function fetchDesktopUpdateClicks(): Promise<DesktopUpdateClicks> {
   return adminFetch<DesktopUpdateClicks>("/admin/desktop-update/clicks");
 }
 
+// The desktop app's minimum version ("piso de versão") — see the API's
+// desktopMinVersionStore.ts and components/DesktopVersionGate. "" clears it.
+// Resolves with what was stored.
+export async function setDesktopMinVersion(minVersion: string): Promise<string | null> {
+  const data = await adminFetch<{ minVersion: string | null }>("/admin/desktop-update/min-version", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ minVersion }),
+  });
+  return data.minVersion;
+}
+
 export async function fetchAdminSupporters(): Promise<Supporter[]> {
   const data = await adminFetch<{ supporters: Supporter[] }>("/admin/supporters");
   return data.supporters;
