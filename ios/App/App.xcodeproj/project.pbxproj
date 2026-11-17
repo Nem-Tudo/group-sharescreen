@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		60A1D0000000000000000018 /* BroadcastShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000017 /* BroadcastShared.swift */; };
+		60A1D0000000000000000019 /* BroadcastShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000017 /* BroadcastShared.swift */; };
+		60A1D000000000000000001B /* ScreenBroadcastPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */; };
+		60A1D000000000000000001D /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D000000000000000001C /* SampleHandler.swift */; };
+		60A1D000000000000000001F /* ScreenSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D000000000000000001E /* ScreenSession.swift */; };
+		60A1D0000000000000000024 /* Broadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000023 /* Broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		60A1D0000000000000000031 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 60A1D0000000000000000030 /* WebRTC */; };
+		60A1D0000000000000000033 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 60A1D0000000000000000032 /* WebRTC */; };
 		60A1D0000000000000000016 /* WebAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000015 /* WebAuthPlugin.swift */; };
 		60A1D0000000000000000014 /* InAppReviewPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000013 /* InAppReviewPlugin.swift */; };
 		60A1D0000000000000000002 /* GoLiveViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000001 /* GoLiveViewController.swift */; };
@@ -24,7 +32,38 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		60A1D000000000000000002A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 60A1D0000000000000000026;
+			remoteInfo = Broadcast;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		60A1D0000000000000000025 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				60A1D0000000000000000024 /* Broadcast.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		60A1D0000000000000000017 /* BroadcastShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastShared.swift; sourceTree = "<group>"; };
+		60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenBroadcastPlugin.swift; sourceTree = "<group>"; };
+		60A1D000000000000000001C /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
+		60A1D000000000000000001E /* ScreenSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSession.swift; sourceTree = "<group>"; };
+		60A1D0000000000000000020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		60A1D0000000000000000021 /* Broadcast.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Broadcast.entitlements; sourceTree = "<group>"; };
+		60A1D0000000000000000023 /* Broadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Broadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		60A1D0000000000000000015 /* WebAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAuthPlugin.swift; sourceTree = "<group>"; };
 		60A1D0000000000000000013 /* InAppReviewPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InAppReviewPlugin.swift; sourceTree = "<group>"; };
 		60A1D0000000000000000001 /* GoLiveViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoLiveViewController.swift; sourceTree = "<group>"; };
@@ -48,22 +87,43 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		60A1D0000000000000000028 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				60A1D0000000000000000031 /* WebRTC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3011FED79650016851F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				60A1D0000000000000000033 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		60A1D0000000000000000022 /* Broadcast */ = {
+			isa = PBXGroup;
+			children = (
+				60A1D000000000000000001C /* SampleHandler.swift */,
+				60A1D000000000000000001E /* ScreenSession.swift */,
+				60A1D0000000000000000020 /* Info.plist */,
+				60A1D0000000000000000021 /* Broadcast.entitlements */,
+			);
+			path = Broadcast;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
+				60A1D0000000000000000022 /* Broadcast */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -72,6 +132,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				60A1D0000000000000000023 /* Broadcast.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -84,6 +145,8 @@
 				60A1D0000000000000000003 /* AppChromePlugin.swift */,
 				60A1D0000000000000000013 /* InAppReviewPlugin.swift */,
 				60A1D0000000000000000015 /* WebAuthPlugin.swift */,
+				60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */,
+				60A1D0000000000000000017 /* BroadcastShared.swift */,
 				60A1D0000000000000000005 /* App.entitlements */,
 				60A1D0000000000000000006 /* PrivacyInfo.xcprivacy */,
 				60A1D0000000000000000008 /* InfoPlist.strings */,
@@ -102,6 +165,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		60A1D0000000000000000026 /* Broadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 60A1D000000000000000002C /* Build configuration list for PBXNativeTarget "Broadcast" */;
+			buildPhases = (
+				60A1D0000000000000000027 /* Sources */,
+				60A1D0000000000000000028 /* Frameworks */,
+				60A1D0000000000000000029 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Broadcast;
+			packageProductDependencies = (
+				60A1D0000000000000000030 /* WebRTC */,
+			);
+			productName = Broadcast;
+			productReference = 60A1D0000000000000000023 /* Broadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		504EC3031FED79650016851F /* App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
@@ -109,14 +192,17 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				60A1D0000000000000000025 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				60A1D000000000000000002B /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				60A1D0000000000000000032 /* WebRTC */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -136,6 +222,10 @@
 						LastSwiftMigration = 1100;
 						ProvisioningStyle = Automatic;
 					};
+					60A1D0000000000000000026 = {
+						CreatedOnToolsVersion = 16.0;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
@@ -151,17 +241,26 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				60A1D000000000000000002F /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				60A1D0000000000000000026 /* Broadcast */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		60A1D0000000000000000029 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3021FED79650016851F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -180,6 +279,16 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		60A1D0000000000000000027 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				60A1D000000000000000001D /* SampleHandler.swift in Sources */,
+				60A1D000000000000000001F /* ScreenSession.swift in Sources */,
+				60A1D0000000000000000019 /* BroadcastShared.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3001FED79650016851F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -190,10 +299,20 @@
 				60A1D0000000000000000004 /* AppChromePlugin.swift in Sources */,
 				60A1D0000000000000000014 /* InAppReviewPlugin.swift in Sources */,
 				60A1D0000000000000000016 /* WebAuthPlugin.swift in Sources */,
+				60A1D000000000000000001B /* ScreenBroadcastPlugin.swift in Sources */,
+				60A1D0000000000000000018 /* BroadcastShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		60A1D000000000000000002B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 60A1D0000000000000000026 /* Broadcast */;
+			targetProxy = 60A1D000000000000000002A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		60A1D0000000000000000008 /* InfoPlist.strings */ = {
@@ -225,6 +344,56 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		60A1D000000000000000002D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Broadcast/Broadcast.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Broadcast/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = me.nemtudo.golive.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		60A1D000000000000000002E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Broadcast/Broadcast.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Broadcast/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = me.nemtudo.golive.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -383,6 +552,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		60A1D000000000000000002C /* Build configuration list for PBXNativeTarget "Broadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				60A1D000000000000000002D /* Debug */,
+				60A1D000000000000000002E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -410,7 +588,28 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		60A1D000000000000000002F /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				kind = exactVersion;
+				version = 155.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		60A1D0000000000000000030 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 60A1D000000000000000002F /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+		60A1D0000000000000000032 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 60A1D000000000000000002F /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;

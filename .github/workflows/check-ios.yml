@@ -67,6 +67,19 @@ jobs:
             | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)|\*\* " || true
           grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
 
+      # Where the WebRTC framework ended up. App Store validation refuses an
+      # app extension that carries its own Frameworks folder (ITMS-90206), so
+      # it must live in App.app/Frameworks only.
+      - name: Show the bundle layout
+        if: always()
+        run: |
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/App.app"
+          find "$app" -maxdepth 4 ( -name "*.framework" -o -name "*.appex" -o -name Frameworks -o -name PlugIns ) | sed "s|$app/||" || true
+          echo "--- extension Info.plist"
+          plutil -p "$app/PlugIns/Broadcast.appex/Info.plist" || true
+          echo "--- extension load commands"
+          otool -l "$app/PlugIns/Broadcast.appex/Broadcast" | grep -A2 LC_RPATH || true
+
       - name: Show what Capacitor generated
         if: always()
         run: |
