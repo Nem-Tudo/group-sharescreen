@@ -1143,6 +1143,19 @@ export async function setAccountUsername(userId: string, username: string): Prom
   return data.account.username;
 }
 
+/**
+ * A link that lets whoever opens it set this account's password (see the
+ * API's passwordResetLinkRoutes.ts). Any older link for the account dies.
+ */
+export async function createPasswordResetLink(
+  userId: string
+): Promise<{ token: string; expiresAt: number }> {
+  return adminFetch<{ token: string; expiresAt: number }>(
+    `/admin/accounts/${encodeURIComponent(userId)}/password-reset-link`,
+    { method: "POST" }
+  );
+}
+
 // ─── Groups ──────────────────────────────────────────────────────────────
 
 /** A group as the admin panel sees it — see the API's adminGroup. */

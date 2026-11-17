@@ -16,6 +16,7 @@ import { GiftPanel } from "./GiftPanel";
 import { CancellationsPanel } from "./CancellationsPanel";
 import { AccountFlagsPanel } from "./AccountFlagsPanel";
 import { AccountUsernamePanel } from "./AccountUsernamePanel";
+import { AccountPasswordResetPanel } from "./AccountPasswordResetPanel";
 import { BadgesAdminPanel } from "./BadgesAdminPanel";
 import { AccountPointsPanel } from "./AccountPointsPanel";
 import { AutoFlagsPanel } from "./AutoFlagsPanel";
@@ -129,6 +130,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       "badges",
       "usernames",
       "points",
+      "password_reset",
       "auto_flags",
     ],
     Panel: ({ can }) => (
@@ -152,6 +154,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {can("badges") && <BadgesAdminPanel />}
         {can("usernames") && <AccountUsernamePanel />}
         {can("points") && <AccountPointsPanel />}
+        {can("password_reset") && <AccountPasswordResetPanel />}
         {can("auto_flags") && <AutoFlagsPanel />}
       </Group>
     ),
