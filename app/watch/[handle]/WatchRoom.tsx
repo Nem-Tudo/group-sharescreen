@@ -27,6 +27,8 @@ import { useRouter } from "next/navigation";
 import {
   signalingClient,
   isObsPeer,
+  isAttachedScreenCompanion,
+  presentPeople,
   type RoomPermissionKey,
   type PeerInfo,
   type ChatReplyTo,
@@ -264,6 +266,15 @@ import {
   usePhoneCamera,
 } from "@/lib/phoneCamera";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import {
+  IOS_SCREEN_FEATURE,
+  dismissIOSScreenError,
+  isIOSScreenActive,
+  startIOSScreenBroadcast,
+  stopIOSScreenBroadcast,
+  useIOSScreenBroadcast,
+  useIOSScreenBroadcastAvailable,
+} from "@/lib/iosScreenBroadcast";
 import { STREAM_PREVIEW_FEATURE, useStreamPreviewUploader } from "@/lib/streamPreview";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 import type { CallSource } from "@/lib/callRecording";
@@ -2036,6 +2047,25 @@ function WatchRoomView({
   // for a public room, and for a private one predating the code scheme.
   const privateRoomParts = splitPrivateRoomHandle(handle);
   const screenShareMode = useScreenShareMode();
+  // The iPhone app shares the whole screen through its ReplayKit extension,
+  // which joins this room on its own as another device of this person (see
+  // lib/iosScreenBroadcast.ts). Every screen button below checks this first.
+  const iosScreenAvailable = useIOSScreenBroadcastAvailable();
+  const iosScreenOn = useFeature(IOS_SCREEN_FEATURE, { track: iosScreenAvailable }).enabled && iosScreenAvailable;
+  const iosScreen = useIOSScreenBroadcast();
+  const iosScreenActive = iosScreenOn && isIOSScreenActive(iosScreen.state);
+  const toggleIOSScreen = () => {
+    if (iosScreenActive) void stopIOSScreenBroadcast();
+    else
+      void startIOSScreenBroadcast(handle, {
+        // The rooms list's hover picture, which the extension sends itself
+        // (see useStreamPreviewUploader below for a computer's share).
+        preview:
+          joinedGroupRoom && streamPreviewOn && group?.groupId && group.channelId
+            ? { groupId: group.groupId, channelId: group.channelId }
+            : null,
+      });
+  };
 
   // Start minting a captcha token now rather than when the join fires. There
   // is real time between this page mounting and a join — resolving the
@@ -2892,15 +2922,34 @@ function WatchRoomView({
 
   const hasLocalScreen = Boolean(isSharing && localStream) || extraScreensActive > 0;
   const hasLocalCamera = Boolean(localCameraStream) || extraCamerasActive > 0;
+  // Every connection here right now, this one included — what tells an
+  // iPhone's screen broadcast that its person is present, so it reads as their
+  // screen rather than as a second copy of them (see isAttachedScreenCompanion).
+  const presentPeerIds = useMemo(
+    () => presentPeople(state.peers, state.selfUserId),
+    [state.peers, state.selfUserId]
+  );
   // A screen shared in a conversation's call is not a broadcast to sum up.
   const summaryPeople = useMemo(
     () =>
       state.peers
-        .filter((p) => p.id !== state.selfId && !p.bot && p.role !== "moderator" && !isObsPeer(p))
+        .filter(
+          (p) =>
+            p.id !== state.selfId &&
+            !p.bot &&
+            p.role !== "moderator" &&
+            !isObsPeer(p) &&
+            !isAttachedScreenCompanion(p, presentPeerIds)
+        )
         .map((p) => p.userId ?? p.id),
-    [state.peers, state.selfId]
+    [state.peers, state.selfId, presentPeerIds]
   );
-  useStreamEndSummary(hasLocalScreen && !callLayout, summaryPeople);
+  // This iPhone's screen going out through its broadcast extension is this
+  // person transmitting too, and ends with the same summary.
+  const sharingFromThisIPhone = state.peers.some(
+    (p) => Boolean(p.screenOf) && p.userId === state.selfUserId && p.sharing
+  );
+  useStreamEndSummary((hasLocalScreen || sharingFromThisIPhone) && !callLayout, summaryPeople);
   const hasLocalFiles = LOCAL_MEDIA_SLOTS.some((slot) => fileChannels[slot]?.localStream);
   const hasRemoteScreens =
     Object.keys(remoteStreams).length > 0 ||
@@ -3426,7 +3475,16 @@ function WatchRoomView({
     // One row per device, numbered "(1)" "(2)" exactly as the room's own
     // participant list numbers them (see lib/displayName) — folding them into
     // one person hid which device was which and tangled their controls.
-    const members = state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p));
+    // An iPhone's screen broadcast is its person's screen, not another row.
+    const present = presentPeople(state.peers, state.selfUserId);
+    // Who is sharing their iPhone's screen, by person.
+    const sharingFromIPhone = new Set<string>();
+    for (const p of state.peers) {
+      if (p.userId && isAttachedScreenCompanion(p, present) && p.sharing) sharingFromIPhone.add(p.userId);
+    }
+    const members = state.peers.filter(
+      (p) => p.role !== "moderator" && !isObsPeer(p) && !isAttachedScreenCompanion(p, present)
+    );
     const counts = countDevicesByOwner([...members, { userId: state.selfUserId ?? undefined }]);
     const people: GroupVoiceLivePerson[] = [];
     const add = (person: GroupVoiceLivePerson) => people.push(person);
@@ -3441,7 +3499,9 @@ function WatchRoomView({
         silenced: selfSilenced,
         deafened: micsMuted,
         camera,
-        screen: isSharing && (!camera || Boolean(localStream)),
+        screen:
+          (isSharing && (!camera || Boolean(localStream))) ||
+          sharingFromIPhone.has(state.selfUserId),
         micStream: isMicOn ? localMicStream ?? null : null,
       });
     }
@@ -3457,7 +3517,9 @@ function WatchRoomView({
         silenced: isPeerSilenced(p),
         deafened: p.micsMuted === true,
         camera,
-        screen: p.sharing && (!camera || p.screen === true || (p.files?.length ?? 0) > 0),
+        screen:
+          (p.sharing && (!camera || p.screen === true || (p.files?.length ?? 0) > 0)) ||
+          Boolean(p.userId && sharingFromIPhone.has(p.userId)),
         micStream: p.mic ? remoteMicStreams[p.id] ?? null : null,
         // Read exactly as the participant row reads them: deafening yourself
         // shows everybody as muted, and a volume is keyed by the person.
@@ -3730,11 +3792,11 @@ function WatchRoomView({
   const toolPeople = useMemo<ToolPerson[]>(() => {
     const seen = new Map<string, string>();
     for (const peer of state.peers) {
-      if (peer.role === "moderator" || isObsPeer(peer)) continue;
+      if (peer.role === "moderator" || isObsPeer(peer) || isAttachedScreenCompanion(peer, presentPeerIds)) continue;
       if (peer.userId && peer.userId !== state.selfUserId && !seen.has(peer.userId)) seen.set(peer.userId, peer.name);
     }
     return [...seen].map(([userId, name]) => ({ userId, name }));
-  }, [state.peers, state.selfUserId]);
+  }, [state.peers, state.selfUserId, presentPeerIds]);
   const nameOfUser = useCallback(
     (userId: string) =>
       userId === state.selfUserId
@@ -4388,10 +4450,32 @@ function WatchRoomView({
   // same peer list so their WebRTC connections get set up transparently,
   // but must never show up to real participants — filtered out here rather
   // than never added, so this is the one place that has to remember it.
-  const visiblePeers = useMemo(
+  //
+  // tilePeers keeps an iPhone's screen broadcast, because its screen is a tile
+  // like any other and the "transmissão pausada" placeholders below are built
+  // from this list; visiblePeers — the people — leaves it out while its person
+  // is here (see isAttachedScreenCompanion), so it is never listed, counted
+  // or numbered "(2)".
+  const tilePeers = useMemo(
     () => state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)),
     [state.peers]
   );
+  const visiblePeers = useMemo(
+    () => tilePeers.filter((p) => !isAttachedScreenCompanion(p, presentPeerIds)),
+    [tilePeers, presentPeerIds]
+  );
+  // People sharing their iPhone's screen right now, by identity — so their
+  // row says "compartilhando tela" like anybody sharing from a computer, even
+  // though the share comes from another connection (this client's own
+  // included, when this is the iPhone).
+  const iPhoneSharers = useMemo(() => {
+    const sharers = new Set<string>();
+    for (const p of state.peers) {
+      if (p.userId && p.sharing && isAttachedScreenCompanion(p, presentPeerIds)) sharers.add(p.userId);
+    }
+    return sharers;
+  }, [state.peers, presentPeerIds]);
+  const selfSharesFromIPhone = Boolean(state.selfUserId && iPhoneSharers.has(state.selfUserId));
   // Built from the peer list *plus this client*, because the peer list never
   // contains us and our own second device has to be numbered like anybody
   // else's. Rebuilt whenever the list changes: the label is a fact about the
@@ -5611,7 +5695,7 @@ function WatchRoomView({
   // ever been, so it carries the load for the rest.
   const announcesScreen = (p: PeerInfo) => p.sharing && p.screen !== false;
   const announcesCamera = (p: PeerInfo) => p.sharing && p.camera !== false;
-  const stoppedEntries = visiblePeers.filter(
+  const stoppedEntries = tilePeers.filter(
     (p) => stoppedPeers.has(p.id) && announcesScreen(p) && !(p.id in remoteStreams)
   );
   // The two placeholder sets are kept mutually exclusive at the source (see
@@ -5622,17 +5706,17 @@ function WatchRoomView({
   // placeholder carries a "Retomar transmissão" button, and "Retomando..."
   // carries nothing, so if the two ever disagree the actionable one is the
   // one worth showing.
-  const resumingEntries = visiblePeers.filter(
+  const resumingEntries = tilePeers.filter(
     (p) =>
       resumingPeers.has(p.id) &&
       !stoppedPeers.has(p.id) &&
       announcesScreen(p) &&
       !(p.id in remoteStreams)
   );
-  const stoppedCameraEntries = visiblePeers.filter(
+  const stoppedCameraEntries = tilePeers.filter(
     (p) => stoppedCameraPeers.has(p.id) && announcesCamera(p) && !(p.id in remoteCameraStreams)
   );
-  const resumingCameraEntries = visiblePeers.filter(
+  const resumingCameraEntries = tilePeers.filter(
     (p) =>
       resumingCameraPeers.has(p.id) &&
       !stoppedCameraPeers.has(p.id) &&
@@ -5651,7 +5735,7 @@ function WatchRoomView({
   const announcesFile = (p: PeerInfo, slot: string) =>
     p.sharing && (p.files === undefined || p.files.some((f) => f.channel === slot));
   const stoppedFileEntries = LOCAL_MEDIA_SLOTS.flatMap((slot) =>
-    visiblePeers
+    tilePeers
       .filter(
         (p) =>
           fileChannels[slot].stoppedPeers.has(p.id) &&
@@ -5662,7 +5746,7 @@ function WatchRoomView({
       .map((p) => [slot, p] as const)
   );
   const resumingFileEntries = LOCAL_MEDIA_SLOTS.flatMap((slot) =>
-    visiblePeers
+    tilePeers
       .filter(
         (p) =>
           fileChannels[slot].resumingPeers.has(p.id) &&
@@ -5683,7 +5767,7 @@ function WatchRoomView({
   // The extra screens are not announced one by one (see useRoomMedia), so the
   // person announcing a screen at all is the best the peer list can say.
   const stoppedExtraScreenEntries = EXTRA_SCREEN_SLOTS.flatMap((slot) =>
-    visiblePeers
+    tilePeers
       .filter(
         (p) =>
           extraScreens[slot].stoppedPeers.has(p.id) &&
@@ -5693,7 +5777,7 @@ function WatchRoomView({
       .map((p) => [slot, p] as const)
   );
   const resumingExtraScreenEntries = EXTRA_SCREEN_SLOTS.flatMap((slot) =>
-    visiblePeers
+    tilePeers
       .filter(
         (p) =>
           extraScreens[slot].resumingPeers.has(p.id) &&
@@ -5703,10 +5787,10 @@ function WatchRoomView({
       )
       .map((p) => [slot, p] as const)
   );
-  const stoppedCamera2Entries = visiblePeers.filter(
+  const stoppedCamera2Entries = tilePeers.filter(
     (p) => dualCamera.stoppedPeers.has(p.id) && announcesCamera(p) && !(p.id in dualCamera.remoteStreams)
   );
-  const resumingCamera2Entries = visiblePeers.filter(
+  const resumingCamera2Entries = tilePeers.filter(
     (p) =>
       dualCamera.resumingPeers.has(p.id) &&
       !dualCamera.stoppedPeers.has(p.id) &&
@@ -5718,7 +5802,7 @@ function WatchRoomView({
   const visibleStoppedExtraScreenEntries = activeHyperfocusId ? [] : stoppedExtraScreenEntries;
   // The same for the extra cameras, under the person announcing a camera.
   const stoppedExtraCameraEntries = EXTRA_CAMERA_SLOTS.flatMap((slot) =>
-    visiblePeers
+    tilePeers
       .filter(
         (p) =>
           extraCameras[slot].stoppedPeers.has(p.id) &&
@@ -5728,7 +5812,7 @@ function WatchRoomView({
       .map((p) => [slot, p] as const)
   );
   const resumingExtraCameraEntries = EXTRA_CAMERA_SLOTS.flatMap((slot) =>
-    visiblePeers
+    tilePeers
       .filter(
         (p) =>
           extraCameras[slot].resumingPeers.has(p.id) &&
@@ -7202,6 +7286,10 @@ function WatchRoomView({
   // The main screen button's "stop": every screen at once. Closing just one
   // is the "+" panel's job (and each tile's).
   const anyScreenSharing = Boolean(localStream) || extraScreensActive > 0;
+  // The phone dock's screen button: the iPhone app's broadcast counts as
+  // supported and as live there (see iosScreenOn).
+  const screenDockSupported = iosScreenOn || screenShareMode === "display";
+  const screenDockLive = Boolean(localStream) || iosScreenActive;
 
   // "Várias câmeras": the "+" beside the camera (see ShareControls and
   // AddCameraPanel). The first camera counts as one of them.
@@ -8281,13 +8369,17 @@ function WatchRoomView({
 
       <div className="flex items-center">
         <ShareControls
-          screenSharing={anyScreenSharing}
+          screenSharing={anyScreenSharing || iosScreenActive}
           cameraSharing={anyCameraSharing}
-          screenSupported={screenShareMode === "display" || isMobileBrowser}
+          screenSupported={iosScreenOn || screenShareMode === "display" || isMobileBrowser}
           cameraSupported={screenShareMode !== "unsupported"}
           screenBlockedReason={screenBlockedReason}
           cameraBlockedReason={cameraBlockedReason}
           onToggleScreen={() => {
+            if (iosScreenOn) {
+              toggleIOSScreen();
+              return;
+            }
             if (anyScreenSharing) {
               stopAllScreens();
               return;
@@ -8655,8 +8747,8 @@ function WatchRoomView({
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
         silenced={selfSilenced}
-        sharing={isSharing}
-        screen={Boolean(localStream)}
+        sharing={isSharing || selfSharesFromIPhone}
+        screen={Boolean(localStream) || selfSharesFromIPhone}
         camera={Boolean(localCameraStream)}
         phoneCamera={cameraFromPhone}
         sharingVideo={peerSharesVideo(state.selfUserId)}
@@ -8697,8 +8789,8 @@ function WatchRoomView({
             nameColor={p.nameColor}
             micOn={p.mic && !isPeerSilenced(p)}
             silenced={isPeerSilenced(p)}
-            sharing={p.sharing}
-            screen={p.screen}
+            sharing={p.sharing || Boolean(p.userId && iPhoneSharers.has(p.userId))}
+            screen={p.userId && iPhoneSharers.has(p.userId) ? true : p.screen}
             camera={p.camera}
             phoneCamera={p.phoneCamera}
             sharingVideo={peerSharesVideo(p.userId)}
@@ -9875,6 +9967,19 @@ function WatchRoomView({
           {shareError ?? extraScreenError}
         </p>
       )}
+      {iosScreenOn && iosScreen.state === "error" && iosScreen.message && (
+        <div className="flex items-start gap-3 bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          <p className="flex-1">{iosScreen.message}</p>
+          <button
+            type="button"
+            onClick={dismissIOSScreenError}
+            aria-label={translate("common.close")}
+            className="shrink-0 cursor-pointer px-1 text-base leading-none"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* Amber and not red, and only while the share it refers to is still
           running: the transmission is fine, it just has no sound. Saying
           nothing was the worse option — somebody who ticked the box would
@@ -10230,10 +10335,14 @@ function WatchRoomView({
                     now, and a wall of dead buttons is not that. The note
                     below says why, once, for whatever ends up missing. */}
                 <div className="mt-3 flex w-full max-w-md flex-col gap-2">
-                  {(screenShareMode === "display" || isMobileBrowser) && !screenBlockedReason && (
+                  {(iosScreenOn || screenShareMode === "display" || isMobileBrowser) && !screenBlockedReason && (
                     <button
                       type="button"
                       onClick={() => {
+                        if (iosScreenOn) {
+                          toggleIOSScreen();
+                          return;
+                        }
                         if (isMobileBrowser) {
                           setMobileScreenShareModalOpen(true);
                           return;
@@ -11164,9 +11273,9 @@ function WatchRoomView({
                     content={
                       isMobileBrowser
                         ? (screenBlockedReason ?? translate("watch.watchRoom.shareScreen"))
-                        : screenShareMode !== "display"
+                        : !screenDockSupported
                           ? translate("watch.watchRoom.screenSharingNotSupportedInThis")
-                          : localStream
+                          : screenDockLive
                             ? translate("watch.watchRoom.stopSharingTheScreen")
                             : (screenBlockedReason ?? translate("watch.watchRoom.shareScreen"))
                     }
@@ -11175,11 +11284,15 @@ function WatchRoomView({
                     <button
                       type="button"
                       onClick={() => {
+                        if (iosScreenOn) {
+                          toggleIOSScreen();
+                          return;
+                        }
                         if (isMobileBrowser) {
                           setMobileScreenShareModalOpen(true);
                           return;
                         }
-                        if (screenShareMode !== "display") return;
+                        if (!screenDockSupported) return;
                         if (anyScreenSharing) stopAllScreens();
                         else if (onPhone) setQualityPrompt("screen");
                         else startShare("display");
@@ -11187,15 +11300,15 @@ function WatchRoomView({
                       disabled={
                         isMobileBrowser
                           ? Boolean(screenBlockedReason)
-                          : screenShareMode !== "display" || (!localStream && Boolean(screenBlockedReason))
+                          : !screenDockSupported || (!screenDockLive && Boolean(screenBlockedReason))
                       }
                       data-tour="screen"
-                      aria-pressed={Boolean(localStream)}
-                      aria-label={localStream ? translate("watch.watchRoom.stopSharingTheScreen") : translate("watch.watchRoom.shareScreen")}
+                      aria-pressed={Boolean(screenDockLive)}
+                      aria-label={screenDockLive ? translate("watch.watchRoom.stopSharingTheScreen") : translate("watch.watchRoom.shareScreen")}
                       className={`${DOCK_BUTTON} ${
-                        !isMobileBrowser && screenShareMode !== "display"
+                        !isMobileBrowser && !screenDockSupported
                           ? "bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
-                          : localStream
+                          : screenDockLive
                             ? DOCK_LIVE
                             : DOCK_ON
                       }`}

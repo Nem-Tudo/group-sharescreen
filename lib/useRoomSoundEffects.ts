@@ -28,8 +28,19 @@ import { containsBroadcastMention } from "./chatMentions";
 // came or went, and a join/leave chime is exactly that. Dropped from both
 // the baseline and the diff below, so neither a moderator arriving nor one
 // leaving can ever be heard.
+//
+// An iPhone's screen broadcast (PeerInfo.screenOf) is kept, but it is a
+// screen, not a person: it arriving sharing, or starting to, chimes "share
+// started", it going away while sharing chimes "share stopped", and it never
+// chimes join or leave. This person's own broadcast is dropped altogether,
+// same as their own share in this tab never chimes.
 function realPeerMap(peers: PeerInfo[]): Map<string, PeerInfo> {
-  return new Map(peers.filter((p) => p.role !== "moderator").map((p) => [p.id, p]));
+  const selfUserId = signalingClient.state.selfUserId;
+  return new Map(
+    peers
+      .filter((p) => p.role !== "moderator" && !(p.screenOf && p.userId && p.userId === selfUserId))
+      .map((p) => [p.id, p])
+  );
 }
 
 export function useRoomSoundEffects(
@@ -93,17 +104,18 @@ export function useRoomSoundEffects(
     for (const [id, peer] of nextPeers) {
       const prev = prevPeers.get(id);
       if (!prev) {
-        if (!resettling) joined = true;
+        if (resettling) continue;
+        if (!peer.screenOf) joined = true;
+        else if (peer.sharing) shareStarted = true;
         continue;
       }
       if (!prev.sharing && peer.sharing) shareStarted = true;
       else if (prev.sharing && !peer.sharing) shareStopped = true;
     }
-    for (const id of prevPeers.keys()) {
-      if (!nextPeers.has(id) && !resettling) {
-        left = true;
-        break;
-      }
+    for (const [id, prev] of prevPeers) {
+      if (nextPeers.has(id) || resettling) continue;
+      if (!prev.screenOf) left = true;
+      else if (prev.sharing) shareStopped = true;
     }
 
     if (joined) playJoinSound();

@@ -467,8 +467,10 @@ const TOOL_LABELS: Partial<Record<ToolKind, string>> = {
 };
 // Moderator "ghost" peers ride the same list, and this count is shown publicly
 // on the Discord profile: including them would reveal that one is in the room.
+// An iPhone's screen broadcast is not a person either (see
+// isAttachedScreenCompanion).
 const selectVisiblePeerCount = (state: SignalingState) =>
-  state.peers.filter((peer) => peer.role !== "moderator").length;
+  state.peers.filter((peer) => peer.role !== "moderator" && !peer.screenOf).length;
 
 // What the last discord_rpc_update counted. Leaves out the peer count, so people
 // coming and going in a room don't each count as a use of the feature.

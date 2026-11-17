@@ -12,6 +12,9 @@ vêm de lá. O que é nativo está em `App/App/`:
 | `WebAuthPlugin.swift` | Login social com `ASWebAuthenticationSession`: usa os cookies do Safari, pega o retorno `golive://` sozinho e fecha. |
 | `InAppReviewPlugin.swift` | Gêmeo do Android: o pedido de avaliação nativo (`lib/appReview.ts` decide quando). |
 | `AppDelegate.swift` | Repassa o token do APNs para o `@capacitor/push-notifications`. |
+| `ScreenBroadcastPlugin.swift` | "Compartilhar tela": deixa as instruções para a extensão no App Group, abre a janela "Iniciar transmissão" do iOS e repassa o estado da extensão para o site (`lib/iosScreenBroadcast.ts`). |
+| `BroadcastShared.swift` | Chaves do App Group e notificações que o app e a extensão usam; compilado nos dois. |
+| `../Broadcast/` | A extensão ReplayKit (Broadcast Upload Extension, `me.nemtudo.golive.broadcast`): entra na sala como outro aparelho da pessoa e envia a tela inteira com WebRTC nativo (pacote `stasel/WebRTC`). Veja `ScreenSession.swift`. |
 | `Info.plist` + `*.lproj/InfoPlist.strings` | Textos de permissão (câmera, microfone, fotos) em pt/en/es, esquema `golive://`, áudio em segundo plano, `ITSAppUsesNonExemptEncryption = false`. |
 | `App.entitlements` | Push (`production`) e Sign in with Apple. |
 | `PrivacyInfo.xcprivacy` | O manifesto de privacidade que a Apple exige. |
@@ -64,6 +67,16 @@ GitHub roda `npm ci` e precisa dele no lock.
    (APNs)** e **Sign in with Apple** (configure com o App ID acima). Baixe o
    `.p8` — **só dá para baixar uma vez**. Anote o Key ID.
 4. Anote o **Team ID** (canto de cima da página "Membership").
+5. **Identifiers → App Groups → +**: `group.me.nemtudo.golive` (é por onde o
+   app conversa com a extensão de compartilhar tela).
+6. Abra o App ID `me.nemtudo.golive` e marque **App Groups → Configure →**
+   `group.me.nemtudo.golive`. Salve (o iOS avisa que o perfil muda; tudo bem).
+7. **Identifiers → App IDs → +**: Bundle ID explícito
+   `me.nemtudo.golive.broadcast` (a extensão), com **App Groups →**
+   `group.me.nemtudo.golive`. Nenhuma outra capacidade.
+
+   O build com assinatura automática costuma criar 5-7 sozinho; feitos à mão,
+   não tem como ele travar neles.
 
 ### 3. Variáveis da API (produção)
 
@@ -131,10 +144,13 @@ desligados, sem quebrar nada.
 
 ## Limitações conhecidas
 
-- **Compartilhar tela não existe no iOS** (o WKWebView não tem
-  `getDisplayMedia`). O botão cai na câmera, como em qualquer navegador de
-  celular. Uma versão de verdade exigiria uma extensão ReplayKit (Broadcast
-  Upload Extension) — um projeto à parte.
+- **Compartilhar tela** passa pela extensão `Broadcast/`, não pela página (o
+  WKWebView não tem `getDisplayMedia`). Está atrás do experiment
+  `ios-screen-share` (0%); sem ele, o botão cai na câmera como antes. Limites
+  da primeira versão: sem som da tela, até 8 espectadores ao mesmo tempo, imagem
+  limitada a 1280×720 e 24 fps (a extensão morre acima de ~50 MB de memória).
+  Para testar: ligue o experiment para a sua conta no admin e instale pelo
+  TestFlight — só dá para testar num iPhone de verdade.
 - **Segundo plano**: o modo `audio` mantém o som da chamada, mas o iOS para a
   câmera e pode silenciar o microfone do WKWebView quando o app sai da tela.
   Chamada com tela bloqueada como no WhatsApp exigiria CallKit + WebRTC nativo.

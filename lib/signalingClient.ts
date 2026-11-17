@@ -136,6 +136,10 @@ export type PeerInfo = {
   orientations?: Record<string, { rotation?: number; flipX?: boolean; flipY?: boolean }>;
   role?: "moderator" | "obs";
   obsTarget?: string;
+  // Set when this connection is the iPhone app's screen broadcast (ios/App/
+  // Broadcast): the id of the connection of the person it belongs to. See
+  // isAttachedScreenCompanion.
+  screenOf?: string | null;
   // Stable per-account/per-guest identity (see server/signaling.ts's
   // stableUserId) — unlike `id`, which is reissued on every reconnect, this
   // stays the same across reloads for the same person. Undefined only for a
@@ -336,6 +340,42 @@ export const DEFAULT_ROOM_PERMISSIONS: RoomPermissions = {
  * Returns true if a peer is an OBS Browser Source connection (role === "obs").
  * OBS peers must never appear as room participants, headcount, chat mentions, etc.
  */
+/**
+ * Who is in the room in person right now — the identity (userId) of every
+ * connection that is not an iPhone screen broadcast, this client's own
+ * included. What isAttachedScreenCompanion checks against: by identity, not
+ * by connection, because the person's app reconnects under a new id every
+ * time iOS suspends it while they show another app.
+ */
+export function presentPeople(
+  peers: readonly { userId?: string; screenOf?: string | null }[],
+  selfUserId: string | null | undefined
+): Set<string> {
+  const people = new Set<string>();
+  for (const p of peers) if (p.userId && !p.screenOf) people.add(p.userId);
+  if (selfUserId) people.add(selfUserId);
+  return people;
+}
+
+/**
+ * Whether `p` is an iPhone's screen broadcast whose person is in the room.
+ *
+ * iOS only lets the screen out through a separate process (the ReplayKit
+ * extension), which has to join the room as a connection of its own — see
+ * lib/iosScreenBroadcast.ts. To everybody else it should read as that
+ * person's screen, not as a second copy of them: so such a connection is left
+ * out of the participant list, the head count, the device numbering ("(2)")
+ * and the join/leave sounds, while its screen tile stays. If the person's own
+ * connection is gone and the broadcast is still running, it is listed again,
+ * so a screen is never on show from somebody the room cannot see.
+ */
+export function isAttachedScreenCompanion(
+  p: { screenOf?: string | null; userId?: string } | null | undefined,
+  people: ReadonlySet<string>
+): boolean {
+  return Boolean(p?.screenOf && p.userId && people.has(p.userId));
+}
+
 export function isObsPeer(
   p: { role?: string; name?: string; obsTarget?: string } | null | undefined
 ): boolean {
@@ -1327,6 +1367,19 @@ class SignalingClient {
     string,
     {
       resolve: (groupId: string) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  // The iPhone app's screen broadcast asking the server to vouch for it — see
+  // requestScreenCompanion and lib/iosScreenBroadcast.ts.
+  // Set while the ad gate on screen belongs to the iPhone's screen broadcast
+  // rather than to this connection — see showRelayedBroadcastAdGate.
+  private adGateRelay: ((msg: Record<string, unknown>) => void) | null = null;
+  private pendingScreenCompanionRequests = new Map<
+    string,
+    {
+      resolve: (token: string) => void;
       reject: (err: Error) => void;
       timer: ReturnType<typeof setTimeout>;
     }
@@ -2351,6 +2404,18 @@ class SignalingClient {
         });
         break;
       }
+      case "screen-companion-token": {
+        const reqId = typeof msg.requestId === "string" ? msg.requestId : "";
+        const pending = this.pendingScreenCompanionRequests.get(reqId);
+        if (!pending) break;
+        clearTimeout(pending.timer);
+        this.pendingScreenCompanionRequests.delete(reqId);
+        if (typeof msg.token === "string" && msg.token) pending.resolve(msg.token);
+        // The reason code, not the sentence: the caller words it in the
+        // person's language (see lib/iosScreenBroadcast.ts).
+        else pending.reject(new Error(typeof msg.reason === "string" ? msg.reason : "other"));
+        break;
+      }
       case "obs-token-created": {
         const reqId = typeof msg.requestId === "string" ? msg.requestId : "";
         const pending = this.pendingObsTokenRequests.get(reqId);
@@ -2894,6 +2959,9 @@ class SignalingClient {
       // lib/broadcastAdGate.ts). Re-sent by the server if we ask to share
       // again while paused, so arriving twice is normal and idempotent.
       case "broadcast-ad-gate": {
+        // This connection's own gate outranks one relayed from the iPhone's
+        // screen broadcast: the popup's answer must go where the pause is.
+        this.adGateRelay = null;
         const firstHours = typeof msg.firstHours === "number" ? msg.firstHours : 6;
         const intervalHours = typeof msg.intervalHours === "number" ? msg.intervalHours : 2;
         this.setState({
@@ -3415,6 +3483,35 @@ class SignalingClient {
       }, 10000);
       this.pendingRoomToGroupRequests.set(requestId, { resolve, reject, timer });
       this.rawSend({ type: "room-convert-to-group", name, requestId });
+    });
+  }
+
+  /**
+   * What the iPhone's screen broadcast extension needs to join `room` as
+   * another device of this same person: a token the server signs for this
+   * session (see the API's "screen-companion-token"), plus this session's
+   * own login token and name for the extension's "register". Rejects when
+   * the server refuses (not in the room, no permission to share, banned).
+   */
+  requestScreenCompanion(room: string): Promise<{ companionToken: string; loginToken: string | null; name: string }> {
+    return new Promise((resolve, reject) => {
+      if (this.state.room !== room || !this.state.name) {
+        reject(new Error("not-in-room"));
+        return;
+      }
+      const name = this.state.name;
+      const loginToken = this.desiredToken ?? null;
+      const requestId = Math.random().toString(36).slice(2, 11);
+      const timer = setTimeout(() => {
+        this.pendingScreenCompanionRequests.delete(requestId);
+        reject(new Error("timeout"));
+      }, 7000);
+      this.pendingScreenCompanionRequests.set(requestId, {
+        resolve: (companionToken) => resolve({ companionToken, loginToken, name }),
+        reject,
+        timer,
+      });
+      this.rawSend({ type: "screen-companion-token", room, requestId });
     });
   }
 
@@ -4061,6 +4158,38 @@ class SignalingClient {
    * broadcast only actually resumes when "broadcast-ad-gate-cleared" comes
    * back — nothing here changes the local state on its own.
    */
+  /**
+   * The iPhone's screen broadcast was paused for an ad (lib/iosScreenBroadcast.ts).
+   *
+   * The pause is on the broadcast's own connection, a separate process that
+   * has no screen to show the popup on — so the popup is put up here, exactly
+   * as for a pause of this connection, and what it answers is handed to
+   * `relay`, which passes it to the broadcast to send as its own.
+   */
+  showRelayedBroadcastAdGate(
+    gate: { totalSeconds: number; firstHours: number; intervalHours: number },
+    relay: (msg: Record<string, unknown>) => void
+  ) {
+    this.adGateRelay = relay;
+    this.setState({
+      broadcastAdGate: gate,
+      broadcastGateHours: { firstHours: gate.firstHours, intervalHours: gate.intervalHours },
+    });
+  }
+
+  /** The relayed gate is over (the broadcast resumed, or ended). */
+  clearRelayedBroadcastAdGate() {
+    if (!this.adGateRelay) return;
+    this.adGateRelay = null;
+    this.setState({ broadcastAdGate: null });
+  }
+
+  /** Where the gate popup's answers go: this connection, or the iPhone's broadcast. */
+  private sendAdGateAnswer(msg: Record<string, unknown>) {
+    if (this.adGateRelay) this.adGateRelay(msg);
+    else this.rawSend(msg);
+  }
+
   clearBroadcastAdGate(
     reason: "ad" | "pro",
     partnerId?: string | null,
@@ -4071,7 +4200,7 @@ class SignalingClient {
     // about the ad, and only they can act on the difference.
     watchedFully = false
   ) {
-    this.rawSend({
+    this.sendAdGateAnswer({
       type: "ad-gate-cleared",
       reason,
       partnerId: partnerId ?? null,
@@ -4081,12 +4210,12 @@ class SignalingClient {
 
   /** We had no ad to show them, so let the broadcast through. */
   reportBroadcastAdGateNoAd() {
-    this.rawSend({ type: "ad-gate-no-ad" });
+    this.sendAdGateAnswer({ type: "ad-gate-no-ad" });
   }
 
   /** "Assinar Pro" pressed in the gate's popup — counted, nothing else. */
   reportBroadcastAdGateProClick() {
-    this.rawSend({ type: "ad-gate-pro-click" });
+    this.sendAdGateAnswer({ type: "ad-gate-pro-click" });
   }
 
   // Called by ChatPanel.tsx's own idle timer, not on every keystroke — see

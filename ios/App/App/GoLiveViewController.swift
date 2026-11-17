@@ -24,6 +24,7 @@ class GoLiveViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(AppChromePlugin())
         bridge?.registerPluginInstance(InAppReviewPlugin())
         bridge?.registerPluginInstance(WebAuthPlugin())
+        bridge?.registerPluginInstance(ScreenBroadcastPlugin())
     }
 
     override func viewDidLoad() {

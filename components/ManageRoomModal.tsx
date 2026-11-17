@@ -32,6 +32,8 @@ import { captureProtectionLevel } from "@/lib/captureProtection";
 import {
   signalingClient,
   isObsPeer,
+  isAttachedScreenCompanion,
+  presentPeople,
   type RoomPermissionKey,
   type PeerInfo,
   type RoomLocation,
@@ -181,9 +183,15 @@ export function ManageRoomModal({
   // must not show up here as someone to promote either. Nor must anyone an
   // older server never sent a stable userId for: there'd be nothing to key
   // the promotion on.
+  // An iPhone's screen broadcast is that person's screen, not a person.
+  const presentIds = presentPeople(state.peers, state.selfUserId);
   const promotablePeers = state.peers.filter(
     (p): p is PeerInfo & { userId: string } =>
-      p.role !== "moderator" && !isObsPeer(p) && Boolean(p.userId) && p.userId !== state.roomOwnerId
+      p.role !== "moderator" &&
+      !isObsPeer(p) &&
+      !isAttachedScreenCompanion(p, presentIds) &&
+      Boolean(p.userId) &&
+      p.userId !== state.roomOwnerId
   );
 
   // Asked for rather than pushed on join: most managers never open this, and
@@ -605,7 +613,7 @@ export function ManageRoomModal({
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {t("manageRoomModal.now")} <span className="font-medium text-zinc-700 dark:text-zinc-300">
-              {state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)).length + 1}
+              {state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p) && !isAttachedScreenCompanion(p, presentIds)).length + 1}
             </span>{" "}
             na sala.
           </p>

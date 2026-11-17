@@ -16,5 +16,12 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Shared with the screen broadcast extension (Broadcast/): where the
+	     app leaves it the room to join and reads back how it is going — see
+	     BroadcastShared.swift. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.me.nemtudo.golive</string>
+	</array>
 </dict>
 </plist>

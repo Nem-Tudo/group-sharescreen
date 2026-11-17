@@ -6170,5 +6170,8 @@
   "authForms.orUseAnAccount": "ou entre com uma conta",
   "authForms.alreadyOnGolive": "Já tem conta no GoLive?",
   "authForms.signInToIt": "Entrar nela",
-  "oAuthButtons.continueWithLabel": "Continuar com {label}"
+  "oAuthButtons.continueWithLabel": "Continuar com {label}",
+  "iosScreen.couldNotStart": "Não foi possível começar a compartilhar a tela. Tente de novo.",
+  "iosScreen.notAllowedInRoom": "Esta sala não permite que você compartilhe a tela.",
+  "iosScreen.banned": "Você não pode compartilhar a tela agora."
 }
