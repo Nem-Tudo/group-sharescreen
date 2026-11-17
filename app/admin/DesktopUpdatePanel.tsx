@@ -5,10 +5,10 @@ import { MdRefresh } from "react-icons/md";
 import {
   fetchDesktopUpdateClicks,
   launchDesktopUpdate,
-  setDesktopMinVersion,
+  setDesktopVersionPolicy,
   type DesktopUpdateClicks,
 } from "@/lib/adminApi";
-import { fetchDesktopMinVersion } from "@/lib/desktopUpdate";
+import { fetchDesktopVersionPolicy, type DesktopVersionPolicy } from "@/lib/desktopUpdate";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -34,33 +34,12 @@ export function DesktopUpdatePanel() {
   const [notified, setNotified] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clicks, setClicks] = useState<DesktopUpdateClicks | null>(null);
-  // "Piso de versão" — see components/DesktopVersionGate.
-  const [minVersion, setMinVersion] = useState<string | null>(null);
-  const [minDraft, setMinDraft] = useState("");
-  const [savingMin, setSavingMin] = useState(false);
-  const [minError, setMinError] = useState<string | null>(null);
+  // Required / recommended versions — see components/DesktopVersionGate.
+  const [policy, setPolicy] = useState<DesktopVersionPolicy | null>(null);
 
   useEffect(() => {
-    void fetchDesktopMinVersion().then((value) => {
-      setMinVersion(value);
-      setMinDraft(value ?? "");
-    });
+    void fetchDesktopVersionPolicy().then(setPolicy);
   }, []);
-
-  async function saveMinVersion(value: string) {
-    if (savingMin) return;
-    setSavingMin(true);
-    setMinError(null);
-    try {
-      const stored = await setDesktopMinVersion(value);
-      setMinVersion(stored);
-      setMinDraft(stored ?? "");
-    } catch (err) {
-      setMinError(err instanceof Error ? err.message : t("admin.desktopUpdatePanel.minVersionError"));
-    } finally {
-      setSavingMin(false);
-    }
-  }
 
   const readClicks = useCallback(
     () =>
@@ -171,53 +150,105 @@ export function DesktopUpdatePanel() {
         )}
       </div>
 
-      <div className="mt-4 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-          {t("admin.desktopUpdatePanel.minVersionTitle")}
-        </span>
-        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-          {t("admin.desktopUpdatePanel.minVersionHint")}
-        </p>
-        <form
-          className="mt-2 flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveMinVersion(minDraft);
-          }}
+      {/* Keyed by the stored value so the box starts over from it after a
+          load or a save, without an effect copying props into state. */}
+      <VersionField
+        key={`min:${policy?.minVersion ?? ""}`}
+        field="minVersion"
+        value={policy?.minVersion ?? null}
+        onSaved={setPolicy}
+        title={t("admin.desktopUpdatePanel.minVersionTitle")}
+        hint={t("admin.desktopUpdatePanel.minVersionHint")}
+        activeText={(version) => t("admin.desktopUpdatePanel.minVersionCurrent", { version })}
+      />
+      <VersionField
+        key={`rec:${policy?.recommendedVersion ?? ""}`}
+        field="recommendedVersion"
+        value={policy?.recommendedVersion ?? null}
+        onSaved={setPolicy}
+        title={t("admin.desktopUpdatePanel.recommendedTitle")}
+        hint={t("admin.desktopUpdatePanel.recommendedHint")}
+        activeText={(version) => t("admin.desktopUpdatePanel.recommendedCurrent", { version })}
+      />
+    </div>
+  );
+}
+
+/** One of the two version settings: a box, save, and remove. */
+function VersionField({
+  field,
+  value,
+  onSaved,
+  title,
+  hint,
+  activeText,
+}: {
+  field: keyof DesktopVersionPolicy;
+  value: string | null;
+  onSaved: (policy: DesktopVersionPolicy) => void;
+  title: string;
+  hint: string;
+  activeText: (version: string) => string;
+}) {
+  const t = useT();
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(next: string) {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      onSaved(await setDesktopVersionPolicy({ [field]: next }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("admin.desktopUpdatePanel.minVersionError"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{title}</span>
+      <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{hint}</p>
+      <form
+        className="mt-2 flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save(draft);
+        }}
+      >
+        <input
+          type="text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="1.2.3"
+          inputMode="decimal"
+          className="w-28 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm tabular-nums text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        />
+        <button
+          type="submit"
+          disabled={saving || draft.trim() === (value ?? "")}
+          className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          <input
-            type="text"
-            value={minDraft}
-            onChange={(event) => setMinDraft(event.target.value)}
-            placeholder="1.2.3"
-            inputMode="decimal"
-            className="w-28 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm tabular-nums text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          />
+          {t("admin.desktopUpdatePanel.minVersionSave")}
+        </button>
+        {value && (
           <button
-            type="submit"
-            disabled={savingMin || minDraft.trim() === (minVersion ?? "")}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            type="button"
+            disabled={saving}
+            onClick={() => void save("")}
+            className="rounded-md px-3 py-1.5 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
           >
-            {t("admin.desktopUpdatePanel.minVersionSave")}
+            {t("admin.desktopUpdatePanel.minVersionClear")}
           </button>
-          {minVersion && (
-            <button
-              type="button"
-              disabled={savingMin}
-              onClick={() => void saveMinVersion("")}
-              className="rounded-md px-3 py-1.5 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
-            >
-              {t("admin.desktopUpdatePanel.minVersionClear")}
-            </button>
-          )}
-        </form>
-        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-          {minVersion
-            ? t("admin.desktopUpdatePanel.minVersionCurrent", { version: minVersion })
-            : t("admin.desktopUpdatePanel.minVersionNone")}
-        </p>
-        {minError && <p className="mt-1 text-xs text-red-500">{minError}</p>}
-      </div>
+        )}
+      </form>
+      <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+        {value ? activeText(value) : t("admin.desktopUpdatePanel.versionNone")}
+      </p>
+      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>
   );
 }

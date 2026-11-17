@@ -29,7 +29,7 @@
 
 import { app } from "electron";
 import { execFile } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { BackgroundSettings } from "./channels";
 
@@ -89,10 +89,47 @@ export async function launchedHiddenAsync(): Promise<boolean> {
   return launchedHidden() || (await storeLogonLaunch);
 }
 
+// An unattended update (see updater.ts's installWhenIdle) taken while the
+// window was hidden in the tray: the installer relaunches us with no
+// arguments, so the "stay hidden" intent travels in a file instead — written
+// just before quitting, consumed by the very next launch, and stale after a
+// few minutes so a failed install opened by hand days later still shows up.
+const RELAUNCH_HIDDEN_FILE = "relaunch-hidden.json";
+const RELAUNCH_HIDDEN_MAX_AGE_MS = 10 * 60_000;
+
+export function markRelaunchHidden() {
+  try {
+    writeFileSync(path.join(app.getPath("userData"), RELAUNCH_HIDDEN_FILE), JSON.stringify({ savedAt: Date.now() }));
+  } catch {
+    // Worst case the window shows after the update, which is what it always did.
+  }
+}
+
+let relaunchHidden: boolean | null = null;
+
+function takeRelaunchHidden(): boolean {
+  if (relaunchHidden !== null) return relaunchHidden;
+  relaunchHidden = false;
+  const file = path.join(app.getPath("userData"), RELAUNCH_HIDDEN_FILE);
+  try {
+    const { savedAt } = JSON.parse(readFileSync(file, "utf8")) as { savedAt?: unknown };
+    relaunchHidden = typeof savedAt === "number" && Date.now() - savedAt < RELAUNCH_HIDDEN_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
+  try {
+    unlinkSync(file);
+  } catch {
+    // The age check covers a file that could not be removed.
+  }
+  return relaunchHidden;
+}
+
 /** Whether *this* launch was the machine starting us, rather than a person. */
 export function launchedHidden(): boolean {
   return (
     process.argv.includes(HIDDEN_ARG) ||
+    takeRelaunchHidden() ||
     // macOS's own flag for the same thing, set when the app is opened as a
     // hidden login item.
     app.getLoginItemSettings().wasOpenedAsHidden

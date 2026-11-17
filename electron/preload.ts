@@ -93,6 +93,14 @@ contextBridge.exposeInMainWorld("golive", {
     ipcRenderer.send(IPC.updateCheck);
   },
 
+  installUpdateWhenIdle(): Promise<boolean> {
+    return ipcRenderer.invoke(IPC.updateInstallIdle);
+  },
+
+  systemIdleSeconds(): Promise<number> {
+    return ipcRenderer.invoke(IPC.systemIdle);
+  },
+
   /**
    * Reads or changes the two settings that decide whether this machine can be
    * reached with the window closed — see electron/background.ts.

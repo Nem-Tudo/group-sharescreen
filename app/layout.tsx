@@ -4,6 +4,7 @@ import Script from "next/script";
 import { StatusBanner } from "@/components/StatusBanner";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { DesktopVersionGate } from "@/components/DesktopVersionGate";
+import { IdleAutoUpdate } from "@/components/IdleAutoUpdate";
 import { SocketIdleNotice } from "@/components/SocketIdleNotice";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
 import { ForkWatermark } from "@/components/ForkWatermark";
@@ -418,6 +419,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {/* Desktop app below the admin's minimum version: send it to
                     /download — see components/DesktopVersionGate. */}
                 <DesktopVersionGate />
+                {/* Desktop app idle for 2h with an update waiting: apply it —
+                    experiment, see components/IdleAutoUpdate. */}
+                <IdleAutoUpdate />
                 {/* HOTFIX socket-limit — see the component. */}
                 <SocketIdleNotice />
                 {/* Floating ad, experiment-gated — see the component. */}

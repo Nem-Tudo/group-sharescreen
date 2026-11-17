@@ -2467,7 +2467,10 @@ if (!gotLock) {
 
     // Keeps the shell current. The website updates itself by being loaded
     // fresh; this is for the code that ships inside the executable.
-    initAutoUpdater(APP_URL, { onInstallRequested: saveResumeUrl });
+    initAutoUpdater(APP_URL, {
+      onInstallRequested: saveResumeUrl,
+      isWindowShown: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized(),
+    });
 
     // The other half of the crash log (see recoverFromRendererCrash). A GPU
     // process that keeps dying can also leave the window blank, and Chromium

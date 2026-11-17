@@ -236,6 +236,14 @@ export interface DesktopBridge {
    * arrives later through onUpdateReady.
    */
   checkForUpdate?(): void;
+  /**
+   * Applies the downloaded update with nobody at the machine (see
+   * components/IdleAutoUpdate). Resolves false, doing nothing, when it cannot
+   * be done quietly. Absent on shells from before it.
+   */
+  installUpdateWhenIdle?(): Promise<boolean>;
+  /** Seconds since the last keyboard/mouse input anywhere on the system. Absent on older shells. */
+  systemIdleSeconds?(): Promise<number>;
 
   /**
    * Registers global shortcuts in the desktop shell so hotkeys work even

@@ -10,19 +10,23 @@ import { getSignalingHttpBase } from "./roomsApi";
 // a moment later, and an ordinary fetch would be cancelled with the page that
 // started it. Nothing is read back and nothing is awaited by the caller — a
 // counter must never stand between somebody and the update they asked for.
+/** minVersion blocks, recommendedVersion reminds — see components/DesktopVersionGate. */
+export type DesktopVersionPolicy = { minVersion: string | null; recommendedVersion: string | null };
+
 /**
- * The lowest desktop-app version the site still accepts, or null for none —
- * see the API's desktopMinVersionStore.ts and components/DesktopVersionGate.
- * Null on any failure: no answer must never lock anybody out.
+ * The desktop-app versions the site still accepts (the API's
+ * desktopMinVersionStore.ts). Both null on any failure: no answer must never
+ * lock anybody out.
  */
-export async function fetchDesktopMinVersion(): Promise<string | null> {
+export async function fetchDesktopVersionPolicy(): Promise<DesktopVersionPolicy> {
+  const pick = (v: unknown) => (typeof v === "string" && v ? v : null);
   try {
     const res = await fetch(`${getSignalingHttpBase()}/desktop-update/min-version`, { cache: "no-store" });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { minVersion?: unknown };
-    return typeof data.minVersion === "string" && data.minVersion ? data.minVersion : null;
+    if (!res.ok) return { minVersion: null, recommendedVersion: null };
+    const data = (await res.json()) as Record<string, unknown>;
+    return { minVersion: pick(data.minVersion), recommendedVersion: pick(data.recommendedVersion) };
   } catch {
-    return null;
+    return { minVersion: null, recommendedVersion: null };
   }
 }
 

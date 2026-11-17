@@ -20,7 +20,8 @@
 // wrong on other people's machines, and a good part of this file exists
 // entirely for that — see "When the install does not take" below.
 
-import { app, ipcMain, BrowserWindow, shell } from "electron";
+import { app, ipcMain, BrowserWindow, powerMonitor, shell } from "electron";
+import { markRelaunchHidden } from "./background";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -283,7 +284,7 @@ let installRequested = false;
  * download (electron-updater reuses a cached file when the version matches,
  * so the common case costs one small request).
  */
-async function installLatest(beforeInstall?: () => void) {
+async function installLatest(beforeInstall?: () => boolean | void) {
   if (installRequested) return;
   installRequested = true;
   try {
@@ -312,7 +313,12 @@ async function installLatest(beforeInstall?: () => void) {
   }
   // After the wait, not before it: the page may have moved on meanwhile, and
   // where to come back to is wherever it is now.
-  beforeInstall?.();
+  // False calls it off: the unattended path uses that when somebody came
+  // back to the machine during the wait above.
+  if (beforeInstall?.() === false) {
+    installRequested = false;
+    return;
+  }
   install(pendingVersion);
 }
 
@@ -337,9 +343,53 @@ function check() {
  */
 export function initAutoUpdater(
   appUrl: string,
-  { onInstallRequested }: { onInstallRequested?: () => void } = {}
+  {
+    onInstallRequested,
+    isWindowShown,
+  }: { onInstallRequested?: () => void; isWindowShown?: () => boolean } = {}
 ) {
   downloadUrl = new URL("/download", appUrl).toString();
+
+  // For the site's idle check (see IdleAutoUpdate). Answered in dev too: it
+  // is a plain system reading with nothing packaged about it.
+  ipcMain.handle(IPC.systemIdle, () => {
+    try {
+      return powerMonitor.getSystemIdleTime();
+    } catch {
+      return 0;
+    }
+  });
+
+  // The unattended install: the site has decided nobody is using this machine
+  // and no call is going on. All that is left to decide here is whether it can
+  // happen *quietly* — anything that would put an installer window or a UAC
+  // prompt on the screen is refused, because there is nobody there to answer
+  // it, and the button and the install-on-quit remain for those machines.
+  ipcMain.handle(IPC.updateInstallIdle, () => {
+    if (!app.isPackaged || process.windowsStore) return false;
+    if (!pendingVersion || installRequested) return false;
+    if (state.failures > 0 || needsElevatedInstall()) return false;
+    const hidden = isWindowShown ? !isWindowShown() : false;
+    log("info", `unattended install of ${pendingVersion} (window ${hidden ? "hidden" : "shown"})`);
+    const idleAtStart = powerMonitor.getSystemIdleTime();
+    const startedAt = Date.now();
+    void installLatest(() => {
+      // installLatest may wait minutes for a newer download. Any input since
+      // the site asked means somebody is back — maybe joining a call — and
+      // the site's "no call going on" no longer holds. Idle time that kept
+      // growing through the wait is the proof that nobody touched anything.
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      if (powerMonitor.getSystemIdleTime() < idleAtStart + elapsed - 5) {
+        log("info", "unattended install called off: input during the wait");
+        return false;
+      }
+      onInstallRequested?.();
+      // Somebody who left it in the tray finds it in the tray, not a window
+      // that opened by itself in the middle of whatever they came back to.
+      if (hidden) markRelaunchHidden();
+    });
+    return true;
+  });
 
   // Registered before the isPackaged bail-out below so the renderer's query
   // always gets a real answer. In dev that answer is null forever, which is

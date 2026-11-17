@@ -34,6 +34,17 @@ export const IPC = {
    * admin panel's "lançar atualização" broadcast.
    */
   updateCheck: "golive:update:check",
+  /**
+   * renderer -> main (invoke): apply the downloaded update now, *unattended* —
+   * nobody is at the machine (see the site's IdleAutoUpdate). Resolves false
+   * without doing anything when it could not be done quietly: nothing
+   * downloaded, or an install that would need a visible installer (elevation,
+   * or an earlier silent attempt that did not take). Comes back hidden in the
+   * tray if the window was hidden.
+   */
+  updateInstallIdle: "golive:update:install-idle",
+  /** renderer -> main (invoke): seconds since the last keyboard/mouse input anywhere on the system. */
+  systemIdle: "golive:system:idle",
 
   /** picker -> main: the sources to show, and the state of the audio switch. */
   pickerList: "golive:picker:list",
