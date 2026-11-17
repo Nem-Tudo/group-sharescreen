@@ -621,9 +621,32 @@ final class ScreenSession: NSObject {
             guard !paused.contains(from), peers[from] != nil else { return }
             closeConnection(from)
             openConnection(to: from)
+        case "quality":
+            applyQualityRequest(from, tier: data["tier"] as? String, idle: data["idle"] as? Bool == true)
         default:
-            // "quality", "route", "diag-request": tuning this side does not do.
+            // "route", "diag-request": tuning this side does not do.
             break
+        }
+    }
+
+    /// A viewer saying what it needs (the site's qualityNegotiation.ts). The
+    /// picture is already capped at 720p here, so the size it asks for changes
+    /// little; what is honoured is the frame rate in the tier ("576p15" → 15)
+    /// and "idle" — a viewer not looking at all (its tab hidden, the tile off
+    /// screen) is sent nothing until it looks again, as a computer's share does.
+    private func applyQualityRequest(_ peerId: String, tier: String?, idle: Bool) {
+        guard let pc = connections[peerId] else { return }
+        var fps = Self.maxFps
+        if let tier, let p = tier.firstIndex(of: "p"), let requested = Int32(tier[tier.index(after: p)...]) {
+            fps = max(1, min(Self.maxFps, requested))
+        }
+        for sender in pc.senders where sender.track?.kind == "video" {
+            let parameters = sender.parameters
+            for encoding in parameters.encodings {
+                encoding.isActive = !idle
+                encoding.maxFramerate = NSNumber(value: fps)
+            }
+            sender.parameters = parameters
         }
     }
 
