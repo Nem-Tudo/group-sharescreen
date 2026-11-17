@@ -11,7 +11,9 @@ import {
   MdOpenInNew,
   MdSelectAll,
 } from "react-icons/md";
+import { MobileSheet } from "@/components/MobileSheet";
 import { copyText } from "@/lib/clipboard";
+import { isTouchPointer, useCoarsePointer } from "@/lib/messageGestures";
 import {
   closeContextMenu,
   openContextMenu,
@@ -25,6 +27,13 @@ import { translate } from "@/lib/i18n";
 // the root, drawn at the pointer, and closed by a click anywhere else (the
 // right button included, which is how opening another one replaces it),
 // Escape, scrolling, or the window losing focus.
+//
+// On a touch screen the same menu is an action sheet from the bottom instead
+// (a long press opens it — see lib/messageGestures): a 220px panel of 32px
+// rows under the finger that just pressed is half hidden by that finger and
+// hard to hit, where a sheet is in reach of the thumb, with rows a finger can
+// land on, and closes the way every other sheet does (drag down, tap outside,
+// Android's back).
 
 const item =
   "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm outline-none transition disabled:cursor-default disabled:opacity-40";
@@ -32,15 +41,24 @@ const itemTone =
   "text-zinc-700 hover:bg-zinc-100 focus-visible:bg-zinc-100 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-900 dark:focus-visible:bg-zinc-900";
 const dangerTone =
   "text-red-600 hover:bg-red-500/10 focus-visible:bg-red-500/10 disabled:hover:bg-transparent dark:text-red-400";
+/** A row of the sheet: 48px, the thumb's size, with the press shown as it lands. */
+const sheetItem =
+  "flex min-h-12 w-full cursor-pointer items-center gap-3.5 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium outline-none transition disabled:cursor-default disabled:opacity-40 focus-visible:bg-zinc-100 dark:focus-visible:bg-zinc-900";
+const sheetTone = "text-zinc-800 active:bg-zinc-100 dark:text-zinc-100 dark:active:bg-zinc-900";
+const sheetDangerTone = "text-red-600 active:bg-red-500/10 dark:text-red-400";
 
 export function ContextMenuHost() {
   const menu = useContextMenu();
+  const touch = useCoarsePointer();
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  // Everything that moves the page from under the menu takes it away.
+  // Everything that moves the page from under the menu takes it away. Not
+  // the sheet's: it covers the page, so nothing moves under it — and a phone
+  // resizes the window when its keyboard comes up (the emoji search in the
+  // reaction sheet), which must not shut the sheet being typed into.
   useEffect(() => {
-    if (!menu) return;
+    if (!menu || touch) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") closeContextMenu();
     };
@@ -58,7 +76,7 @@ export function ContextMenuHost() {
       window.removeEventListener("blur", closeContextMenu);
       window.removeEventListener("resize", closeContextMenu);
     };
-  }, [menu]);
+  }, [menu, touch]);
 
   // Up and down walk the entries, as in any menu.
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -69,6 +87,27 @@ export function ContextMenuHost() {
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const next = event.key === "ArrowDown" ? (at + 1) % buttons.length : (at - 1 + buttons.length) % buttons.length;
     buttons[at < 0 ? 0 : next].focus();
+  }
+
+  if (touch) {
+    return (
+      <MobileSheet
+        open={Boolean(menu)}
+        onClose={closeContextMenu}
+        title={menu?.title}
+        label={translate("contextMenu.options")}
+        // Over a popup too: the menu of a member inside the group's settings.
+        layerClassName="z-[70]"
+      >
+        {menu && (
+          <div key={menu.seq} role="menu" onContextMenu={(e) => e.preventDefault()} className="flex select-none flex-col pb-1">
+            {menu.entries.map((entry, index) => (
+              <Entry key={index} entry={entry} sheet />
+            ))}
+          </div>
+        )}
+      </MobileSheet>
+    );
   }
 
   return (
@@ -121,8 +160,10 @@ export function ContextMenuHost() {
   );
 }
 
-function Entry({ entry }: { entry: ContextMenuEntry }) {
-  if (entry.type === "divider") return <div role="separator" className="my-1 border-t border-zinc-200 dark:border-zinc-800" />;
+function Entry({ entry, sheet = false }: { entry: ContextMenuEntry; sheet?: boolean }) {
+  if (entry.type === "divider") {
+    return <div role="separator" className={`border-t border-zinc-200 dark:border-zinc-800 ${sheet ? "mx-3 my-1.5" : "my-1"}`} />;
+  }
   if (entry.type === "label") {
     return (
       <p className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -141,14 +182,20 @@ function Entry({ entry }: { entry: ContextMenuEntry }) {
         if (!entry.keepOpen) closeContextMenu();
         entry.onSelect();
       }}
-      className={`${item} ${entry.danger ? dangerTone : itemTone}`}
+      className={sheet ? `${sheetItem} ${entry.danger ? sheetDangerTone : sheetTone}` : `${item} ${entry.danger ? dangerTone : itemTone}`}
     >
-      <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${entry.danger ? "" : "opacity-70"}`}>
+      {/* The icons are drawn at 16px by every caller; the sheet scales them
+          up to 20 rather than asking each menu for a second size. */}
+      <span
+        className={`flex shrink-0 items-center justify-center ${
+          sheet ? "h-5 w-5 [&>svg]:!h-5 [&>svg]:!w-5" : "h-4 w-4"
+        } ${entry.danger ? "" : "opacity-70"}`}
+      >
         {entry.icon}
       </span>
-      <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-      {entry.hint && <kbd className="shrink-0 font-sans text-[10px] text-zinc-400">{entry.hint}</kbd>}
-      {entry.checked && <MdCheck className="h-4 w-4 shrink-0 text-emerald-600" />}
+      <span className={`min-w-0 flex-1 ${sheet ? "" : "truncate"}`}>{entry.label}</span>
+      {entry.hint && !sheet && <kbd className="shrink-0 font-sans text-[10px] text-zinc-400">{entry.hint}</kbd>}
+      {entry.checked && <MdCheck className={`shrink-0 text-emerald-600 ${sheet ? "h-5 w-5" : "h-4 w-4"}`} />}
     </button>
   );
 }
@@ -289,6 +336,10 @@ export function useBlockNativeContextMenu(active = true): void {
     const onContextMenu = (event: MouseEvent) => {
       // One of ours already opened (it prevented the default on the way).
       if (event.defaultPrevented) return;
+      // A finger held on a text field is asking for the phone's own
+      // selection handles and its cut/copy/paste bar, which beat ours there.
+      const target = event.target instanceof Element ? event.target : null;
+      if (isTouchPointer() && target?.closest("input, textarea, [contenteditable='true']")) return;
       event.preventDefault();
       openContextMenu(event, { entries: fallbackEntries(event) }, true);
     };

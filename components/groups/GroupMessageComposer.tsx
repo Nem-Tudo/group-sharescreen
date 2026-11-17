@@ -56,6 +56,7 @@ import { registerMentionHandler, type MentionTarget } from "@/lib/groupMentionBr
 import { useAttachmentUploads } from "@/lib/useAttachmentUploads";
 import { useEmojiAutocomplete } from "@/lib/useEmojiAutocomplete";
 import { useT } from "@/lib/useI18n";
+import { useCoarsePointer } from "@/lib/messageGestures";
 import { clearDraft, readDraft, writeDraft } from "@/lib/composerDrafts";
 
 // The box at the bottom of a group's text room. Drawn like the room chat's own
@@ -262,7 +263,11 @@ function canTakeOverTyping(box: HTMLTextAreaElement, key: string): boolean {
 // Sized and nudged to sit centred on the text box's first line (48px tall),
 // and to stay on its bottom edge as the box grows.
 const iconButton =
-  "mb-1 flex h-10 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+  "mb-1 flex h-10 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 active:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:w-10 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:active:bg-zinc-800";
+
+/** The ✕ on the "Respondendo"/"Editando" strips: a 36px target on a touch screen, not an 18px one. */
+const stripClose =
+  "shrink-0 cursor-pointer rounded p-0.5 pointer-coarse:-my-1 pointer-coarse:-mr-1.5 pointer-coarse:rounded-full pointer-coarse:p-2";
 
 export function GroupMessageComposer({
   ref,
@@ -349,6 +354,7 @@ export function GroupMessageComposer({
   draftKey?: string | null;
 }) {
   const t = useT();
+  const touch = useCoarsePointer();
   const [text, setText] = useState("");
   const [images, setImages] = useState<{ dataUrl: string; bytes: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -1074,7 +1080,13 @@ export function GroupMessageComposer({
   }, fileDrop.enabled && allow.images && !disabled && !editing);
 
   return (
-    <div data-composer {...dropProps} className="relative shrink-0 border-t border-zinc-200 p-2 dark:border-zinc-800">
+    // The bottom padding clears an iPhone's home indicator: inside a room the
+    // tab bar (which would) is not drawn — see components/MobileTabBar.
+    <div
+      data-composer
+      {...dropProps}
+      className="relative shrink-0 border-t border-zinc-200 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-zinc-800"
+    >
       <FileDropOverlay show={dragging} />
       {emoji.open && (
         <EmojiSuggestions
@@ -1101,7 +1113,7 @@ export function GroupMessageComposer({
                   pickMention(candidate);
                 }}
                 onMouseEnter={() => setHighlight(index)}
-                className={`flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs ${
+                className={`flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs pointer-coarse:min-h-11 pointer-coarse:text-sm ${
                   index === highlight
                     ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
                     : "text-zinc-700 dark:text-zinc-300"
@@ -1177,9 +1189,9 @@ export function GroupMessageComposer({
             type="button"
             onClick={endEdit}
             aria-label={t("groups.groupMessageComposer.cancelEdit")}
-            className="shrink-0 cursor-pointer rounded p-0.5 hover:bg-amber-100 dark:hover:bg-amber-500/20"
+            className={`${stripClose} hover:bg-amber-100 active:bg-amber-100 dark:hover:bg-amber-500/20 dark:active:bg-amber-500/20`}
           >
-            <MdClose className="h-3.5 w-3.5" />
+            <MdClose className="h-3.5 w-3.5 pointer-coarse:h-4 pointer-coarse:w-4" />
           </button>
         </div>
       )}
@@ -1194,9 +1206,9 @@ export function GroupMessageComposer({
             type="button"
             onClick={onCancelReply}
             aria-label={t("common.cancelReply")}
-            className="shrink-0 cursor-pointer rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            className={`${stripClose} hover:bg-zinc-200 active:bg-zinc-200 dark:hover:bg-zinc-800 dark:active:bg-zinc-800`}
           >
-            <MdClose className="h-3.5 w-3.5" />
+            <MdClose className="h-3.5 w-3.5 pointer-coarse:h-4 pointer-coarse:w-4" />
           </button>
         </div>
       )}
@@ -1220,7 +1232,7 @@ export function GroupMessageComposer({
                 type="button"
                 onClick={() => setImages(images.filter((_, i) => i !== index))}
                 aria-label={t("common.removeImage")}
-                className="absolute right-0.5 top-0.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white"
+                className="absolute right-0.5 top-0.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white pointer-coarse:h-7 pointer-coarse:w-7"
               >
                 <MdClose className="h-3.5 w-3.5" />
               </button>
@@ -1276,7 +1288,10 @@ export function GroupMessageComposer({
           placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
           className="min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
         />
-        {allow.gifs && !editing && (
+        {/* On a phone, out of the way while something is being typed — the box
+            gets its width back, and a GIF goes out as a message of its own
+            anyway. Back as soon as the box is empty (WhatsApp's camera). */}
+        {allow.gifs && !editing && !(touch && text.trim()) && (
         <Popover
           open={gifOpen}
           onClose={() => setGifOpen(false)}
@@ -1316,7 +1331,7 @@ export function GroupMessageComposer({
           // An edit erased to nothing still goes: the room asks whether to delete.
           disabled={disabled || (!editing && !text.trim() && images.length === 0 && uploads.items.length === 0)}
           aria-label={editing ? t("common.save") : t("common.send")}
-          className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
           {editing ? <MdCheck className="h-5 w-5" /> : <MdSend className="h-4 w-4" />}
         </button>

@@ -55,7 +55,7 @@ export function EmojiSuggestions({
               onPick(match);
             }}
             onMouseEnter={() => onHighlight(index)}
-            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm ${
+            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm pointer-coarse:min-h-11 ${
               active
                 ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
                 : "text-zinc-700 dark:text-zinc-300"

@@ -19,6 +19,7 @@ import {
 import useNtPopups from "ntpopups";
 import {
   MdAlternateEmail,
+  MdArrowDownward,
   MdAutoAwesome,
   MdChatBubbleOutline,
   MdClose,
@@ -54,14 +55,16 @@ import {
 } from "@/components/groups/GroupMessageComposer";
 import { MentionBuilderDialog, describeMention, type BuilderRole } from "@/components/groups/MentionBuilderDialog";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
-import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
+import { QuickReactionsRow, ReactionPicker, openReactionSheet } from "@/components/groups/ReactionPicker";
+import { MessageGesturesTip } from "@/components/MessageGesturesTip";
+import { MessagePreviewCard } from "@/components/MessageActionSheet";
 import { ReactionsDialog } from "@/components/groups/ReactionsDialog";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { copyText } from "@/lib/clipboard";
 import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { SwipeReplyHint } from "@/components/SwipeReplyHint";
 import { openContextMenu } from "@/lib/contextMenu";
-import { useMessageGestures, type MessageGestures } from "@/lib/messageGestures";
+import { isTouchPointer, useMessageGestures, type MessageGestures } from "@/lib/messageGestures";
 import { mentionInComposer } from "@/lib/groupMentionBridge";
 import { Twemoji } from "@/components/Twemoji";
 import { rememberChannel } from "@/components/groups/lastChannel";
@@ -130,7 +133,7 @@ import { UNKNOWN_ROOM, UNKNOWN_USER, plainTokens, splitTokens, type Named } from
 import { stripMarkdown } from "@/lib/markdown";
 import { Markdown } from "@/components/Markdown";
 import { MessageEmbeds } from "@/components/MessageEmbeds";
-import { useT } from "@/lib/useI18n";
+import { useT, useTCount } from "@/lib/useI18n";
 import { MessageFinderPanel, type FinderRow } from "@/components/MessageFinderPanel";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
@@ -257,15 +260,28 @@ function headerButton(active: boolean): string {
   }`;
 }
 
-const rowAction =
-  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+/**
+ * A line's small action buttons. With a mouse they show on hover (or focus);
+ * on a touch screen there is no hover to reveal them, and they used to sit
+ * there permanently: a row of five tiny icons over every message, the
+ * clutter of the whole log, and too small for a finger anyway.
+ */
+const rowActionBase =
+  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+/**
+ * A message's own: gone on a touch screen, where holding the message opens
+ * all of them (and more) in a sheet and dragging it left answers it. See
+ * lib/messageGestures, and the one-time MessageGesturesTip that says so.
+ */
+const rowAction = `${rowActionBase} pointer-coarse:hidden`;
 
 // One reaction under a message: its emoji and its count, in a small pill.
 // The shape only — each state below brings its own colours. Two border (or
 // background) colours on one element do not override each other by their
 // order in the class list: whichever the stylesheet happens to put last wins,
 // which is how a reaction of yours used to stay grey instead of turning blue.
-const reactionChip = "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-xs font-medium transition";
+const reactionChip =
+  "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-xs font-medium transition pointer-coarse:h-8 pointer-coarse:px-2 pointer-coarse:text-sm";
 /** A reaction you are not on, and the "+" beside them. */
 const reactionChipIdle =
   "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
@@ -337,6 +353,7 @@ export const TextChannelView = memo(function TextChannelView({
   channelId: string;
 }) {
   const t = useT();
+  const tc = useTCount();
   const { openPopup } = useNtPopups();
   const groupId = detail.group.id;
   const channel = detail.channels.find((c) => c.id === channelId) ?? null;
@@ -1352,7 +1369,14 @@ export const TextChannelView = memo(function TextChannelView({
       >
         <button
           type="button"
-          onClick={() => setPickerFor((open) => (open === key ? null : key))}
+          onClick={() => {
+            // No popover beside a finger: the whole picker, as a sheet.
+            if (isTouchPointer()) {
+              openReactionSheet({ place: emojiPlace, onSelect: (emoji) => void toggleReaction(message, emoji) });
+              return;
+            }
+            setPickerFor((open) => (open === key ? null : key));
+          }}
           aria-label={t("groups.textChannelView.addReaction")}
           className={
             where === "actions"
@@ -1455,36 +1479,33 @@ export const TextChannelView = memo(function TextChannelView({
       : "";
     const canDelete = !outgoing && (message.from === selfId || canManageMessages);
     const reacting = !outgoing && can("addReactions");
+    // On a touch screen the menu is a sheet, opened by a finger that was
+    // covering the message: it starts by showing which message it is about.
+    const preview =
+      stripMarkdown(readable).trim() ||
+      (message.kind === "gif" ? "GIF" : message.images?.length ? t("common.image") : message.attachments?.[0]?.name ?? "");
     openContextMenu(e, {
       entries: [
+        isTouchPointer() && {
+          type: "custom",
+          render: () => <MessagePreviewCard author={author.name} preview={preview} />,
+        },
         reacting && {
           type: "custom",
           render: (close) => (
-            <div className="flex justify-between gap-0.5 px-1 pb-1">
-              {QUICK_REACTIONS.map((emoji) => {
-                const mine = Boolean(message.reactions?.some((r) => r.emoji === emoji && r.users.includes(selfId)));
-                return (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => {
-                      close();
-                      void toggleReaction(message, emoji);
-                    }}
-                    aria-label={t("groups.reactionPicker.reactWithEmoji", { emoji })}
-                    aria-pressed={mine}
-                    className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                      mine ? "bg-blue-50 ring-1 ring-blue-500 dark:bg-blue-500/15" : ""
-                    }`}
-                  >
-                    <Twemoji emoji={emoji} size={20} />
-                  </button>
-                );
-              })}
-            </div>
+            <QuickReactionsRow
+              close={close}
+              isMine={(emoji) => Boolean(message.reactions?.some((r) => r.emoji === emoji && r.users.includes(selfId)))}
+              onReact={(emoji) => void toggleReaction(message, emoji)}
+              onMore={() =>
+                openReactionSheet({ place: emojiPlace, onSelect: (emoji) => void toggleReaction(message, emoji) })
+              }
+            />
           ),
         },
-        reacting && {
+        // On a touch screen the row above ends in a "+" that does this.
+        reacting &&
+          !isTouchPointer() && {
           label: t("groups.textChannelView.addReaction"),
           icon: <MdOutlineAddReaction className="h-4 w-4" />,
           // Opened on the message's own hover button, which is there (only
@@ -1764,7 +1785,7 @@ export const TextChannelView = memo(function TextChannelView({
               onClick={(e) => confirmDelete(message, e.shiftKey)}
               aria-label={t("common.delete")}
               title={t("groups.textChannelView.deleteShiftHint")}
-              className={rowAction}
+              className={rowActionBase}
             >
               <MdDeleteOutline className="h-3.5 w-3.5" />
             </button>
@@ -1785,7 +1806,8 @@ export const TextChannelView = memo(function TextChannelView({
         data-message-id={outgoing ? undefined : message.id}
         {...gestures.handlers}
         style={gestures.style}
-        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
+        // 15px on a phone, where 14 is small to read at arm's length.
+        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors pointer-coarse:text-[15px] ${
           grouped ? "pb-0.5" : "mt-2.5 pb-0.5"
         } ${
           editingId === message.id && !outgoing
@@ -1882,7 +1904,7 @@ export const TextChannelView = memo(function TextChannelView({
         <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
           <div className="min-w-0 flex-1">
             {message.text && (
-              <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
+              <div className="select-text break-words text-zinc-900 pointer-coarse:select-none dark:text-zinc-100">
                 {renderText(
                   message,
                   message.editedAt ? (
@@ -1938,7 +1960,7 @@ export const TextChannelView = memo(function TextChannelView({
               // Discord's row: each emoji with how many, lit up when one of
               // them is yours. Clicking joins it or takes yours back — taking
               // it back is always allowed, joining needs "Reagir".
-              <div className="mt-1 flex flex-wrap items-center gap-1">
+              <div className="mt-1 flex flex-wrap items-center gap-1 pointer-coarse:gap-1.5">
                 {message.reactions.map((reaction) => {
                   const mine = reaction.users.includes(selfId);
                   const allowed = mine || can("react");
@@ -2255,9 +2277,10 @@ export const TextChannelView = memo(function TextChannelView({
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-2 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-zinc-950 px-3 py-1 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            className="absolute bottom-2 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1 rounded-full bg-zinc-950 px-3 py-1 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 pointer-coarse:min-h-10 pointer-coarse:px-4 pointer-coarse:text-sm dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
-            {unseen === 1 ? "1 mensagem nova" : `${unseen} mensagens novas`}
+            <MdArrowDownward className="h-4 w-4" aria-hidden />
+            {tc("groups.textChannelView.newMessagesBelow", unseen)}
           </button>
         )}
       </div>
@@ -2279,6 +2302,8 @@ export const TextChannelView = memo(function TextChannelView({
           )}
         </div>
       )}
+
+      {detail.chatAvailable && can("sendMessages") && <MessageGesturesTip />}
 
       {detail.chatAvailable && (
         <GroupMessageComposer

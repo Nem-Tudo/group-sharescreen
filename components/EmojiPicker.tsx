@@ -75,10 +75,17 @@ export function EmojiPickerPanel({
   customEnabled = false,
   custom = null,
   onSelectCustom,
+  fill = false,
 }: {
   onSelect: (emoji: string) => void;
   header?: ReactNode;
   autoFocus?: boolean;
+  /**
+   * Inside a bottom sheet rather than a popover: as wide as the sheet, no
+   * frame of its own (the sheet is one), and taller, with the search at the
+   * 16px a phone does not zoom in on.
+   */
+  fill?: boolean;
   /** Shows the "Personalizados" tab (see CustomEmojiPanel) — only inside the experiment. */
   customEnabled?: boolean;
   /** What that tab offers — null while it loads. */
@@ -95,7 +102,13 @@ export function EmojiPickerPanel({
         : "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
     }`;
   return (
-    <div className="flex w-[18.5rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+    <div
+      className={
+        fill
+          ? "flex w-full flex-col overflow-hidden bg-white dark:bg-zinc-950"
+          : "flex w-[18.5rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
+      }
+    >
       {header}
       {showCustom && (
         <div className="flex border-b border-zinc-200 dark:border-zinc-800">
@@ -119,12 +132,14 @@ export function EmojiPickerPanel({
         emojibaseUrl={EMOJIBASE_URL}
         columns={8}
         onEmojiSelect={({ emoji }) => onSelect(emoji)}
-        className="flex h-80 flex-col"
+        className={`flex flex-col ${fill ? "h-[min(24rem,55dvh)]" : "h-80"}`}
       >
         <Frimousse.Search
           placeholder={t("groups.reactionPicker.searchEmoji")}
           autoFocus={autoFocus}
-          className="mx-2 mt-2 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          className={`mx-2 mt-2 rounded-lg border border-zinc-300 bg-white px-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 ${
+            fill ? "min-h-11 py-2 text-base" : "py-1.5 text-sm"
+          }`}
         />
         <Frimousse.Viewport className="relative mt-1 flex-1 outline-none">
           <Frimousse.Loading className="absolute inset-0 flex items-center justify-center text-xs text-zinc-500 dark:text-zinc-400">

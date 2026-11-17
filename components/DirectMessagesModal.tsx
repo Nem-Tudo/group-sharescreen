@@ -59,11 +59,13 @@ import { EmojiPickerButton } from "@/components/EmojiPicker";
 import { useCustomEmojiEnabled } from "@/lib/customEmoji";
 import { EmojiSuggestions } from "@/components/EmojiSuggestions";
 import { Twemoji } from "@/components/Twemoji";
-import { QUICK_REACTIONS, ReactionPicker } from "@/components/groups/ReactionPicker";
+import { QuickReactionsRow, ReactionPicker, openReactionSheet } from "@/components/groups/ReactionPicker";
+import { MessageGesturesTip } from "@/components/MessageGesturesTip";
+import { MessagePreviewCard } from "@/components/MessageActionSheet";
 import { copyText } from "@/lib/clipboard";
 import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { openContextMenu } from "@/lib/contextMenu";
-import { useMessageGestures } from "@/lib/messageGestures";
+import { useMessageGestures, useCoarsePointer } from "@/lib/messageGestures";
 import { useNotifyPrefs } from "@/lib/notifyPrefs";
 import { trackFeatureEvent } from "@/lib/features";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
@@ -496,18 +498,24 @@ function sameBubble(a: Bubble, b: Bubble): boolean {
 
 // One reaction under a message — the group rooms' pill (see TextChannelView),
 // so a reaction looks like a reaction wherever it is.
-const reactionChip = "inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs font-medium transition";
+const reactionChip =
+  "inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs font-medium transition pointer-coarse:h-8 pointer-coarse:px-2 pointer-coarse:text-sm";
 const reactionChipIdle =
   "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
 const reactionChipMine =
   "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300";
 
+// The buttons beside a message show on hover with a mouse. On a touch screen
+// they are not drawn at all: they used to sit beside every bubble for good,
+// four small icons squeezing the conversation, where holding the message
+// opens all of them in a sheet and dragging it answers (lib/messageGestures).
+
 /** The small round buttons beside a bubble. */
 const bubbleAction =
-  "shrink-0 cursor-pointer self-center rounded-full p-1.5 text-zinc-400 opacity-100 transition hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200";
+  "shrink-0 cursor-pointer self-center rounded-full p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 pointer-coarse:hidden pointer-fine:opacity-0 pointer-fine:focus:opacity-100 pointer-fine:group-hover:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200";
 /** The same, in the expanded rows — the text room's hover actions. */
 const rowAction =
-  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 opacity-100 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 transition hover:bg-zinc-200/70 hover:text-zinc-800 active:scale-95 pointer-coarse:hidden pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
 // Memoised, with the bubble compared by its fields (see sameBubble). Without
 // it every keystroke in the composer re-drew every message in the thread —
@@ -574,6 +582,7 @@ const MessageBubble = memo(function MessageBubble({
   const images = bubble.images ?? [];
   const rows = layout === "rows";
   const canReact = Boolean(bubble.messageId);
+  const touch = useCoarsePointer();
 
   function nameOf(userId: string): string {
     return userId === selfId ? t("common.you") : otherName;
@@ -592,11 +601,18 @@ const MessageBubble = memo(function MessageBubble({
       >
         <button
           type="button"
-          onClick={() => onPicker(isOpen ? null : key)}
+          onClick={() => {
+            // No popover beside a finger: the whole picker, as a sheet.
+            if (touch) {
+              openReactionSheet({ onSelect: (emoji) => onReact(bubble, emoji) });
+              return;
+            }
+            onPicker(isOpen ? null : key);
+          }}
           aria-label={t("directMessagesModal.react")}
           // Kept visible while its picker is open, or the hover that drew it
           // going away would take the button the picker is anchored to along.
-          className={`${className} ${isOpen ? "sm:opacity-100" : ""}`}
+          className={`${className} ${isOpen ? "pointer-fine:opacity-100" : ""}`}
         >
           {icon}
         </button>
@@ -760,7 +776,7 @@ const MessageBubble = memo(function MessageBubble({
   const reactions = bubble.reactions.length > 0 && (
     // Each emoji once, lit when one of them is yours; clicking joins it or
     // takes yours back. With two people, a count only says something above one.
-    <div className={`mt-1 flex flex-wrap items-center gap-1 ${mine && !rows ? "justify-end" : ""}`}>
+    <div className={`mt-1 flex flex-wrap items-center gap-1 pointer-coarse:gap-1.5 ${mine && !rows ? "justify-end" : ""}`}>
       {bubble.reactions.map((reaction) => {
         const on = reaction.users.includes(selfId);
         return (
@@ -826,7 +842,7 @@ const MessageBubble = memo(function MessageBubble({
         data-message-id={bubble.messageId}
         {...gestures.handlers}
         style={gestures.style}
-        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors ${
+        className={`group relative -mx-1.5 rounded-lg px-2 text-sm transition-colors pointer-coarse:text-[15px] ${
           editing
             ? "bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
             : flash
@@ -869,7 +885,7 @@ const MessageBubble = memo(function MessageBubble({
         <div className={grouped ? "flex items-start justify-between gap-1.5" : ""}>
           <div className="min-w-0 flex-1">
             {bubble.text && (
-              <div className="select-text break-words text-zinc-900 dark:text-zinc-100">
+              <div className="select-text break-words text-zinc-900 pointer-coarse:select-none dark:text-zinc-100">
                 <Markdown text={bubble.text} renderText={(plain) => linkify(plain, false)} trailing={marks} />
               </div>
             )}
@@ -904,7 +920,7 @@ const MessageBubble = memo(function MessageBubble({
       {mine && actions(bubbleAction)}
       <div className={`flex max-w-[82%] flex-col ${mine ? "items-end" : "items-start"}`}>
         <div
-          className={`rounded-2xl px-3 py-1.5 text-sm transition ${
+          className={`rounded-2xl px-3 py-1.5 text-sm transition pointer-coarse:text-[15px] ${
             mine
               ? `bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950 ${grouped ? "rounded-tr-md" : ""}`
               : `bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 ${grouped ? "rounded-tl-md" : ""}`
@@ -915,7 +931,7 @@ const MessageBubble = memo(function MessageBubble({
           {quote}
           {media}
           {bubble.text && (
-            <div className="select-text break-words">
+            <div className="select-text break-words pointer-coarse:select-none">
               <Markdown text={bubble.text} compact renderText={(plain) => linkify(plain, mine)} trailing={marks} />
             </div>
           )}
@@ -2346,36 +2362,35 @@ export function DirectMessagesModal({
     if ((event.target as Element).closest("a[href]")) return;
     const me = account?.id ?? "";
     const delivered = Boolean(bubble.messageId);
+    // On a touch screen the menu is a sheet, opened by a finger that was
+    // covering the message: it starts by showing which message it is about.
+    const preview =
+      stripMarkdown(bubble.text).trim() || (bubble.url ? "GIF" : bubble.images?.length ? t("common.image") : "");
     openContextMenu(event, {
       entries: [
-        delivered && {
+        isCoarsePointer() && {
           type: "custom",
-          render: (close) => (
-            <div className="flex justify-between gap-0.5 px-1 pb-1">
-              {QUICK_REACTIONS.map((emojiValue) => {
-                const on = bubble.reactions.some((r) => r.emoji === emojiValue && r.users.includes(me));
-                return (
-                  <button
-                    key={emojiValue}
-                    type="button"
-                    aria-pressed={on}
-                    aria-label={t("groups.reactionPicker.reactWithEmoji", { emoji: emojiValue })}
-                    onClick={() => {
-                      close();
-                      void toggleReaction(bubble, emojiValue);
-                    }}
-                    className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                      on ? "bg-blue-50 ring-1 ring-blue-500 dark:bg-blue-500/15" : ""
-                    }`}
-                  >
-                    <Twemoji emoji={emojiValue} size={20} />
-                  </button>
-                );
-              })}
-            </div>
+          render: () => (
+            <MessagePreviewCard
+              author={bubble.mine ? t("common.you") : active?.displayName ?? ""}
+              preview={preview}
+            />
           ),
         },
         delivered && {
+          type: "custom",
+          render: (close) => (
+            <QuickReactionsRow
+              close={close}
+              isMine={(emojiValue) => bubble.reactions.some((r) => r.emoji === emojiValue && r.users.includes(me))}
+              onReact={(emojiValue) => void toggleReaction(bubble, emojiValue)}
+              onMore={() => openReactionSheet({ onSelect: (emojiValue) => void toggleReaction(bubble, emojiValue) })}
+            />
+          ),
+        },
+        // On a touch screen the row above ends in a "+" that does this.
+        delivered &&
+          !isCoarsePointer() && {
           label: t("directMessagesModal.react"),
           icon: <MdOutlineAddReaction className="h-4 w-4" />,
           onSelect: () => requestAnimationFrame(() => setPickerFor(`${bubble.messageId}:actions`)),
@@ -2692,7 +2707,7 @@ export function DirectMessagesModal({
     attached.length > 0 ||
     (filesHere.length > 0 && !uploads.uploading && !uploads.failed);
   const iconButton =
-    "shrink-0 rounded-full p-2 text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50";
+    "shrink-0 rounded-full p-2 text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 active:bg-zinc-100 disabled:opacity-40 pointer-coarse:p-2.5 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50 dark:active:bg-zinc-900";
   const headerButton =
     "shrink-0 rounded-full p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100";
 
@@ -3338,7 +3353,7 @@ export function DirectMessagesModal({
           <button
             type="button"
             onClick={jumpToNewest}
-            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-zinc-800 pointer-coarse:min-h-10 pointer-coarse:px-4 pointer-coarse:text-sm dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             <MdKeyboardArrowDown className="h-4 w-4" />
             {t("directMessagesModal.newMessages")}
@@ -3353,6 +3368,8 @@ export function DirectMessagesModal({
           {formatTypingLabel([active.displayName])}
         </p>
       )}
+
+      {active && <MessageGesturesTip />}
 
       {editingHere && (
         <div className="flex shrink-0 items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
@@ -3369,7 +3386,7 @@ export function DirectMessagesModal({
               type="button"
               onClick={() => setEditing(null)}
               aria-label={t("groups.groupMessageComposer.cancelEdit")}
-              className="shrink-0 rounded-full p-1 hover:bg-amber-100 dark:hover:bg-amber-500/20"
+              className="shrink-0 rounded-full p-1 hover:bg-amber-100 active:bg-amber-100 pointer-coarse:-my-1 pointer-coarse:p-2 dark:hover:bg-amber-500/20 dark:active:bg-amber-500/20"
             >
               <MdClose className="h-4 w-4" />
             </button>
@@ -3393,7 +3410,7 @@ export function DirectMessagesModal({
               type="button"
               onClick={() => setReply(null)}
               aria-label={t("common.cancelReply")}
-              className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+              className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-200 active:bg-zinc-200 pointer-coarse:-my-1 pointer-coarse:p-2 dark:hover:bg-zinc-800 dark:active:bg-zinc-800"
             >
               <MdClose className="h-4 w-4" />
             </button>
@@ -3430,7 +3447,7 @@ export function DirectMessagesModal({
                   })
                 }
                 aria-label={t("common.removeImage")}
-                className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-950 p-0.5 text-white shadow dark:bg-zinc-50 dark:text-zinc-950"
+                className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-950 p-0.5 text-white shadow pointer-coarse:p-1.5 dark:bg-zinc-50 dark:text-zinc-950"
               >
                 <MdClose className="h-3.5 w-3.5" />
               </button>
@@ -3520,9 +3537,12 @@ export function DirectMessagesModal({
           placeholder={attached.length > 0 ? t("directMessagesModal.captionOptional") : t("directMessagesModal.message")}
           maxLength={MAX_LENGTH}
           aria-label={t("common.message")}
-          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl [field-sizing:content] border border-zinc-300 bg-white px-3.5 py-2 text-sm leading-5 text-zinc-950 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          // 16px on a phone: below that, iOS zooms the whole page in on focus.
+          className="max-h-36 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-2xl [field-sizing:content] border border-zinc-300 bg-white px-3.5 py-2 text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 sm:text-sm sm:leading-5 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
-        {!editingHere && (
+        {/* On a phone, out of the way while something is being typed: the box
+            gets its width back (WhatsApp's camera does the same). */}
+        {!editingHere && !(isCoarsePointer() && boxText.trim()) && (
         <Popover
           open={gifOpen}
           onClose={() => setGifOpen(false)}

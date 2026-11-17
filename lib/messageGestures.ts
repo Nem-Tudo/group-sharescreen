@@ -88,8 +88,17 @@ function subscribeCoarse(onChange: () => void): () => void {
   return () => query?.removeEventListener("change", onChange);
 }
 
+/**
+ * Whether this is a finger rather than a mouse, read once, for code that runs
+ * on a click rather than in a render — a menu entry deciding whether what it
+ * opens is a popover beside the pointer or a sheet from the bottom.
+ */
+export function isTouchPointer(): boolean {
+  return pointerQuery()?.matches ?? false;
+}
+
 /** Whether this is a finger rather than a mouse, kept live for a tablet with both. */
-function useCoarsePointer(): boolean {
+export function useCoarsePointer(): boolean {
   // False on the server and on the first client render, so the markup matches
   // and only then picks up the real answer.
   return useSyncExternalStore(
@@ -97,6 +106,56 @@ function useCoarsePointer(): boolean {
     () => pointerQuery()?.matches ?? false,
     () => false
   );
+}
+
+// ── The one-time tip ─────────────────────────────────────────────────────
+//
+// On a phone the rows carry no buttons at all (see the `pointer-coarse:hidden`
+// on each chat's row actions): holding and dragging are the way in. That is
+// what every phone chat does, but somebody who used the old row of icons here
+// should be told once where they went. Gone for good as soon as either
+// gesture is used, or the tip is closed.
+
+const TIP_KEY = "golive.chatGesturesTip";
+const tipListeners = new Set<() => void>();
+let tipLearned: boolean | null = null;
+
+function readTipLearned(): boolean {
+  if (tipLearned !== null) return tipLearned;
+  try {
+    tipLearned = window.localStorage.getItem(TIP_KEY) === "1";
+  } catch {
+    // Storage refused (a private window): shown, and closing it holds for this visit.
+    tipLearned = false;
+  }
+  return tipLearned;
+}
+
+export function markMessageGesturesLearned(): void {
+  if (readTipLearned()) return;
+  tipLearned = true;
+  try {
+    window.localStorage.setItem(TIP_KEY, "1");
+  } catch {
+    // As above.
+  }
+  for (const listener of tipListeners) listener();
+}
+
+/** Whether the tip about holding and dragging a message is still to be shown here. */
+export function useMessageGesturesTip(): boolean {
+  const touch = useCoarsePointer();
+  const learned = useSyncExternalStore(
+    (onChange) => {
+      tipListeners.add(onChange);
+      return () => {
+        tipListeners.delete(onChange);
+      };
+    },
+    readTipLearned,
+    () => true
+  );
+  return touch && !learned;
 }
 
 export function useMessageGestures({
@@ -174,6 +233,7 @@ export function useMessageGestures({
           current.axis = "y";
           swallowContextMenuUntil = Date.now() + 1000;
           haptic("confirm");
+          markMessageGesturesLearned();
           openMenuAt(target, point.clientX, point.clientY);
         }, LONG_PRESS_MS)
       : null;
@@ -222,7 +282,9 @@ export function useMessageGestures({
   function onTouchEnd() {
     const armed = armedRef.current && gesture.current?.axis === "x";
     reset();
-    if (armed) onReply?.();
+    if (!armed) return;
+    markMessageGesturesLearned();
+    onReply?.();
   }
 
   function onContextMenu(e: ReactMouseEvent) {
@@ -242,8 +304,13 @@ export function useMessageGestures({
           transition: dragging ? "none" : "transform 160ms ease-out",
           touchAction: "pan-y",
           // No magnifier and no "copiar" bubble over a message being held:
-          // the menu the hold opens has copying in it.
+          // the menu the hold opens has copying in it. Nor a text selection
+          // starting under the finger: it would race the menu (which stays
+          // shut over a selection, see lib/contextMenu's wantsNativeMenu) and
+          // leave blue handles over the thread. "Copiar texto" is in the menu.
           WebkitTouchCallout: "none",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }
       : {},
     progress: Math.min(1, pull / REPLY_THRESHOLD),

@@ -17,6 +17,20 @@ export type MessageAction = {
   danger?: boolean;
 };
 
+/**
+ * The message a sheet of actions is about, atop it. Also what the group
+ * rooms' and the messages window's menus open with on a touch screen (see
+ * ContextMenuHost, which draws those menus as sheets there).
+ */
+export function MessagePreviewCard({ author, preview }: { author: string; preview: string }) {
+  return (
+    <div className="mb-2 rounded-2xl bg-zinc-100 px-3.5 py-2.5 dark:bg-zinc-900">
+      <p className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-200">{author}</p>
+      {preview && <p className="line-clamp-3 break-words text-[15px] text-zinc-600 dark:text-zinc-400">{preview}</p>}
+    </div>
+  );
+}
+
 export function MessageActionSheet({
   open,
   onClose,
@@ -33,12 +47,7 @@ export function MessageActionSheet({
   const t = useT();
   return (
     <MobileSheet open={open} onClose={onClose} title={t("chatPanel.mobileMessageActions")}>
-      <div className="mb-2 rounded-2xl bg-zinc-100 px-3.5 py-2.5 dark:bg-zinc-900">
-        <p className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-200">{author}</p>
-        {preview && (
-          <p className="line-clamp-3 break-words text-[15px] text-zinc-600 dark:text-zinc-400">{preview}</p>
-        )}
-      </div>
+      <MessagePreviewCard author={author} preview={preview} />
       <ul className="flex flex-col pb-1">
         {actions.map((action) => (
           <li key={action.key}>

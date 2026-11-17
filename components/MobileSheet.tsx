@@ -24,6 +24,9 @@ export function MobileSheet({
   children,
   className = "",
   maxHeight = "85dvh",
+  layerClassName = "z-50",
+  label,
+  contentRef,
 }: {
   open: boolean;
   onClose: () => void;
@@ -32,6 +35,16 @@ export function MobileSheet({
   children: ReactNode;
   className?: string;
   maxHeight?: string;
+  /**
+   * The stacking layer. z-50 is the app's dialog layer; a sheet that may open
+   * over a popup (the right-button menu, see ContextMenuHost) goes above
+   * ntpopups' 60.
+   */
+  layerClassName?: string;
+  /** What a screen reader calls the sheet when it has no `title` to read. */
+  label?: string;
+  /** The scrolling part — for whoever needs to know a scroll happened inside it. */
+  contentRef?: React.Ref<HTMLDivElement>;
 }) {
   const t = useT();
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +88,7 @@ export function MobileSheet({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50">
+    <div className={`fixed inset-0 ${layerClassName}`}>
       <button
         type="button"
         aria-label={t("common.close")}
@@ -86,6 +99,7 @@ export function MobileSheet({
         ref={sheetRef}
         role="dialog"
         aria-modal="true"
+        aria-label={typeof title === "string" ? title : label}
         style={{ maxHeight }}
         className={`sheet-enter absolute inset-x-0 bottom-0 mx-auto flex w-full max-w-lg flex-col rounded-t-3xl bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl dark:bg-zinc-950 ${className}`}
       >
@@ -108,7 +122,9 @@ export function MobileSheet({
             </div>
           )}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3">{children}</div>
+        <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3">
+          {children}
+        </div>
       </div>
     </div>,
     document.body
