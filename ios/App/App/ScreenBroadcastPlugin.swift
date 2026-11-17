@@ -18,6 +18,7 @@ public class ScreenBroadcastPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "adGate", returnType: CAPPluginReturnPromise),
     ]
 
     private var lastSent: (String, String?)?
@@ -50,7 +51,7 @@ public class ScreenBroadcastPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func relayState() {
         let (state, message) = BroadcastShared.readState()
-        if state == "connecting" || state == "live" {
+        if state == "connecting" || state == "live" || state == "paused" {
             if staleTimer == nil {
                 staleTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
                     self?.relayState()
@@ -62,16 +63,33 @@ public class ScreenBroadcastPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if let last = lastSent, last.0 == state, last.1 == message { return }
         lastSent = (state, message)
+        notifyListeners("stateChange", data: Self.payload(state, message))
+    }
+
+    private static func payload(_ state: String, _ message: String?) -> [String: Any] {
         var payload: [String: Any] = ["state": state]
         if let message { payload["message"] = message }
-        notifyListeners("stateChange", data: payload)
+        if state == "paused", let gate = BroadcastShared.defaults?.string(forKey: BroadcastShared.adGateKey) {
+            payload["adGate"] = gate
+        }
+        return payload
+    }
+
+    /// The ad gate popup's answer, for the extension to send on its own
+    /// connection — the one the server paused.
+    @objc func adGate(_ call: CAPPluginCall) {
+        guard let message = call.getString("message"), let defaults = BroadcastShared.defaults else {
+            call.reject("unavailable")
+            return
+        }
+        defaults.set(message, forKey: BroadcastShared.adGateReplyKey)
+        BroadcastShared.post(BroadcastShared.adGateReplied)
+        call.resolve()
     }
 
     @objc func getState(_ call: CAPPluginCall) {
         let (state, message) = BroadcastShared.readState()
-        var payload: [String: Any] = ["state": state]
-        if let message { payload["message"] = message }
-        call.resolve(payload)
+        call.resolve(Self.payload(state, message))
         DispatchQueue.main.async { self.relayState() }
     }
 

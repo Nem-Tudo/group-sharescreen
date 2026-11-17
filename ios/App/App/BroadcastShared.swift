@@ -21,8 +21,15 @@ enum BroadcastShared {
     static let heartbeatKey = "screenBroadcast.heartbeat"
     static let heartbeatStaleAfter: TimeInterval = 12
 
+    /// While "paused": the server's ad gate message (JSON), for the app to
+    /// show the same popup a computer's share gets.
+    static let adGateKey = "screenBroadcast.adGate"
+    /// The popup's answer (JSON), left by the app for the extension to send.
+    static let adGateReplyKey = "screenBroadcast.adGateReply"
+
     static let stateChanged = "me.nemtudo.golive.broadcast.state"
     static let stopRequested = "me.nemtudo.golive.broadcast.stop"
+    static let adGateReplied = "me.nemtudo.golive.broadcast.adGateReply"
 
     static var defaults: UserDefaults? { UserDefaults(suiteName: appGroup) }
 
@@ -57,7 +64,7 @@ enum BroadcastShared {
         guard let defaults else { return ("idle", nil) }
         let state = defaults.string(forKey: stateKey) ?? "idle"
         let message = defaults.string(forKey: messageKey)
-        if state == "connecting" || state == "live" {
+        if state == "connecting" || state == "live" || state == "paused" {
             let beat = defaults.double(forKey: heartbeatKey)
             if Date().timeIntervalSince1970 - beat > heartbeatStaleAfter { return ("idle", nil) }
         }

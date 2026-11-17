@@ -1,4 +1,5 @@
 import Foundation
+import CoreImage
 import CoreMedia
 import ImageIO
 import ReplayKit
@@ -50,7 +51,15 @@ struct BroadcastConfig: Decodable {
     let loginToken: String?
     let name: String
     let iceServers: [IceServer]
+    /// Where to send the rooms list's hover picture, in a group voice room
+    /// with that experiment on (the site's lib/streamPreview.ts) — else nil.
+    let preview: Preview?
     let version: String?
+
+    struct Preview: Decodable {
+        let url: String
+        let token: String?
+    }
     /// Milliseconds since 1970, from the page's Date.now().
     let createdAt: Double
 }
@@ -105,6 +114,16 @@ enum Strings {
              "You left the room, so the screen share ended.",
              "Saliste de la sala, así que se terminó de compartir la pantalla.")
     }
+    static var removedByRoom: String {
+        pick("Você foi removido da sala, e a transmissão da tela foi encerrada.",
+             "You were removed from the room, and the screen share ended.",
+             "Te sacaron de la sala y se terminó de compartir la pantalla.")
+    }
+    static var roomChanged: String {
+        pick("Você mudou de sala. Toque em Compartilhar tela de novo para mostrar a tela na sala nova.",
+             "You moved to another room. Tap Share screen again to show your screen there.",
+             "Cambiaste de sala. Toca Compartir pantalla de nuevo para mostrarla en la sala nueva.")
+    }
 }
 
 final class ScreenSession: NSObject {
@@ -149,6 +168,27 @@ final class ScreenSession: NSObject {
     private var retryAttempts: [String: Int] = [:]
     /// Offers from other people's broadcasts already declined (peer|channel).
     private var declined: Set<String> = []
+    /// The server paused this broadcast for an ad (see the site's
+    /// lib/broadcastAdGate.ts). No frames go out until it says it is over —
+    /// what a computer's share does is blank its picture the same way.
+    /// Written on the session queue, read on ReplayKit's; a frame either side
+    /// of the flip is harmless.
+    private var adPaused = false
+    /// In the room and announced as sharing — when a preview picture is
+    /// worth sending. Same cross-thread rule as adPaused.
+    private var live = false
+
+    // The hover picture (see BroadcastConfig.preview): one small JPEG every
+    // so often, made off the frame path on a queue of its own.
+    private static let previewWidth: CGFloat = 320
+    private static let previewEveryNs: Int64 = 15_000_000_000
+    private static let previewRetryNs: Int64 = 4_000_000_000
+    private let previewQueue = DispatchQueue(label: "me.nemtudo.golive.broadcast.preview", qos: .utility)
+    private lazy var previewContext = CIContext()
+    private var previewDueNs: Int64 = 0
+    private var previewBusy = false
+    private var previewUploaded = false
+    private var observingAdGateReplies = false
 
     init(config: BroadcastConfig, onEnd: @escaping (String) -> Void) {
         self.config = config
@@ -168,10 +208,42 @@ final class ScreenSession: NSObject {
 
     func start() {
         queue.async {
+            BroadcastShared.defaults?.removeObject(forKey: BroadcastShared.adGateKey)
             BroadcastShared.writeState("connecting")
             self.startHeartbeat()
+            self.observeAdGateReplies()
             self.connect()
         }
+    }
+
+    // The ad gate's popup is shown by the app, which has a screen; its answer
+    // comes back here to be sent on this connection, the one that was paused.
+    private func observeAdGateReplies() {
+        guard !observingAdGateReplies else { return }
+        observingAdGateReplies = true
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let session = Unmanaged<ScreenSession>.fromOpaque(observer).takeUnretainedValue()
+                session.onQueue { session.sendAdGateReply() }
+            },
+            BroadcastShared.adGateReplied as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    private func sendAdGateReply() {
+        guard !ended, let defaults = BroadcastShared.defaults,
+              let raw = defaults.string(forKey: BroadcastShared.adGateReplyKey) else { return }
+        defaults.removeObject(forKey: BroadcastShared.adGateReplyKey)
+        guard let data = raw.data(using: .utf8),
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = reply["type"] as? String,
+              ["ad-gate-cleared", "ad-gate-no-ad", "ad-gate-pro-click"].contains(type) else { return }
+        send(reply)
     }
 
     func stop() {
@@ -192,8 +264,20 @@ final class ScreenSession: NSObject {
     }
 
     private func teardown() {
+        live = false
+        removePreview()
         heartbeat?.cancel()
         heartbeat = nil
+        if observingAdGateReplies {
+            observingAdGateReplies = false
+            CFNotificationCenterRemoveObserver(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                Unmanaged.passUnretained(self).toOpaque(),
+                CFNotificationName(BroadcastShared.adGateReplied as CFString),
+                nil
+            )
+        }
+        BroadcastShared.defaults?.removeObject(forKey: BroadcastShared.adGateKey)
         for id in Array(connections.keys) { closeConnection(id) }
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
@@ -214,6 +298,7 @@ final class ScreenSession: NSObject {
     private var lastFrameNs: Int64 = 0
 
     func push(_ sampleBuffer: CMSampleBuffer) {
+        if adPaused { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let seconds = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
         let timeNs = Int64(seconds * 1_000_000_000)
@@ -222,8 +307,10 @@ final class ScreenSession: NSObject {
         if timeNs - lastFrameNs < 1_000_000_000 / Int64(Self.maxFps) { return }
         lastFrameNs = timeNs
         var rotation = RTCVideoRotation._0
+        var imageOrientation = CGImagePropertyOrientation.up
         if let raw = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber,
            let orientation = CGImagePropertyOrientation(rawValue: raw.uint32Value) {
+            imageOrientation = orientation
             switch orientation {
             case .left, .leftMirrored: rotation = ._90
             case .down, .downMirrored: rotation = ._180
@@ -234,6 +321,56 @@ final class ScreenSession: NSObject {
         let buffer = RTCCVPixelBuffer(pixelBuffer: pixelBuffer)
         let frame = RTCVideoFrame(buffer: buffer, rotation: rotation, timeStampNs: timeNs)
         videoSource.capturer(capturer, didCapture: frame)
+
+        if config.preview != nil, live, !previewBusy, timeNs >= previewDueNs {
+            previewBusy = true
+            previewDueNs = timeNs + Self.previewRetryNs
+            previewQueue.async { [weak self] in
+                self?.uploadPreview(of: pixelBuffer, orientation: imageOrientation, at: timeNs)
+            }
+        }
+    }
+
+    private func uploadPreview(of pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation, at timeNs: Int64) {
+        defer { previewBusy = false }
+        guard let preview = config.preview, let url = URL(string: preview.url) else { return }
+        var image = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
+        let scale = Self.previewWidth / max(image.extent.width, 1)
+        if scale < 1 { image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale)) }
+        guard let jpeg = previewContext.jpegRepresentation(
+            of: image,
+            colorSpace: CGColorSpaceCreateDeviceRGB(),
+            options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.6]
+        ) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = preview.token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["image": jpeg.base64EncodedString()])
+        let semaphore = DispatchSemaphore(value: 0)
+        var ok = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            ok = ((response as? HTTPURLResponse)?.statusCode ?? 0) / 100 == 2
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 10)
+        if ok {
+            previewUploaded = true
+            // Next one in the regular interval; a refusal (not announced as
+            // sharing yet, a blip) is retried sooner, like the site does.
+            previewDueNs = timeNs + Self.previewEveryNs
+        }
+    }
+
+    /// The broadcast is over: its picture goes with it rather than lingering
+    /// until it expires.
+    private func removePreview() {
+        guard previewUploaded, let preview = config.preview, let url = URL(string: preview.url) else { return }
+        previewUploaded = false
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        if let token = preview.token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        URLSession.shared.dataTask(with: request).resume()
     }
 
     // MARK: - signalling socket
@@ -297,6 +434,7 @@ final class ScreenSession: NSObject {
     /// this device are gone with it (the server says peer-left), so they are
     /// dropped here too and rebuilt after the rejoin.
     private func socketDropped() {
+        live = false
         for id in Array(connections.keys) { closeConnection(id) }
         socket = nil
         urlSession?.invalidateAndCancel()
@@ -340,11 +478,28 @@ final class ScreenSession: NSObject {
         case "room-permission-denied", "screen-share-ban":
             fail(Strings.notAllowed)
         case "broadcast-ad-gate":
-            fail(Strings.openAppToContinue)
+            adPaused = true
+            var gate = msg
+            gate.removeValue(forKey: "type")
+            if let data = try? JSONSerialization.data(withJSONObject: gate),
+               let text = String(data: data, encoding: .utf8) {
+                BroadcastShared.defaults?.set(text, forKey: BroadcastShared.adGateKey)
+            }
+            BroadcastShared.writeState("paused", message: Strings.openAppToContinue)
+        case "broadcast-ad-gate-cleared":
+            adPaused = false
+            BroadcastShared.defaults?.removeObject(forKey: BroadcastShared.adGateKey)
+            BroadcastShared.writeState("live")
         case "guest-broadcast-limit":
             fail(Strings.guestLimit)
-        case "room-removed", "banned":
-            fail(Strings.removed)
+        case "room-removed":
+            fail((msg["ownerLeft"] as? Bool) == true ? Strings.removed : Strings.removedByRoom)
+        case "banned":
+            fail(Strings.removedByRoom)
+        case "group-moved", "room-converted":
+            // Its person went to another room; the token this broadcast holds
+            // opens only this one, so it ends and says how to share again.
+            fail(Strings.roomChanged)
         default:
             break
         }
@@ -353,6 +508,10 @@ final class ScreenSession: NSObject {
     private func roomJoined(_ msg: [String: Any]) {
         joined = true
         reconnectAttempts = 0
+        // A fresh connection starts unpaused; if the gate still applies, the
+        // server says so again and the case above puts it back.
+        adPaused = false
+        BroadcastShared.defaults?.removeObject(forKey: BroadcastShared.adGateKey)
         selfId = msg["selfId"] as? String
         selfUserId = msg["selfUserId"] as? String
         peers = [:]
@@ -368,6 +527,7 @@ final class ScreenSession: NSObject {
             "cameras": 0,
         ])
         BroadcastShared.writeState("live")
+        live = true
         let list = msg["peers"] as? [[String: Any]] ?? []
         var delay: TimeInterval = 0
         for summary in list {
