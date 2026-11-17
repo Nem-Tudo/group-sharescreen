@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { UserProfileCard } from "./UserProfileCard";
 import { GuestProfileCard } from "./GuestProfileCard";
+import { ProfileComments } from "./ProfileComments";
 import { MdClose, MdOpenInNew } from "react-icons/md";
 import { Tooltip } from "./Tooltip";
 import { useT } from "@/lib/useI18n";
@@ -136,6 +137,9 @@ export function UserProfileDialog({
           <UserProfileCard id={userId} onNavigate={onClose} />
         )}
         {extra}
+        {/* Experiment profile-comments — the newest few, expanding in place
+            (see ProfileComments). Nothing for a guest, who has no profile. */}
+        {!guest && <ProfileComments profileId={userId} compact className="mt-3" />}
 
       </div>
       </div>

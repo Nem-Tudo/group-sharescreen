@@ -31,6 +31,7 @@ export type NotifyKind =
   | "group-message"
   | "theme-like"
   | "camera-effect-like"
+  | "profile-comment"
   | "friend-request"
   | "gift"
   | "billing";

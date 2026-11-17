@@ -5,6 +5,7 @@ import {
   MdCallMissed,
   MdCardGiftcard,
   MdChatBubbleOutline,
+  MdComment,
   MdFavorite,
   MdHowToReg,
   MdNotificationsNone,
@@ -12,6 +13,8 @@ import {
 } from "react-icons/md";
 import { useNotifications } from "@/lib/useNotifications";
 import { FriendRequestsModal } from "@/components/FriendRequestsModal";
+import { UserProfileDialog } from "@/components/UserProfileDialog";
+import { useAuth } from "@/lib/AuthContext";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { Popover } from "@/components/Tooltip";
 import {
@@ -69,6 +72,8 @@ function Item({
           <MdCardGiftcard className="h-4 w-4 text-emerald-500" />
         ) : notification.kind === "theme-like" || notification.kind === "camera-effect-like" ? (
           <MdFavorite className="h-4 w-4 text-pink-500" />
+        ) : notification.kind === "profile-comment" ? (
+          <MdComment className="h-4 w-4 text-sky-500" />
         ) : notification.kind === "friend-accepted" ? (
           <MdHowToReg className="h-4 w-4" />
         ) : (
@@ -100,6 +105,11 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
   // room, navigating would end the call to answer two buttons — see
   // FriendRequestsModal.
   const [requestsOpen, setRequestsOpen] = useState(false);
+  // A comment on your own profile opens the profile over whatever is on
+  // screen — the same dialog the room uses — rather than navigating, which
+  // inside a room would end the call to read one line.
+  const [ownProfileOpen, setOwnProfileOpen] = useState(false);
+  const { account } = useAuth();
   const unread = items.filter((item) => !item.read).length;
   const { supported, permission, enable } = useNotifications();
 
@@ -161,6 +171,7 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
                   onOpen={(notification) => {
                     setOpen(false);
                     if (notification.kind === "friend-request") setRequestsOpen(true);
+                    else if (notification.kind === "profile-comment") setOwnProfileOpen(true);
                     // A missed call opens the conversation rather than calling
                     // back: the bell is read long after the fact, and a click
                     // that starts ringing somebody's phone is not what
@@ -208,6 +219,9 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
       </button>
     </Popover>
     <FriendRequestsModal open={requestsOpen} onClose={() => setRequestsOpen(false)} />
+    {ownProfileOpen && account && (
+      <UserProfileDialog userId={account.id} onClose={() => setOwnProfileOpen(false)} />
+    )}
     </>
   );
 }

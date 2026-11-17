@@ -28,7 +28,9 @@ export type NotificationKind =
   | "call-missed"
   | "gift"
   | "theme-like"
-  | "camera-effect-like";
+  | "camera-effect-like"
+  // Somebody commented on this account's profile (experiment profile-comments).
+  | "profile-comment";
 
 export interface InboxNotification {
   /** Names the thing, not the moment — see the header on dedup. */

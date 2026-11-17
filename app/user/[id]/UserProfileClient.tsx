@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { UserProfileCard } from "@/components/UserProfileCard";
+import { ProfileComments } from "@/components/ProfileComments";
 import { useProfileSongAutoplay } from "@/lib/profileSong";
 import { useT } from "@/lib/useI18n";
 
@@ -30,6 +31,9 @@ export function UserProfileClient({ id }: { id: string }) {
           {/* Autoplay only here: this page is somebody opening a profile on
               purpose. The room's popup passes nothing and gets a play button. */}
           <UserProfileCard id={id} autoPlaySong={autoplay} />
+          {/* Experiment profile-comments: renders nothing for a profile
+              outside it (the API decides, per profile owner). */}
+          <ProfileComments profileId={id} className="mt-4" />
         </div>
       </main>
     </div>

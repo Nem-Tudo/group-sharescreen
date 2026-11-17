@@ -18,6 +18,7 @@ import { SiteBeacon } from "@/components/SiteBeacon";
 import { SocialNotifier } from "@/components/SocialNotifier";
 import { GiftNotifier } from "@/components/GiftNotifier";
 import { ThemeLikeNotifier } from "@/components/ThemeLikeNotifier";
+import { ProfileCommentNotifier } from "@/components/ProfileCommentNotifier";
 import { GiftClaimHost } from "@/components/GiftClaimHost";
 import { DmNotifier } from "@/components/DmNotifier";
 import { DesktopUnreadFlash } from "@/components/DesktopUnreadFlash";
@@ -372,6 +373,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <GiftNotifier />
                 {/* And for somebody liking a theme this account made. */}
                 <ThemeLikeNotifier />
+                {/* And for a comment on this account's profile (experiment profile-comments). */}
+                <ProfileCommentNotifier />
                 {/* Opens the present somebody arrived holding — see /gift/[code],
                     which redirects here with the code on the URL. */}
                 <GiftClaimHost />

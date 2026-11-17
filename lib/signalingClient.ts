@@ -257,6 +257,16 @@ export type ReceivedCameraEffect = {
 };
 export type CameraEffectSendResult = { userId: string; ok: boolean; reason: string | null; seq: number };
 
+/** Somebody commented on this account's profile (experiment profile-comments). */
+export type ProfileCommentEvent = {
+  commentId: string;
+  byId: string | null;
+  byName: string;
+  /** The start of the comment; empty when it was only a GIF. */
+  text: string;
+  gif: boolean;
+};
+
 export type ThemeLikedEvent = {
   themeId: string;
   themeName: string;
@@ -670,6 +680,8 @@ export type SignalingState = {
   lastGiftRedeemed: PremiumGiftRedeemedEvent | null;
   /** The last like somebody put on one of this account's themes. */
   lastThemeLike: ThemeLikedEvent | null;
+  /** The last comment somebody left on this account's profile. See ProfileCommentNotifier. */
+  lastProfileComment: ProfileCommentEvent | null;
   // The effect somebody put on this person's camera, for this visit to the room.
   receivedCameraEffect: ReceivedCameraEffect | null;
   cameraEffectSendResult: CameraEffectSendResult | null;
@@ -1003,6 +1015,7 @@ const initialState: SignalingState = {
   giftSeq: 0,
   lastGiftRedeemed: null,
   lastThemeLike: null,
+  lastProfileComment: null,
   receivedCameraEffect: null,
   cameraEffectSendResult: null,
   alertTarget: true,
@@ -2787,6 +2800,17 @@ class SignalingClient {
             ok: msg.ok === true,
             reason: typeof msg.reason === "string" ? msg.reason : null,
             seq: (this.state.cameraEffectSendResult?.seq ?? 0) + 1,
+          },
+        });
+        break;
+      case "profile-comment":
+        this.setState({
+          lastProfileComment: {
+            commentId: String(msg.commentId ?? ""),
+            byId: typeof msg.byId === "string" ? msg.byId : null,
+            byName: typeof msg.byName === "string" ? msg.byName : translate("common.someone"),
+            text: typeof msg.text === "string" ? msg.text : "",
+            gif: msg.gif === true,
           },
         });
         break;

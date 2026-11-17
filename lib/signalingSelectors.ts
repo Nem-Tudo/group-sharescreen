@@ -67,6 +67,11 @@ export const selectGroupNudge = (s: SignalingState) => ({
   alertTarget: s.alertTarget,
 });
 
+export const selectProfileCommentNudge = (s: SignalingState) => ({
+  lastProfileComment: s.lastProfileComment,
+  alertTarget: s.alertTarget,
+});
+
 export const selectThemeLikeNudge = (s: SignalingState) => ({
   lastThemeLike: s.lastThemeLike,
   alertTarget: s.alertTarget,
