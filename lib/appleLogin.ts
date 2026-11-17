@@ -24,6 +24,19 @@ export const APPLE_LOGIN_EVENTS = {
 } as const;
 
 /**
+ * Whether this device is Apple's (the iOS app, an iPhone/iPad, a Mac). Only
+ * there does the button get Apple's own black/white look and the top spot;
+ * elsewhere it is one more option, styled like the others and listed last.
+ * Client-only: call it after mount (OAuthButtons renders nothing before the
+ * provider list arrives, so it never runs during SSR).
+ */
+export function isApplePlatform(): boolean {
+  if (isIOSApp()) return true;
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Macintosh|Mac OS X/i.test(navigator.userAgent);
+}
+
+/**
  * Whether to offer Apple. `listed`: the API offers it at all — the exposure is
  * only counted where the button would really appear.
  */

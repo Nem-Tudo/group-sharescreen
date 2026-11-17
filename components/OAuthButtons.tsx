@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent } from "@/lib/features";
-import { APPLE_LOGIN_EVENTS, APPLE_LOGIN_FEATURE, useAppleLoginVisible } from "@/lib/appleLogin";
+import { APPLE_LOGIN_EVENTS, APPLE_LOGIN_FEATURE, isApplePlatform, useAppleLoginVisible } from "@/lib/appleLogin";
 import { translate } from "@/lib/i18n";
 
 // "Entrar com Discord/Google", wherever a login or signup form is shown.
@@ -44,13 +44,20 @@ const PROVIDER_STYLE: Record<
       "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 cursor-pointer",
     icon: <FcGoogle className="h-5 w-5" />,
   },
-  // Apple's own rule for the button: black with the white logo (white on a
-  // dark page), never restyled into the other providers' look.
+  // Off Apple devices: one more option, same look as the others.
   apple: {
     className:
-      "border-black bg-black text-white hover:bg-zinc-800 dark:border-white dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer",
+      "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 cursor-pointer",
     icon: <FaApple className="h-5 w-5" />,
   },
+};
+
+// On Apple devices (and always in the iOS app, where App Review looks at it):
+// Apple's own look, black with the white logo (white on a dark page), first.
+const APPLE_HIGHLIGHT_STYLE: { className: string; icon: React.ReactNode } = {
+  className:
+    "border-black bg-black text-white hover:bg-zinc-800 dark:border-white dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer",
+  icon: <FaApple className="h-5 w-5" />,
 };
 
 export function OAuthButtons({
@@ -120,11 +127,12 @@ export function OAuthButtons({
 
   // `null` is "still loading", `[]` is "this deployment has none" — both
   // render nothing, so the form never flashes an empty divider.
-  // Apple first when shown, as its guidelines ask; hidden where it is not on
-  // yet (see lib/appleLogin.ts).
+  // Hidden where it is not on yet (see lib/appleLogin.ts). On Apple devices
+  // it leads, in Apple's look; elsewhere it goes last, looking like the rest.
+  const appleDevice = isApplePlatform();
   const shown = (providers ?? [])
     .filter((provider) => provider.id !== "apple" || appleVisible)
-    .sort((a, b) => Number(b.id === "apple") - Number(a.id === "apple"));
+    .sort((a, b) => (Number(b.id === "apple") - Number(a.id === "apple")) * (appleDevice ? 1 : -1));
   if (shown.length === 0) return null;
 
   const divider = dividerLabel && (
@@ -141,7 +149,7 @@ export function OAuthButtons({
     <div className="flex flex-col gap-3">
       {dividerPosition === "above" && divider}
       {shown.map((provider) => {
-        const style = PROVIDER_STYLE[provider.id];
+        const style = provider.id === "apple" && appleDevice ? APPLE_HIGHLIGHT_STYLE : PROVIDER_STYLE[provider.id];
         return (
           <button
             key={provider.id}
