@@ -156,10 +156,10 @@ export function OAuthButtons({
             type="button"
             onClick={() => handleClick(provider.id)}
             disabled={pending !== null}
-            className={`flex items-center justify-center gap-2.5 rounded-lg border px-4 py-2.5 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${style.className}`}
+            className={`flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border px-4 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${style.className}`}
           >
             {style.icon}
-            {pending === provider.id ? t("common.opening") : t("oAuthButtons.signInWithLabel", { label: provider.label })}
+            {pending === provider.id ? t("common.opening") : t("oAuthButtons.continueWithLabel", { label: provider.label })}
           </button>
         );
       })}

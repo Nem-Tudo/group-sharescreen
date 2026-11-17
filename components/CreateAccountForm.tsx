@@ -10,33 +10,54 @@ import { OAuthButtons } from "./OAuthButtons";
 import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
+import {
+  AuthBack,
+  AuthField,
+  AuthSwitch,
+  PasswordInput,
+  authInputClass,
+  authInputInvalidClass,
+  authInputValidClass,
+  authPrimaryButtonClass,
+  useFocusWithMouse,
+} from "./auth/authUi";
 
 // Mirrors server-side validation (see accountApi.ts / the account routes) —
 // duplicated here only so a bad username is caught before a round trip.
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD = 6;
 
 // How long the availability check waits after the last keystroke. Long enough
 // that typing a name is one request rather than one per letter, short enough
 // that the answer feels like it is answering as you type.
 const USERNAME_CHECK_DEBOUNCE_MS = 400;
 
-const inputClass =
-  "rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
-const primaryButtonClass =
-  "rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
-const secondaryButtonClass =
-  "rounded-lg border border-zinc-300 px-4 py-2.5 font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
-const linkButtonClass =
-  "self-start text-sm font-medium underline underline-offset-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
-const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
+/**
+ * A username made from the display name ("João Silva" -> "joao_silva"), the
+ * same folding the API applies to a social login's name. Only a suggestion:
+ * it fills the username field until the person types in it themselves.
+ */
+function usernameFromDisplayName(name: string): string {
+  const folded = name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 20);
+  return folded.length >= 3 ? folded : "";
+}
+
+type Field = "displayName" | "username" | "email" | "password";
 
 // The account-creation form — shared between the home page (its "create"
-// identity mode) and WatchRoom's first-time name gate, so a guest who lands
-// straight in a room link can create an account without leaving it. Calling
-// register() here stores the new token; AuthContext's own effect picks that
-// up and turns it into a signaling registration, so the caller just needs to
-// react to onSuccess (reset whatever local UI mode led here) rather than
-// drive the actual identity switch itself.
+// identity mode), the account modal, WatchRoom's first-time name gate and the
+// /login popup. Laid out like LoginForm (see components/auth/authUi.tsx).
+// Calling register() here stores the new token; AuthContext's own effect
+// picks that up and turns it into a signaling registration, so the caller
+// just needs to react to onSuccess.
 export function CreateAccountForm({
   initialDisplayName = "",
   onSuccess,
@@ -52,10 +73,19 @@ export function CreateAccountForm({
 }) {
   const t = useT();
   const { register } = useAuth();
-  const [username, setUsername] = useState("");
+  const focusWithMouse = useFocusWithMouse();
   const [displayName, setDisplayName] = useState(initialDisplayName);
+  // null while the person has not typed in the username box: it then follows
+  // the display name (see usernameFromDisplayName). The first keystroke there
+  // makes it theirs for good.
+  const [typedUsername, setTypedUsername] = useState<string | null>(null);
+  const username = typedUsername ?? usernameFromDisplayName(displayName);
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
+  // Per field, so each message sits under the box it is about. Filled on
+  // submit (and on leaving a field that is clearly wrong), cleared as soon as
+  // the field is edited.
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Set when a social login turned out to be a signup. While it's here this
@@ -111,18 +141,34 @@ export function CreateAccountForm({
       : null;
   const usernameTaken = check?.valid === true && check.available === false;
 
+  function clearFieldError(field: Field) {
+    setFormError(null);
+    setFieldErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  }
+
+  function validate(): Partial<Record<Field, string>> {
+    const errors: Partial<Record<Field, string>> = {};
+    if (!displayName.trim()) errors.displayName = t("common.chooseADisplayName");
+    if (!USERNAME_RE.test(trimmedUsername)) errors.username = t("common.usernameMustHave3To20");
+    else if (usernameTaken) errors.username = `@${trimmedUsername} ${t("createAccountForm.isAlreadyInUse")}`;
+    // Shape only, matching the API's own check — nothing here can prove an
+    // address, and a stricter pattern would reject valid ones while letting a
+    // plausible typo through just the same.
+    if (!EMAIL_RE.test(email.trim())) errors.email = t("createAccountForm.enterAValidEmail");
+    if (password.length < MIN_PASSWORD) errors.password = t("createAccountForm.passwordMustBeAtLeast6");
+    return errors;
+  }
+
   // No captcha branch here any more. register() mints a Turnstile token on the
   // way out (see lib/accountApi.ts), and if Cloudflare wants to challenge this
   // person it does so itself, on screen, before the request is even sent — so
   // by the time anything lands in the catch below, the check has already had
   // its say and a refusal is just an error like any other.
   async function submitRegister() {
-    const trimmedUser = username.trim();
-    const trimmedDisplay = displayName.trim();
     setSubmitting(true);
     setFormError(null);
     try {
-      await register(trimmedUser, trimmedDisplay, password, email.trim().toLowerCase());
+      await register(trimmedUsername, displayName.trim(), password, email.trim().toLowerCase());
       trackEvent("account_created");
       onSuccess?.();
     } catch (err) {
@@ -135,25 +181,11 @@ export function CreateAccountForm({
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
-    const trimmedUser = username.trim();
-    const trimmedDisplay = displayName.trim();
-    if (!USERNAME_RE.test(trimmedUser)) {
-      setFormError(t("common.usernameMustHave3To20"));
-      return;
-    }
-    if (!trimmedDisplay) {
-      setFormError(t("common.chooseADisplayName"));
-      return;
-    }
-    if (password.length < 6) {
-      setFormError(t("createAccountForm.passwordMustBeAtLeast6"));
-      return;
-    }
-    // Shape only, matching the API's own check — nothing here can prove an
-    // address, and a stricter pattern would reject valid ones while letting a
-    // plausible typo through just the same.
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setFormError(t("createAccountForm.enterAValidEmail"));
+    const errors = validate();
+    setFieldErrors(errors);
+    const first = (["displayName", "username", "email", "password"] as Field[]).find((f) => errors[f]);
+    if (first) {
+      document.getElementById(`create-${first}`)?.focus();
       return;
     }
     void submitRegister();
@@ -161,7 +193,7 @@ export function CreateAccountForm({
 
   if (oauthTicket) {
     return (
-      <div className="mt-8">
+      <div className="mt-6">
         <CompleteOAuthSignupForm
           ticket={oauthTicket.ticket}
           provider={oauthTicket.provider}
@@ -176,107 +208,148 @@ export function CreateAccountForm({
     );
   }
 
+  // Live feedback under the username, when there is no submit error for it.
+  const usernameHint =
+    trimmedUsername.length === 0 ? (
+      t("createAccountForm.use3To20LettersNumbers")
+    ) : !usernameWellFormed ? (
+      t("createAccountForm.use3To20LettersNumbers")
+    ) : !check ? (
+      t("common.checking")
+    ) : check.available ? (
+      <span className="text-emerald-600 dark:text-emerald-500">
+        @{check.username} {t("createAccountForm.isAvailable")}
+      </span>
+    ) : (
+      <span className="text-red-500">
+        @{check.username} {t("createAccountForm.isAlreadyInUse")}
+      </span>
+    );
+
   return (
-    <div className="mt-8 flex flex-col gap-3">
+    <div className="mt-6 flex flex-col gap-4">
       {/* On top, so a scrolling dialog shows them without scrolling; outside
           the <form> because the username step this can turn into is itself a
           form. Renders nothing when the API has no provider configured —
           social signup ends in an account too, so onSuccess is the same. */}
       <OAuthButtons onSuccess={onSuccess} onTicket={setOAuthTicket} dividerPosition="below" />
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label htmlFor="create-username" className={labelClass}>
-          {t("common.username")}
-        </label>
-        <input
-          id="create-username"
-          autoFocus
-          autoComplete="username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          maxLength={20}
-          placeholder={t("createAccountForm.exMaria123")}
-          className={`${inputClass} ${
-            usernameTaken
-              ? "border-red-400 dark:border-red-800"
-              : check?.available
-                ? "border-emerald-500 dark:border-emerald-700"
-                : ""
-          }`}
-        />
-        {/* Says nothing until there is something to say: an empty box and a
-            half-typed name are not errors, they are somebody typing. */}
-        {trimmedUsername.length > 0 && (
-          <p className="-mt-1 text-xs">
-            {!usernameWellFormed ? (
-              <span className="text-zinc-500 dark:text-zinc-400">
-                {t("createAccountForm.use3To20LettersNumbers")}
-              </span>
-            ) : !check ? (
-              <span className="text-zinc-500 dark:text-zinc-400">{t("common.checking")}</span>
-            ) : check.available ? (
-              <span className="text-emerald-600 dark:text-emerald-500">
-                @{check.username} {t("createAccountForm.isAvailable")}
-              </span>
-            ) : (
-              <span className="text-red-500">@{check.username} {t("createAccountForm.isAlreadyInUse")}</span>
-            )}
-          </p>
-        )}
-        <label htmlFor="create-displayName" className={labelClass}>
-          {t("common.displayName")}
-        </label>
-        <input
-          id="create-displayName"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          maxLength={24}
-          placeholder={t("common.exMaria")}
-          className={inputClass}
-        />
-        {/* Worth saying out loud: it used to have to be unique, and the error
-            that produced was the main reason signing up turned into a hunt. */}
-        <p className="-mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          {t("createAccountForm.itIsHowYourNameAppears")}
-        </p>
-        <label htmlFor="create-email" className={labelClass}>
-          {t("createAccountForm.email")}
-        </label>
-        <input
-          id="create-email"
-          type="email"
-          autoComplete="email"
-          inputMode="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className={inputClass}
-        />
-        <label htmlFor="create-password" className={labelClass}>
-          {t("common.password")}
-        </label>
-        <input
-          id="create-password"
-          type="password"
-          autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className={inputClass}
-        />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <AuthField
+          label={t("common.displayName")}
+          htmlFor="create-displayName"
+          // Worth saying out loud: it used to have to be unique, and the error
+          // that produced was the main reason signing up turned into a hunt.
+          hint={t("createAccountForm.itIsHowYourNameAppears")}
+          error={fieldErrors.displayName}
+        >
+          <input
+            id="create-displayName"
+            ref={focusWithMouse}
+            autoComplete="nickname"
+            enterKeyHint="next"
+            value={displayName}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+              clearFieldError("displayName");
+              if (typedUsername === null) clearFieldError("username");
+            }}
+            maxLength={24}
+            placeholder={t("common.exMaria")}
+            aria-invalid={fieldErrors.displayName ? true : undefined}
+            className={`${authInputClass} ${fieldErrors.displayName ? authInputInvalidClass : ""}`}
+          />
+        </AuthField>
+        <AuthField
+          label={t("common.username")}
+          htmlFor="create-username"
+          hint={usernameHint}
+          error={fieldErrors.username}
+        >
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-zinc-400 dark:text-zinc-500">
+              @
+            </span>
+            <input
+              id="create-username"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="next"
+              value={username}
+              onChange={(e) => {
+                setTypedUsername(e.target.value.replace(/^@/, ""));
+                clearFieldError("username");
+              }}
+              maxLength={20}
+              // Just the handle: the "@" is already drawn in front of it.
+              placeholder="maria123"
+              aria-invalid={fieldErrors.username || usernameTaken ? true : undefined}
+              className={`${authInputClass} pl-8 ${
+                fieldErrors.username || usernameTaken
+                  ? authInputInvalidClass
+                  : check?.available
+                    ? authInputValidClass
+                    : ""
+              }`}
+            />
+          </div>
+        </AuthField>
+        <AuthField label={t("createAccountForm.email")} htmlFor="create-email" error={fieldErrors.email}>
+          <input
+            id="create-email"
+            type="email"
+            autoComplete="email"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="next"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              clearFieldError("email");
+            }}
+            // Said when leaving the field, not while typing: half an address
+            // is not a mistake yet.
+            onBlur={() => {
+              if (email.trim() && !EMAIL_RE.test(email.trim())) {
+                setFieldErrors((prev) => ({ ...prev, email: t("createAccountForm.enterAValidEmail") }));
+              }
+            }}
+            placeholder={t("authForms.emailPlaceholder")}
+            aria-invalid={fieldErrors.email ? true : undefined}
+            className={`${authInputClass} ${fieldErrors.email ? authInputInvalidClass : ""}`}
+          />
+        </AuthField>
+        <AuthField
+          label={t("common.password")}
+          htmlFor="create-password"
+          // The rule up front, instead of only as the error after a try.
+          hint={t("authForms.passwordRule", { min: MIN_PASSWORD })}
+          error={fieldErrors.password}
+        >
+          <PasswordInput
+            id="create-password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(value) => {
+              setPassword(value);
+              clearFieldError("password");
+            }}
+            invalid={Boolean(fieldErrors.password)}
+          />
+        </AuthField>
         {formError && <p className="text-sm text-red-500">{formError}</p>}
-        <div className="mt-2 flex gap-2">
-          <button type="submit" disabled={submitting} className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}>
-            {submitting && <ButtonSpinner />}
-            {submitting ? t("common.creating2") : t("common.createAccount")}
-          </button>
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            {t("common.back")}
-          </button>
-        </div>
-        {onSwitchToLogin && (
-          <button type="button" onClick={onSwitchToLogin} className={linkButtonClass}>
-            {t("common.iAlreadyHaveAnAccount")}
-          </button>
-        )}
+        <button type="submit" disabled={submitting} className={`mt-1 ${authPrimaryButtonClass}`}>
+          {submitting && <ButtonSpinner />}
+          {submitting ? t("common.creating2") : t("common.createAccount")}
+        </button>
       </form>
+      {onSwitchToLogin && (
+        <AuthSwitch prompt={t("authForms.alreadyHaveAccount")} action={t("common.signIn")} onClick={onSwitchToLogin} />
+      )}
+      <AuthBack onClick={onCancel} />
     </div>
   );
 }

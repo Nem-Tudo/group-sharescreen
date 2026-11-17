@@ -10,22 +10,25 @@ import { CompleteOAuthSignupForm } from "./CompleteOAuthSignupForm";
 import { ForgotPasswordForm } from "./ForgotPasswordForm";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
-
-const inputClass =
-  "rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
-const primaryButtonClass =
-  "rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
-const secondaryButtonClass =
-  "rounded-lg border border-zinc-300 px-4 py-2.5 font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
-const linkButtonClass =
-  "self-start text-sm font-medium underline underline-offset-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
-const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
+import {
+  AuthAsideLink,
+  AuthBack,
+  AuthField,
+  AuthSwitch,
+  PasswordInput,
+  authInputClass,
+  authInputInvalidClass,
+  authPrimaryButtonClass,
+  useFocusWithMouse,
+} from "./auth/authUi";
 
 // The login half of the identity flow, split out of the home page so
 // WatchRoom's account modal can offer "entrar" without a second copy of it.
-// Counterpart to CreateAccountForm, and deliberately shaped the same way:
-// login() stores the token, AuthContext's own effect turns it into a
-// signaling registration, so the caller only has to react to onSuccess.
+// Counterpart to CreateAccountForm, and laid out exactly the same way (see
+// components/auth/authUi.tsx): social buttons, fields, one primary button,
+// the switch to the other form, "Voltar". login() stores the token,
+// AuthContext's own effect turns it into a signaling registration, so the
+// caller only has to react to onSuccess.
 export function LoginForm({
   onSuccess,
   onCancel,
@@ -43,6 +46,7 @@ export function LoginForm({
 }) {
   const t = useT();
   const { login } = useAuth();
+  const focusWithMouse = useFocusWithMouse();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -106,7 +110,7 @@ export function LoginForm({
 
   if (oauthTicket) {
     return (
-      <div className="mt-8">
+      <div className="mt-6">
         <CompleteOAuthSignupForm
           ticket={oauthTicket.ticket}
           provider={oauthTicket.provider}
@@ -122,57 +126,62 @@ export function LoginForm({
   }
 
   return (
-    <div className="mt-8 flex flex-col gap-3">
+    <div className="mt-6 flex flex-col gap-4">
       {/* On top, so a scrolling dialog shows them without scrolling; outside
           the <form> because the username step this can lead to is a form of
           its own. Renders nothing when no provider is configured. */}
       <OAuthButtons onSuccess={onSuccess} onTicket={onTicket ?? setOAuthTicket} dividerPosition="below" />
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label htmlFor="login-username" className={labelClass}>
-          {t("common.username")}
-        </label>
-        <input
-          id="login-username"
-          autoFocus
-          autoComplete="username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className={inputClass}
-        />
-        <label htmlFor="login-password" className={labelClass}>
-          {t("common.password")}
-        </label>
-        <input
-          id="login-password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className={inputClass}
-        />
-        {formError && <p className="text-sm text-red-500">{formError}</p>}
-        <div className="mt-2 flex gap-2">
-          <button
-            type="submit"
-            disabled={submitting || !username.trim() || !password}
-            className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
-          >
-            {submitting && <ButtonSpinner />}
-            {submitting ? t("common.joining") : t("common.signIn")}
-          </button>
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            {t("common.back")}
-          </button>
-        </div>
-        <button type="button" onClick={() => setForgot(true)} className={linkButtonClass}>
-          {t("email.forgotPassword")}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <AuthField label={t("authForms.usernameOrEmail")} htmlFor="login-username">
+          <input
+            id="login-username"
+            ref={focusWithMouse}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="next"
+            value={username}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              setFormError(null);
+            }}
+            aria-invalid={formError ? true : undefined}
+            className={`${authInputClass} ${formError ? authInputInvalidClass : ""}`}
+          />
+        </AuthField>
+        <AuthField
+          label={t("common.password")}
+          htmlFor="login-password"
+          // Next to the field it is about, where people look the moment the
+          // password is refused — not under the buttons.
+          aside={<AuthAsideLink onClick={() => setForgot(true)}>{t("email.forgotPassword")}</AuthAsideLink>}
+          error={formError}
+        >
+          <PasswordInput
+            id="login-password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(value) => {
+              setPassword(value);
+              setFormError(null);
+            }}
+            invalid={Boolean(formError)}
+          />
+        </AuthField>
+        <button
+          type="submit"
+          disabled={submitting || !username.trim() || !password}
+          className={`mt-1 ${authPrimaryButtonClass}`}
+        >
+          {submitting && <ButtonSpinner />}
+          {submitting ? t("common.joining") : t("common.signIn")}
         </button>
-        {onSwitchToCreate && (
-          <button type="button" onClick={onSwitchToCreate} className={linkButtonClass}>
-            {t("common.createAnAccount")}
-          </button>
-        )}
       </form>
+      {onSwitchToCreate && (
+        <AuthSwitch prompt={t("authForms.noAccountYet")} action={t("common.createAccount")} onClick={onSwitchToCreate} />
+      )}
+      <AuthBack onClick={onCancel} />
     </div>
   );
 }

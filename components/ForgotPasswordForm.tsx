@@ -7,16 +7,14 @@ import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { requestPasswordReset, resetPassword } from "@/lib/emailApi";
 import { useT } from "@/lib/useI18n";
-
-const inputClass =
-  "rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
-const primaryButtonClass =
-  "rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
-const secondaryButtonClass =
-  "rounded-lg border border-zinc-300 px-4 py-2.5 font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
-const linkButtonClass =
-  "self-start text-sm font-medium underline underline-offset-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
-const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
+import {
+  AuthBack,
+  AuthField,
+  PasswordInput,
+  authInputClass,
+  authPrimaryButtonClass,
+  useFocusWithMouse,
+} from "./auth/authUi";
 
 // "Esqueci minha senha" — reached from LoginForm, and shaped like it on
 // purpose: same inputs, same buttons, same onSuccess contract, so whatever
@@ -47,6 +45,7 @@ export function ForgotPasswordForm({
   onCancel: () => void;
 }) {
   const t = useT();
+  const focusWithMouse = useFocusWithMouse();
   const { refresh } = useAuth();
   const [step, setStep] = useState<"identify" | "code">("identify");
   const [identifier, setIdentifier] = useState(initialIdentifier);
@@ -120,7 +119,7 @@ export function ForgotPasswordForm({
   }
 
   return (
-    <div className="mt-8 flex flex-col gap-3">
+    <div className="mt-6 flex flex-col gap-4">
       <div>
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           {t("email.forgotTitle")}
@@ -133,82 +132,90 @@ export function ForgotPasswordForm({
               t("email.forgotCodeSent")}
         </p>
       </div>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label htmlFor="forgot-identifier" className={labelClass}>
-          {t("email.usernameOrEmail")}
-        </label>
-        <input
-          id="forgot-identifier"
-          autoFocus={step === "identify"}
-          autoComplete="username"
-          value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
-          // Locked once a code is out: the code belongs to this identifier,
-          // and editing the box would only produce a code that cannot match.
-          readOnly={step === "code"}
-          className={`${inputClass} ${step === "code" ? "opacity-60" : ""}`}
-        />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <AuthField
+          label={t("email.usernameOrEmail")}
+          htmlFor="forgot-identifier"
+          error={step === "identify" ? formError : null}
+        >
+          <input
+            id="forgot-identifier"
+            ref={step === "identify" ? focusWithMouse : undefined}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            // Locked once a code is out: the code belongs to this identifier,
+            // and editing the box would only produce a code that cannot match.
+            readOnly={step === "code"}
+            className={`${authInputClass} ${step === "code" ? "opacity-60" : ""}`}
+          />
+        </AuthField>
         {step === "code" && (
           <>
-            <label htmlFor="forgot-code" className={labelClass}>
-              {t("email.codeLabel")}
-            </label>
-            <input
-              id="forgot-code"
-              autoFocus
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={CODE_LENGTH}
-              placeholder="000000"
-              value={code}
-              // Digits only, so a code pasted as "123 456" out of the email
-              // still fits the box instead of being silently truncated.
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))}
-              className={`${inputClass} text-center text-lg tracking-[0.4em]`}
-            />
-            <label htmlFor="forgot-password" className={labelClass}>
-              {t("email.newPassword")}
-            </label>
-            <input
-              id="forgot-password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
-            />
+            <AuthField
+              label={t("email.codeLabel")}
+              htmlFor="forgot-code"
+              aside={
+                <button
+                  type="button"
+                  disabled={submitting || resendIn > 0}
+                  onClick={() => void submitIdentify()}
+                  className="cursor-pointer text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-900 hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-60 dark:text-zinc-400 dark:hover:text-zinc-100"
+                >
+                  {resendIn > 0 ? t("email.resendIn", { seconds: resendIn }) : t("email.resend")}
+                </button>
+              }
+            >
+              <input
+                id="forgot-code"
+                // The code just arrived by email: this is the one field the
+                // person came back to fill, on any device.
+                autoFocus
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={CODE_LENGTH}
+                placeholder="000000"
+                value={code}
+                // Digits only, so a code pasted as "123 456" out of the email
+                // still fits the box instead of being silently truncated.
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))}
+                className={`${authInputClass} text-center text-lg tracking-[0.4em]`}
+              />
+            </AuthField>
+            <AuthField
+              label={t("email.newPassword")}
+              htmlFor="forgot-password"
+              hint={t("authForms.passwordRule", { min: MIN_PASSWORD })}
+              error={formError}
+            >
+              <PasswordInput
+                id="forgot-password"
+                autoComplete="new-password"
+                value={password}
+                onChange={setPassword}
+                invalid={Boolean(formError)}
+              />
+            </AuthField>
           </>
         )}
-        {formError && <p className="text-sm text-red-500">{formError}</p>}
-        <div className="mt-2 flex gap-2">
-          <button
-            type="submit"
-            disabled={
-              submitting ||
-              (step === "identify"
-                ? !trimmedIdentifier
-                : code.trim().length < CODE_LENGTH || password.length < MIN_PASSWORD)
-            }
-            className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
-          >
-            {submitting && <ButtonSpinner />}
-            {step === "identify" ? t("email.sendCode") : t("email.changePassword")}
-          </button>
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            {t("common.back")}
-          </button>
-        </div>
-        {step === "code" && (
-          <button
-            type="button"
-            disabled={submitting || resendIn > 0}
-            onClick={() => void submitIdentify()}
-            className={`${linkButtonClass} disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            {resendIn > 0 ? t("email.resendIn", { seconds: resendIn }) : t("email.resend")}
-          </button>
-        )}
+        <button
+          type="submit"
+          disabled={
+            submitting ||
+            (step === "identify"
+              ? !trimmedIdentifier
+              : code.trim().length < CODE_LENGTH || password.length < MIN_PASSWORD)
+          }
+          className={`mt-1 ${authPrimaryButtonClass}`}
+        >
+          {submitting && <ButtonSpinner />}
+          {step === "identify" ? t("email.sendCode") : t("email.changePassword")}
+        </button>
       </form>
+      <AuthBack onClick={onCancel} />
     </div>
   );
 }

@@ -6140,5 +6140,16 @@
   "planUnlocks.hint.upload": "Works in room chats, groups and conversations.",
   "planUnlocks.hint.dailyPoints": "Added to your account every day while the plan is active.",
   "planUnlocks.hint.auras": "Use it on a group to give it a boost.",
-  "planUnlocks.hint.emojis": "Make your own from your account page and use them anywhere."
+  "planUnlocks.hint.emojis": "Make your own from your account page and use them anywhere.",
+  "authForms.usernameOrEmail": "Username or email",
+  "authForms.noAccountYet": "Don't have an account?",
+  "authForms.alreadyHaveAccount": "Already have an account?",
+  "authForms.showPassword": "Show password",
+  "authForms.hidePassword": "Hide password",
+  "authForms.passwordRule": "At least {min} characters.",
+  "authForms.emailPlaceholder": "you@example.com",
+  "authForms.orUseAnAccount": "or use an account",
+  "authForms.alreadyOnGolive": "Already on GoLive?",
+  "authForms.signInToIt": "Sign in to it",
+  "oAuthButtons.continueWithLabel": "Continue with {label}"
 }

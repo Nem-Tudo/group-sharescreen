@@ -8,21 +8,21 @@ import { prewarmCaptcha } from "@/lib/turnstile";
 import type { OAuthProviderId } from "@/lib/oauthApi";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
+import {
+  AuthBack,
+  AuthField,
+  AuthSwitch,
+  PasswordInput,
+  authInputClass,
+  authInputInvalidClass,
+  authPrimaryButtonClass,
+  useFocusWithMouse,
+} from "./auth/authUi";
 
 // Mirrors server-side validation (see the API's USERNAME_RE) — duplicated
 // here only so a bad username is caught before a round trip, same as
 // CreateAccountForm does.
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
-
-const inputClass =
-  "rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
-const primaryButtonClass =
-  "rounded-lg bg-zinc-950 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
-const secondaryButtonClass =
-  "rounded-lg border border-zinc-300 px-4 py-2.5 font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
-const labelClass = "text-sm font-medium text-zinc-700 dark:text-zinc-300";
-const linkButtonClass =
-  "text-sm font-medium underline underline-offset-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
 
 const PROVIDER_LABEL: Record<OAuthProviderId, string> = {
   get discord() { return translate("completeOAuthSignupForm.discord"); },
@@ -56,6 +56,7 @@ export function CompleteOAuthSignupForm({
   onCancel?: () => void;
 }) {
   const t = useT();
+  const focusWithMouse = useFocusWithMouse();
   const { completeOAuthSignup, linkOAuthToExisting } = useAuth();
   const [username, setUsername] = useState(suggestedUsername);
   const [displayName, setDisplayName] = useState(suggestedDisplayName);
@@ -129,7 +130,7 @@ export function CompleteOAuthSignupForm({
 
   if (claiming) {
     return (
-      <form onSubmit={handleClaimSubmit} className="flex flex-col gap-3">
+      <form onSubmit={handleClaimSubmit} className="flex flex-col gap-4">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
             {t("completeOAuthSignupForm.signInToTheAccountYou")}
@@ -138,50 +139,43 @@ export function CompleteOAuthSignupForm({
             {t("completeOAuthSignupForm.confirmYourPasswordAndThe")} {PROVIDER_LABEL[provider]} {t("completeOAuthSignupForm.staysConnectedToItNextTime")}
           </p>
         </div>
-        <label htmlFor="claim-username" className={labelClass}>
-          {t("common.username")}
-        </label>
-        <input
-          id="claim-username"
-          autoFocus
-          autoComplete="username"
-          value={claimUsername}
-          onChange={(e) => setClaimUsername(e.target.value)}
-          maxLength={20}
-          className={inputClass}
+        <AuthField label={t("common.username")} htmlFor="claim-username">
+          <input
+            id="claim-username"
+            ref={focusWithMouse}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={claimUsername}
+            onChange={(e) => setClaimUsername(e.target.value)}
+            maxLength={20}
+            className={authInputClass}
+          />
+        </AuthField>
+        <AuthField label={t("common.password")} htmlFor="claim-password" error={formError}>
+          <PasswordInput
+            id="claim-password"
+            autoComplete="current-password"
+            value={claimPassword}
+            onChange={setClaimPassword}
+            invalid={Boolean(formError)}
+          />
+        </AuthField>
+        <button
+          type="submit"
+          disabled={submitting || !claimUsername.trim() || !claimPassword}
+          className={`mt-1 ${authPrimaryButtonClass}`}
+        >
+          {submitting && <ButtonSpinner />}
+          {submitting ? t("common.joining") : t("completeOAuthSignupForm.signInAndConnect")}
+        </button>
+        <AuthBack
+          onClick={() => {
+            setClaiming(false);
+            setFormError(null);
+          }}
         />
-        <label htmlFor="claim-password" className={labelClass}>
-          {t("common.password")}
-        </label>
-        <input
-          id="claim-password"
-          type="password"
-          autoComplete="current-password"
-          value={claimPassword}
-          onChange={(e) => setClaimPassword(e.target.value)}
-          className={inputClass}
-        />
-        {formError && <p className="text-sm text-red-500">{formError}</p>}
-        <div className="mt-2 flex gap-2">
-          <button
-            type="submit"
-            disabled={submitting || !claimUsername.trim() || !claimPassword}
-            className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
-          >
-            {submitting && <ButtonSpinner />}
-            {submitting ? t("common.joining") : t("completeOAuthSignupForm.signInAndConnect")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setClaiming(false);
-              setFormError(null);
-            }}
-            className={secondaryButtonClass}
-          >
-            {t("common.back")}
-          </button>
-        </div>
       </form>
     );
   }
@@ -203,7 +197,7 @@ export function CompleteOAuthSignupForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
         <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
           {t("completeOAuthSignupForm.almostThere")}
@@ -212,60 +206,62 @@ export function CompleteOAuthSignupForm({
           {t("completeOAuthSignupForm.connectedWith")} {PROVIDER_LABEL[provider]}{t("completeOAuthSignupForm.chooseHowYouWillAppearOn")}
         </p>
       </div>
-      <label htmlFor="oauth-username" className={labelClass}>
-        {t("common.username")}
-      </label>
-      <input
-        id="oauth-username"
-        autoFocus
-        autoComplete="username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        maxLength={20}
-        className={inputClass}
-      />
-      <label htmlFor="oauth-display-name" className={labelClass}>
-        {t("common.displayName")}
-      </label>
-      <input
-        id="oauth-display-name"
-        value={displayName}
-        onChange={(e) => setDisplayName(e.target.value)}
-        maxLength={24}
-        className={inputClass}
-      />
-      {formError && <p className="text-sm text-red-500">{formError}</p>}
-      {/* Offered here rather than only at the bottom, because this is the
-          exact moment it is needed: the name that was refused is, more often
-          than not, the person's own — the suggestion comes from the same
-          provider handle they registered with. Before this existed, that
-          refusal was the end of the road. */}
+      <AuthField label={t("common.displayName")} htmlFor="oauth-display-name">
+        <input
+          id="oauth-display-name"
+          ref={focusWithMouse}
+          autoComplete="nickname"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          maxLength={24}
+          className={authInputClass}
+        />
+      </AuthField>
+      <AuthField label={t("common.username")} htmlFor="oauth-username" error={formError}>
+        <div className="relative">
+          <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-zinc-400 dark:text-zinc-500">
+            @
+          </span>
+          <input
+            id="oauth-username"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={username}
+            onChange={(e) => {
+              setUsername(e.target.value.replace(/^@/, ""));
+              setFormError(null);
+            }}
+            maxLength={20}
+            aria-invalid={formError ? true : undefined}
+            className={`${authInputClass} pl-8 ${formError ? authInputInvalidClass : ""}`}
+          />
+        </div>
+      </AuthField>
       <button
-        type="button"
+        type="submit"
+        disabled={submitting || !username.trim() || !displayName.trim()}
+        className={`mt-1 ${authPrimaryButtonClass}`}
+      >
+        {submitting && <ButtonSpinner />}
+        {submitting ? t("common.creating2") : t("common.createAccount")}
+      </button>
+      {/* Offered right under the button, because this is the exact moment it
+          is needed: the name that was refused is, more often than not, the
+          person's own — the suggestion comes from the same provider handle
+          they registered with. Before this existed, that refusal was the end
+          of the road. */}
+      <AuthSwitch
+        prompt={t("authForms.alreadyOnGolive")}
+        action={t("authForms.signInToIt")}
         onClick={() => {
           setClaiming(true);
           setClaimUsername(username.trim() || suggestedUsername);
           setFormError(null);
         }}
-        className={`self-start ${linkButtonClass}`}
-      >
-        {t("completeOAuthSignupForm.iAlreadyHaveAGoliveAccount")}
-      </button>
-      <div className="mt-2 flex gap-2">
-        <button
-          type="submit"
-          disabled={submitting || !username.trim() || !displayName.trim()}
-          className={`flex flex-1 items-center justify-center gap-2 ${primaryButtonClass}`}
-        >
-          {submitting && <ButtonSpinner />}
-            {submitting ? t("common.creating2") : t("common.createAccount")}
-        </button>
-        {onCancel && (
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            {t("common.cancel")}
-          </button>
-        )}
-      </div>
+      />
+      {onCancel && <AuthBack onClick={onCancel} label={t("common.cancel")} />}
     </form>
   );
 }

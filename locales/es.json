@@ -6141,5 +6141,16 @@
   "planUnlocks.hint.upload": "Funciona en el chat de las salas, los grupos y las conversaciones.",
   "planUnlocks.hint.dailyPoints": "Llegan a tu cuenta cada día mientras el plan esté activo.",
   "planUnlocks.hint.auras": "Úsala en un grupo para darle más visibilidad.",
-  "planUnlocks.hint.emojis": "Crea los tuyos desde la página de tu cuenta y úsalos en cualquier lugar."
+  "planUnlocks.hint.emojis": "Crea los tuyos desde la página de tu cuenta y úsalos en cualquier lugar.",
+  "authForms.usernameOrEmail": "Usuario o correo",
+  "authForms.noAccountYet": "¿No tienes una cuenta?",
+  "authForms.alreadyHaveAccount": "¿Ya tienes una cuenta?",
+  "authForms.showPassword": "Mostrar contraseña",
+  "authForms.hidePassword": "Ocultar contraseña",
+  "authForms.passwordRule": "Al menos {min} caracteres.",
+  "authForms.emailPlaceholder": "tu@ejemplo.com",
+  "authForms.orUseAnAccount": "o usa una cuenta",
+  "authForms.alreadyOnGolive": "¿Ya tienes cuenta en GoLive?",
+  "authForms.signInToIt": "Inicia sesión",
+  "oAuthButtons.continueWithLabel": "Continuar con {label}"
 }

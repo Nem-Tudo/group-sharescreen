@@ -33,6 +33,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { CreateAccountForm } from "@/components/CreateAccountForm";
 import { LoginForm } from "@/components/LoginForm";
 import { OAuthButtons } from "@/components/OAuthButtons";
+import { AuthDivider } from "@/components/auth/authUi";
 import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
@@ -694,22 +695,32 @@ export default function Home() {
           />
         </div>
       ) : mode === "create" ? (
-        <CreateAccountForm
-          initialDisplayName={state.name ?? ""}
-          onSuccess={resetIdentityForm}
-          onCancel={resetIdentityForm}
-          onSwitchToLogin={() => setMode("login")}
-        />
+        <div className={v2 ? "mt-6" : "mt-8"}>
+          <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {t("common.createAccount")}
+          </h2>
+          <CreateAccountForm
+            initialDisplayName={state.name ?? ""}
+            onSuccess={resetIdentityForm}
+            onCancel={resetIdentityForm}
+            onSwitchToLogin={() => setMode("login")}
+          />
+        </div>
       ) : mode === "login" ? (
-        <LoginForm
-          onSuccess={resetIdentityForm}
-          onCancel={resetIdentityForm}
-          onSwitchToCreate={openCreateMode}
-          // Handled above rather than inside the form, so the username
-          // step takes over the whole identity area (same as a ticket
-          // coming from the landing buttons).
-          onTicket={setOAuthTicket}
-        />
+        <div className={v2 ? "mt-6" : "mt-8"}>
+          <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {t("accountModal.signInToYourAccount")}
+          </h2>
+          <LoginForm
+            onSuccess={resetIdentityForm}
+            onCancel={resetIdentityForm}
+            onSwitchToCreate={openCreateMode}
+            // Handled above rather than inside the form, so the username
+            // step takes over the whole identity area (same as a ticket
+            // coming from the landing buttons).
+            onTicket={setOAuthTicket}
+          />
+        </div>
       ) : !registered ? (
         <>
           {/* The app has no guest mode — this shell is account-only, so
@@ -745,16 +756,6 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              <button type="button" onClick={openCreateMode} className={primaryCls}>
-                {t("common.createAnAccount")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("login")}
-                className={`${linkButtonClass} self-center`}
-              >
-                {t("common.iAlreadyHaveAnAccount")}
-              </button>
             </div>
           )}
           {mode === "landing" && !appShell && (
@@ -781,24 +782,32 @@ export default function Home() {
                 </button>
               </div>
               {state.nameError && <p className="text-sm text-red-500">{state.nameError}</p>}
-              <button type="button" onClick={openCreateMode} className={secondaryCls}>
-                {t("common.createAnAccount")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("login")}
-                className={`${linkButtonClass} self-center`}
-              >
-                {t("common.iAlreadyHaveAnAccount")}
-              </button>
             </form>
           )}
-          {/* The highest-value spot for these: someone landing here with
-            no account gets in with one click, skipping both the guest
-            name and the signup form. */}
+          {/* Everything account-related, in one block under the guest name and
+            always in this order: social buttons (one click, no form), then
+            "Entrar" and "Criar conta" side by side and the same size — the
+            same order LoginForm and CreateAccountForm use, so nothing jumps
+            around when one of them opens. */}
           {mode === "landing" && (
-            <div className="mt-3">
-              <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} />
+            <div className="mt-4 flex flex-col gap-3">
+              {!appShell && <AuthDivider label={t("authForms.orUseAnAccount")} />}
+              <OAuthButtons onSuccess={resetIdentityForm} onTicket={setOAuthTicket} dividerLabel={null} />
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setMode("login")} className={`w-full ${secondaryCls}`}>
+                  {t("common.signIn")}
+                </button>
+                {/* In the app an account is the only way in, so creating
+                  one is the main action there; on the site the guest name
+                  above is, and the two account buttons weigh the same. */}
+                <button
+                  type="button"
+                  onClick={openCreateMode}
+                  className={`w-full ${appShell ? primaryCls : secondaryCls}`}
+                >
+                  {t("common.createAccount")}
+                </button>
+              </div>
             </div>
           )}
         </>
