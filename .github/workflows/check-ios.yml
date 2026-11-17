@@ -1,0 +1,82 @@
+# Compiles the iOS app without signing it, to catch build errors before there
+# is an App Store Connect account to upload to (release-ios.yml needs one).
+#
+# Same Xcode, same Release configuration and same device target as the real
+# release; the only difference is CODE_SIGNING_ALLOWED=NO, so no Apple
+# secrets are read and nothing leaves the runner.
+#
+# Runs on a push to the ci/ios-check branch (a push to main would also deploy
+# the site), or from the Actions tab on any branch once this file is on main.
+
+name: Check iOS build
+
+on:
+  push:
+    branches:
+      - ci/ios-check
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt of 3), retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Sync the Capacitor project
+        run: npx cap sync ios
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee "$RUNNER_TEMP/build.log" \
+            | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)|\*\* " || true
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+
+      - name: Show what Capacitor generated
+        if: always()
+        run: |
+          echo "--- CapApp-SPM/Package.swift"; cat ios/App/CapApp-SPM/Package.swift || true
+          echo "--- capacitor.config.json"; cat ios/App/App/capacitor.config.json || true
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: ${{ runner.temp }}/build.log
+          if-no-files-found: ignore
