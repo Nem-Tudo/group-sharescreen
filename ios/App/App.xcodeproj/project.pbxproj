@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		60A1D0000000000000000035 /* BackgroundCallPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000034 /* BackgroundCallPlugin.swift */; };
 		60A1D0000000000000000018 /* BroadcastShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000017 /* BroadcastShared.swift */; };
 		60A1D0000000000000000019 /* BroadcastShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D0000000000000000017 /* BroadcastShared.swift */; };
 		60A1D000000000000000001B /* ScreenBroadcastPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */; };
@@ -57,6 +58,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		60A1D0000000000000000034 /* BackgroundCallPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundCallPlugin.swift; sourceTree = "<group>"; };
 		60A1D0000000000000000017 /* BroadcastShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastShared.swift; sourceTree = "<group>"; };
 		60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenBroadcastPlugin.swift; sourceTree = "<group>"; };
 		60A1D000000000000000001C /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
@@ -146,6 +148,7 @@
 				60A1D0000000000000000013 /* InAppReviewPlugin.swift */,
 				60A1D0000000000000000015 /* WebAuthPlugin.swift */,
 				60A1D000000000000000001A /* ScreenBroadcastPlugin.swift */,
+				60A1D0000000000000000034 /* BackgroundCallPlugin.swift */,
 				60A1D0000000000000000017 /* BroadcastShared.swift */,
 				60A1D0000000000000000005 /* App.entitlements */,
 				60A1D0000000000000000006 /* PrivacyInfo.xcprivacy */,
@@ -300,6 +303,7 @@
 				60A1D0000000000000000014 /* InAppReviewPlugin.swift in Sources */,
 				60A1D0000000000000000016 /* WebAuthPlugin.swift in Sources */,
 				60A1D000000000000000001B /* ScreenBroadcastPlugin.swift in Sources */,
+				60A1D0000000000000000035 /* BackgroundCallPlugin.swift in Sources */,
 				60A1D0000000000000000018 /* BroadcastShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

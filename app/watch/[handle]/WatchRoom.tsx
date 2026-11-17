@@ -274,7 +274,8 @@ import {
   stopIOSScreenBroadcast,
   useIOSScreenBroadcast,
   useIOSScreenBroadcastAvailable,
-} from "@/lib/iosScreenBroadcast";
+} from "@/lib/iosScreenBroadcast";
+import { useIOSBackgroundCall } from "@/lib/iosBackgroundCall";
 import { STREAM_PREVIEW_FEATURE, useStreamPreviewUploader } from "@/lib/streamPreview";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 import type { CallSource } from "@/lib/callRecording";
@@ -2317,6 +2318,17 @@ function WatchRoomView({
     }
     toggleMicDevice();
   }, [micsMuted, isMicOn, toggleMicDevice]);
+
+  // The iPhone app: while in this room, a system call (CallKit) keeps the app
+  // — and so this page's microphone and sound — alive in the background, with
+  // the system's mute and hang-up wired to ours. See lib/iosBackgroundCall.ts.
+  useIOSBackgroundCall({
+    inRoom: state.room === handle && Boolean(state.name),
+    title: group ? group.channelName : dm ? dm.displayName : recentRoomPresentation(handle).name,
+    micOn: isMicOn,
+    toggleMic,
+    hangUp: onDisconnect,
+  });
   // Which shell this is, read once — see lib/desktop's isAppShell.
   const [appShell] = useState(() => isAppShell());
   const doubleClickFocus = useStoredDoubleClickFocus();

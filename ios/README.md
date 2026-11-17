@@ -13,6 +13,7 @@ vêm de lá. O que é nativo está em `App/App/`:
 | `InAppReviewPlugin.swift` | Gêmeo do Android: o pedido de avaliação nativo (`lib/appReview.ts` decide quando). |
 | `AppDelegate.swift` | Repassa o token do APNs para o `@capacitor/push-notifications`. |
 | `ScreenBroadcastPlugin.swift` | "Compartilhar tela": deixa as instruções para a extensão no App Group, abre a janela "Iniciar transmissão" do iOS e repassa o estado da extensão para o site (`lib/iosScreenBroadcast.ts`). |
+| `BackgroundCallPlugin.swift` | Voz em segundo plano: registra a sala como uma chamada no CallKit enquanto a pessoa está nela (`lib/iosBackgroundCall.ts`). |
 | `BroadcastShared.swift` | Chaves do App Group e notificações que o app e a extensão usam; compilado nos dois. |
 | `../Broadcast/` | A extensão ReplayKit (Broadcast Upload Extension, `me.nemtudo.golive.broadcast`): entra na sala como outro aparelho da pessoa e envia a tela inteira com WebRTC nativo (pacote `stasel/WebRTC`). Veja `ScreenSession.swift`. |
 | `Info.plist` + `*.lproj/InfoPlist.strings` | Textos de permissão (câmera, microfone, fotos) em pt/en/es, esquema `golive://`, áudio em segundo plano, `ITSAppUsesNonExemptEncryption = false`. |
@@ -151,9 +152,14 @@ desligados, sem quebrar nada.
   limitada a 1280×720 e 24 fps (a extensão morre acima de ~50 MB de memória).
   Para testar: ligue o experiment para a sua conta no admin e instale pelo
   TestFlight — só dá para testar num iPhone de verdade.
-- **Segundo plano**: o modo `audio` mantém o som da chamada, mas o iOS para a
-  câmera e pode silenciar o microfone do WKWebView quando o app sai da tela.
-  Chamada com tela bloqueada como no WhatsApp exigiria CallKit + WebRTC nativo.
+- **Segundo plano**: com o experiment `ios-background-call` (0%), estar numa
+  sala registra uma chamada no sistema (CallKit, `BackgroundCallPlugin.swift`):
+  o iOS mantém o app vivo atrás de outros apps e na tela bloqueada, com
+  microfone e som; o mudo e o desligar do sistema são o microfone e o "Sair" da
+  sala. A voz continua na página — se o WebKit silenciar a captura ao sair da
+  tela, o plugin religa. A câmera o iOS sempre para em segundo plano.
+  CallKit não pode ser usado na China continental: lá o plugin não liga (e
+  convém tirar a China da disponibilidade do app).
 - **iPhone apenas** (`TARGETED_DEVICE_FAMILY = 1`): no iPad o app roda em modo de
   compatibilidade. Liberar iPad exige capturas de tela de iPad na ficha.
 - **Não dá para compilar nem testar neste PC** (Windows): o build é sempre pelo
