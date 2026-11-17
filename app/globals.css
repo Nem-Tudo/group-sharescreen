@@ -638,6 +638,25 @@ html .ntpopups-main {
   --ntpopups-z-index: 60;
 }
 
+/* A settings popup on a phone (see DialogFrame's `wide` in
+   components/groups/dialogKit.tsx): the whole screen rather than a card with
+   a strip of page around it, the way settings open in a phone's own apps. The
+   size the opener passes arrives as an inline style on the library's box,
+   hence the !important. */
+@media (max-width: 39.999rem) {
+  html .ntpopups-container:has([data-phone-fullscreen]) {
+    width: 100dvw !important;
+    min-width: 0 !important;
+    max-width: 100dvw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+  }
+}
+
 /* The reward-video popup's call-to-action, once the video has played through
    (see components/PartnerRewardModal.tsx). A glow rather than a color change
    because the button already wears the advertiser's own colors — the whole

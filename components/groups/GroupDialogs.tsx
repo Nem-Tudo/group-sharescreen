@@ -6,6 +6,16 @@ import useNtPopups from "ntpopups";
 import {
   MdAddPhotoAlternate,
   MdArrowDownward,
+  MdBlock,
+  MdCreateNewFolder,
+  MdChatBubbleOutline,
+  MdEmojiEmotions,
+  MdInfoOutline,
+  MdMoreVert,
+  MdPeopleOutline,
+  MdShield,
+  MdSmartToy,
+  MdWarningAmber,
   MdAutoAwesome,
   MdArrowUpward,
   MdCheck,
@@ -22,7 +32,9 @@ import {
   MdTag,
   MdTune,
   MdVolumeUp,
+  MdClose,
 } from "react-icons/md";
+import type { IconType } from "react-icons";
 import { FaCrown } from "react-icons/fa";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -35,6 +47,8 @@ import { openProModal } from "@/lib/proModal";
 import { useAuth } from "@/lib/AuthContext";
 import {
   banMember,
+  createCategory,
+  createChannel,
   createGroup,
   createInvite,
   deleteChannel,
@@ -60,6 +74,7 @@ import {
   type GroupBan,
   type GroupCategory,
   type GroupChannel,
+  type GroupChannelKind,
   type GroupDetail,
   type GroupInvite,
   type GroupMember,
@@ -111,6 +126,8 @@ import {
   isHandAssignable
 } from "@/lib/groupPermissions";
 import { useI18n, useT } from "@/lib/useI18n";
+import { SM_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { useBackHandler } from "@/lib/useBackHandler";
 import { translate } from "@/lib/i18n";
 import { formatLocale } from "@/lib/i18n";
 
@@ -758,41 +775,59 @@ type SettingsTab = "overview" | "channels" | "roles" | "map" | "invites" | "memb
 
 export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: string; tab?: string }>) {
   const groupId = data?.groupId ?? "";
+  const { tc } = useI18n();
   const { detail } = useGroupDetail(groupId);
   const can = (key: Parameters<typeof canManage>[1]) => (detail ? canManage(detail, key) : false);
   const isOwner = detail?.me.role === "owner";
   // The exposure is counted where the way in is (the group menu's "Aura").
   const aura = useFeature(GROUP_AURA_FEATURE, { group: groupId, track: false });
   const customEmojis = useFeature(CUSTOM_EMOJI_FEATURE, { group: groupId, track: false });
+  // A tab row on a desktop; on a phone, the list of sections a phone's own
+  // settings are, each opening full screen with a way back to the list.
+  // Eleven tabs in a row that scrolls sideways hid most of them off the edge.
+  const wideScreen = useMediaQuery(SM_BREAKPOINT_QUERY);
 
   // Each tab for whoever has the switch it takes (see lib/groupPermissions).
-  const tabs: { id: SettingsTab; label: string; show: boolean; badge?: ReactNode }[] = [
-    { id: "overview", label: translate("common.overview"), show: can("manageGroup") },
-    { id: "channels", label: translate("common.rooms"), show: can("manageChannels") },
-    { id: "roles", label: translate("groups.groupDialogs.roles"), show: can("manageRoles") },
-    { id: "map", label: translate("groups.groupDialogs.map"), show: can("manageGroup") },
-    { id: "invites", label: translate("groups.groupDialogs.invites"), show: can("manageGroup") || can("createInvites") },
-    { id: "members", label: translate("common.members"), show: true },
+  // `block` groups the phone's list into cards: the group itself, its people,
+  // its rooms and bots, and the owner's danger zone apart from everything.
+  const tabs: { id: SettingsTab; label: string; show: boolean; badge?: ReactNode; icon: IconType; block: number }[] = [
+    { id: "overview", label: translate("common.overview"), show: can("manageGroup"), icon: MdInfoOutline, block: 0 },
+    { id: "channels", label: translate("common.rooms"), show: can("manageChannels"), icon: MdTag, block: 2 },
+    { id: "roles", label: translate("groups.groupDialogs.roles"), show: can("manageRoles"), icon: MdShield, block: 1 },
+    { id: "map", label: translate("groups.groupDialogs.map"), show: can("manageGroup"), icon: MdOutlineMap, block: 0 },
+    { id: "invites", label: translate("groups.groupDialogs.invites"), show: can("manageGroup") || can("createInvites"), icon: MdLink, block: 1 },
+    { id: "members", label: translate("common.members"), show: true, icon: MdPeopleOutline, block: 1 },
     // For everybody in the experiment: anybody with a plan may lift the group.
-    { id: "aura", label: translate("groups.aura.title"), show: aura.enabled, badge: <NewBadge id={GROUP_AURA_BADGE} /> },
+    { id: "aura", label: translate("groups.aura.title"), show: aura.enabled, badge: <NewBadge id={GROUP_AURA_BADGE} />, icon: MdAutoAwesome, block: 0 },
     // For everybody in the experiment to see; adding one is "Gerenciar grupo".
-    { id: "emojis", label: translate("customEmoji.emojisTab"), show: customEmojis.enabled, badge: <NewBadge id={CUSTOM_EMOJI_BADGE} /> },
+    { id: "emojis", label: translate("customEmoji.emojisTab"), show: customEmojis.enabled, badge: <NewBadge id={CUSTOM_EMOJI_BADGE} />, icon: MdEmojiEmotions, block: 0 },
     // For everybody, like the name menu's "Explorar bots": finding one is not
     // running the group; adding one is, and the list offers that only to whoever may.
-    { id: "bots", label: translate("botDirectory.title"), show: true },
-    { id: "bans", label: translate("groups.groupDialogs.banned"), show: can("banMembers") },
-    { id: "danger", label: translate("groups.groupDialogs.dangerZone"), show: isOwner },
+    { id: "bots", label: translate("botDirectory.title"), show: true, icon: MdSmartToy, block: 2 },
+    { id: "bans", label: translate("groups.groupDialogs.banned"), show: can("banMembers"), icon: MdBlock, block: 1 },
+    { id: "danger", label: translate("groups.groupDialogs.dangerZone"), show: isOwner, icon: MdWarningAmber, block: 3 },
   ];
   const visible = tabs.filter((t) => t.show);
   // "permissions" is what the tab was called before roles — asked for by
   // older links, and it lives in "Cargos" now (@everyone).
   const asked = data?.tab === "permissions" ? "roles" : data?.tab;
   const [tab, setTab] = useState<SettingsTab | null>(null);
+  // On a phone: whether the list is on screen rather than a section. Opened
+  // for a particular tab (a link to "Cargos"), that section comes up first.
+  const [phoneList, setPhoneList] = useState(!asked);
   // Whatever was picked, else what the opener asked for, else the first tab
   // this person has — asked again on every render, since the group (and so
   // which tabs there are) may only arrive after this opens.
   const pick = (id: string | null | undefined) => visible.find((t) => t.id === id)?.id ?? null;
   const current = pick(tab) ?? pick(asked) ?? visible[0]?.id ?? "members";
+  const showList = !wideScreen && (phoneList || !pick(tab ?? asked));
+  const open = (id: SettingsTab) => {
+    setTab(id);
+    setPhoneList(false);
+  };
+  // Android's back (and the app's) leaves a section for the list before it
+  // closes anything — see lib/useBackHandler.
+  useBackHandler(!wideScreen && !showList, () => setPhoneList(true));
 
   if (!detail) {
     return (
@@ -802,40 +837,95 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
     );
   }
 
+  const groupTitle = (
+    <GroupName
+      name={detail.group.name}
+      flags={detail.group.flags}
+      visibility={detail.group.visibility}
+      groupId={groupId}
+      auraLevel={detail.group.aura?.level}
+      badgeClassName="h-5 w-5"
+    />
+  );
+
+  if (showList) {
+    const blocks = [0, 1, 2, 3]
+      .map((block) => visible.filter((t) => t.block === block))
+      .filter((rows) => rows.length > 0);
+    return (
+      <DialogFrame title={translate("groups.groupSidebar.settings")} onClose={() => closePopup(false)} wide>
+        <div className="flex items-center gap-3 px-1">
+          <GroupIcon name={detail.group.name} iconUrl={detail.group.iconUrl} seed={groupId} size={56} className="rounded-2xl" />
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-semibold">{groupTitle}</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {tc("mobile.memberCount", detail.group.memberCount)}
+            </p>
+          </div>
+        </div>
+        <nav aria-label={translate("groups.groupSidebar.settings")} className="flex flex-col gap-4">
+          {blocks.map((rows, i) => (
+            <ul
+              key={i}
+              className="divide-y divide-zinc-200 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/40"
+            >
+              {rows.map((row) => {
+                const Icon = row.icon;
+                const danger = row.id === "danger";
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      onClick={() => open(row.id)}
+                      className={`flex min-h-[52px] w-full cursor-pointer items-center gap-3 px-4 py-3 text-left text-[15px] font-medium transition focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-zinc-500 active:bg-zinc-100 dark:active:bg-zinc-800 ${
+                        danger ? "text-red-600 dark:text-red-400" : "text-zinc-900 dark:text-zinc-100"
+                      }`}
+                    >
+                      <Icon className={`h-5 w-5 shrink-0 ${danger ? "" : "text-zinc-500 dark:text-zinc-400"}`} aria-hidden />
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="truncate">{row.label}</span>
+                        {row.badge}
+                      </span>
+                      <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400" aria-hidden />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ))}
+        </nav>
+      </DialogFrame>
+    );
+  }
+
   return (
     <DialogFrame
-      title={
-        <GroupName
-          name={detail.group.name}
-          flags={detail.group.flags}
-          visibility={detail.group.visibility}
-          groupId={groupId}
-          auraLevel={detail.group.aura?.level}
-          badgeClassName="h-5 w-5"
-        />
-      }
+      title={wideScreen ? groupTitle : visible.find((t) => t.id === current)?.label ?? groupTitle}
       onClose={() => closePopup(false)}
+      onBack={wideScreen ? undefined : () => setPhoneList(true)}
       wide
       tabs={
-        <DialogTabs
-          tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger", badge: t.badge }))}
-          current={current}
-          onChange={setTab}
-        />
+        wideScreen && (
+          <DialogTabs
+            tabs={visible.map((t) => ({ id: t.id, label: t.label, danger: t.id === "danger", badge: t.badge }))}
+            current={current}
+            onChange={setTab}
+          />
+        )
       }
     >
-      {current === "overview" && <OverviewTab groupId={groupId} onGoToMap={() => setTab("map")} />}
+      {current === "overview" && <OverviewTab groupId={groupId} onGoToMap={() => open("map")} />}
       {current === "channels" && (
         <ChannelsTab groupId={groupId} channels={detail.channels} categories={detail.categories ?? []} />
       )}
       {current === "roles" && <RolesTab groupId={groupId} />}
-      {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => setTab("overview")} />}
+      {current === "map" && <LocationTab groupId={groupId} onGoToOverview={() => open("overview")} />}
       {current === "invites" && (
         <InvitesTab
           groupId={groupId}
           groupName={detail.group.name}
           // Only where there is an Aura tab to go to (inside the experiment).
-          onGoToAura={aura.enabled ? () => setTab("aura") : undefined}
+          onGoToAura={aura.enabled ? () => open("aura") : undefined}
         />
       )}
       {current === "members" && <MembersTab groupId={groupId} />}
@@ -844,7 +934,8 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
       {current === "bots" && (
         // The same directory as the name menu's dialog (see BotExplorerDialog),
         // in a box of its own height: it scrolls inside itself, under its search.
-        <div className="flex h-[min(40rem,calc(100dvh-14rem))] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+        // On a phone, the screen under the bar.
+        <div className="flex h-[min(40rem,calc(100dvh-14rem))] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 max-sm:h-[calc(100dvh-7.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] dark:border-zinc-800">
           <BotBrowser
             variant="dialog"
             group={{
@@ -1248,6 +1339,12 @@ export function GroupLocationDialog({ closePopup, data }: PopupProps<{ groupId: 
  * rooms without a category, then each category), with arrows and a category
  * picker instead of dragging. What a phone uses, where the sidebar's drag and
  * drop is not; both rearrange through lib/groupLayout and the same route.
+ *
+ * Rooms and categories are made here too. On a desktop each row carries its
+ * buttons; on a phone those were six 24px targets crammed beside a name, so
+ * the row has one "⋮" instead and its actions open under it, full size.
+ * (Not a bottom sheet: a sheet portalled out of this popup counts as a click
+ * outside it for ntpopups, which closes the popup.)
  */
 function ChannelsTab({
   groupId,
@@ -1258,12 +1355,21 @@ function ChannelsTab({
   channels: GroupChannel[];
   categories: GroupCategory[];
 }) {
-  const { t, tc } = useI18n();
+  const { t } = useI18n();
+  const wideScreen = useMediaQuery(SM_BREAKPOINT_QUERY);
   const openChannelSettings = useOpenChannelSettings();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // On a phone: the row (a room's id, or `category:<id>`) whose actions are open.
+  const [expanded, setExpanded] = useState<string | null>(null);
+  // What the form at the top is making, and in which category.
+  const [creating, setCreating] = useState<{ kind: GroupChannelKind | "category"; categoryId: string | null } | null>(null);
+  const [newName, setNewName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const createRef = useRef<HTMLFormElement | null>(null);
   const sections = buildSections(channels, categories);
   const categoryList = sections.slice(1).map((s) => s.category!);
 
@@ -1276,6 +1382,34 @@ function ChannelsTab({
 
   function commit(next: LayoutSection[]) {
     void run(setGroupLayout(groupId, toPayload(next)));
+  }
+
+  function startCreating(kind: GroupChannelKind | "category", categoryId: string | null = null) {
+    setCreating({ kind, categoryId });
+    setNewName("");
+    setCreateError(null);
+    setExpanded(null);
+    // Started from a category's row further down: the form is at the top.
+    requestAnimationFrame(() => createRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }
+
+  async function submitNew(e: FormEvent) {
+    e.preventDefault();
+    if (!creating || !newName.trim() || busy) return;
+    setBusy(true);
+    const result =
+      creating.kind === "category"
+        ? await createCategory(groupId, newName.trim())
+        : await createChannel(groupId, creating.kind, newName.trim(), creating.categoryId);
+    setBusy(false);
+    if (!result.ok) {
+      setCreateError(result.error);
+      return;
+    }
+    setCreating(null);
+    setNewName("");
+    setCreateError(null);
+    void refreshGroup(groupId);
   }
 
   /** One step up or down among the rooms of its kind in its own section. */
@@ -1296,68 +1430,404 @@ function ChannelsTab({
     commit(moveCategory(sections, categoryId, beforeId));
   }
 
+  /** The name being edited in place — a room's or a category's. */
+  function renameForm(onSave: () => void) {
+    return (
+      <form
+        className="flex min-w-0 flex-1 gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setEditing(null);
+          onSave();
+        }}
+      >
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setEditing(null);
+            }
+          }}
+          maxLength={32}
+          aria-label={t("common.rename")}
+          enterKeyHint="done"
+          className={`${inputClass} sm:py-1`}
+        />
+        <button
+          type="submit"
+          className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg bg-emerald-600 px-2 text-white max-sm:min-w-11"
+          aria-label={t("common.save")}
+        >
+          <MdCheck className="h-5 w-5 sm:h-4 sm:w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(null)}
+          className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg px-2 text-zinc-500 hover:bg-zinc-100 max-sm:min-w-11 dark:hover:bg-zinc-800"
+          aria-label={t("common.cancel")}
+        >
+          <MdClose className="h-5 w-5 sm:h-4 sm:w-4" />
+        </button>
+      </form>
+    );
+  }
+
+  /** "Apagar?" in place of a row's buttons, with a way out. */
+  function confirmDelete(onConfirm: () => void, note?: string) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2" role="group">
+        {note && <span className="min-w-0 flex-1 text-xs text-zinc-500 dark:text-zinc-400">{note}</span>}
+        <button type="button" onClick={() => setConfirming(null)} className={secondaryButton}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" onClick={onConfirm} className={dangerButton}>
+          {t("common.delete")}
+        </button>
+      </div>
+    );
+  }
+
+  /** A row's "⋮" on a phone — the way to its actions, which open under it. */
+  function moreButton(key: string, label: string) {
+    const open = expanded === key;
+    return (
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`actions-${key}`}
+        aria-label={label}
+        onClick={() => {
+          setExpanded(open ? null : key);
+          setConfirming(null);
+        }}
+        className={`flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-zinc-500 transition active:bg-zinc-200 dark:active:bg-zinc-800 ${
+          open ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100" : ""
+        }`}
+      >
+        <MdMoreVert className="h-5 w-5" />
+      </button>
+    );
+  }
+
+  const actionButton = `${secondaryButton} inline-flex items-center justify-center gap-2`;
+
   function channelRow(section: LayoutSection, channel: GroupChannel) {
     const list = section[channel.kind];
     const index = list.findIndex((c) => c.id === channel.id);
-    return (
-      <div
-        key={channel.id}
-        className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+    const open = !wideScreen && expanded === channel.id;
+    const categorySelect = categoryList.length > 0 && (
+      <select
+        value={section.category?.id ?? ""}
+        onChange={(e) => commit(moveChannel(sections, channel.id, e.target.value || null, null))}
+        aria-label={t("common.roomCategory")}
+        title={t("common.category")}
+        className={
+          wideScreen
+            ? "mr-1 max-w-28 cursor-pointer rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            : inputClass
+        }
       >
-        {channel.kind === "text" ? (
-          <MdTag className="h-4 w-4 shrink-0 opacity-60" />
-        ) : (
-          <MdVolumeUp className="h-4 w-4 shrink-0 opacity-60" />
-        )}
-        {editing === channel.id ? (
-          <form
-            className="flex min-w-0 flex-1 gap-1"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setEditing(null);
-              void run(renameChannel(groupId, channel.id, draft));
-            }}
-          >
-            <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
-            <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label={t("common.save")}>
-              <MdCheck className="h-4 w-4" />
-            </button>
-          </form>
-        ) : (
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="truncate text-sm">{channel.name}</span>
-            {Object.keys(channel.permissions ?? {}).length > 0 && (
-              <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                {t("groups.groupDialogs.itsOwnPermissions")}
-              </span>
+        <option value="">{t("common.noCategory")}</option>
+        {categoryList.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+    );
+    return (
+      <li key={channel.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 max-sm:min-h-12 max-sm:py-0.5 max-sm:pr-0.5">
+          {channel.kind === "text" ? (
+            <MdTag className="h-4 w-4 shrink-0 opacity-60" aria-label={t("common.textRoom")} />
+          ) : (
+            <MdVolumeUp className="h-4 w-4 shrink-0 opacity-60" aria-label={t("common.voiceRoom")} />
+          )}
+          {editing === channel.id ? (
+            renameForm(() => void run(renameChannel(groupId, channel.id, draft)))
+          ) : (
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="truncate text-sm max-sm:text-[15px]">{channel.name}</span>
+              {Object.keys(channel.permissions ?? {}).length > 0 && (
+                <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                  {t("groups.groupDialogs.itsOwnPermissions")}
+                </span>
+              )}
+            </span>
+          )}
+          {editing === channel.id ? null : !wideScreen ? (
+            moreButton(channel.id, t("groups.groupDialogs.roomActions", { name: channel.name }))
+          ) : confirming === channel.id ? (
+            confirmDelete(() => {
+              setConfirming(null);
+              void run(deleteChannel(groupId, channel.id));
+            })
+          ) : (
+            <span className="flex shrink-0 items-center">
+              {categorySelect}
+              <IconButton label={t("common.moveUp")} disabled={index <= 0} onClick={() => moveWithin(section, channel, -1)}>
+                <MdArrowUpward className="h-4 w-4" />
+              </IconButton>
+              <IconButton label={t("common.moveDown")} disabled={index === list.length - 1} onClick={() => moveWithin(section, channel, 1)}>
+                <MdArrowDownward className="h-4 w-4" />
+              </IconButton>
+              <IconButton
+                label={t("common.rename")}
+                onClick={() => {
+                  setEditing(channel.id);
+                  setDraft(channel.name);
+                }}
+              >
+                <MdEdit className="h-4 w-4" />
+              </IconButton>
+              <IconButton label={t("groups.groupDialogs.roomPermissions")} onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
+                <MdTune className="h-4 w-4" />
+              </IconButton>
+              <IconButton label={t("common.delete")} danger onClick={() => setConfirming(channel.id)}>
+                <MdDeleteOutline className="h-4 w-4" />
+              </IconButton>
+            </span>
+          )}
+        </div>
+        {open && (
+          <div id={`actions-${channel.id}`} className="flex flex-col gap-2 border-t border-zinc-200 p-2 dark:border-zinc-800">
+            {confirming === channel.id ? (
+              <>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {t("groups.contextMenu.deleteRoomTitle", { name: channel.name })}
+                </p>
+                {confirmDelete(() => {
+                  setConfirming(null);
+                  setExpanded(null);
+                  void run(deleteChannel(groupId, channel.id));
+                })}
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" disabled={index <= 0} onClick={() => moveWithin(section, channel, -1)} className={actionButton}>
+                    <MdArrowUpward className="h-5 w-5" aria-hidden />
+                    {t("common.moveUp")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === list.length - 1}
+                    onClick={() => moveWithin(section, channel, 1)}
+                    className={actionButton}
+                  >
+                    <MdArrowDownward className="h-5 w-5" aria-hidden />
+                    {t("common.moveDown")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpanded(null);
+                      setEditing(channel.id);
+                      setDraft(channel.name);
+                    }}
+                    className={actionButton}
+                  >
+                    <MdEdit className="h-5 w-5" aria-hidden />
+                    {t("common.rename")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openChannelSettings(groupId, channel.id, "permissions")}
+                    className={actionButton}
+                  >
+                    <MdTune className="h-5 w-5" aria-hidden />
+                    {t("groups.channelSettingsDialog.permissions")}
+                  </button>
+                </div>
+                {categorySelect && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t("common.category")}</span>
+                    {categorySelect}
+                  </label>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setConfirming(channel.id)}
+                  className={`${actionButton} border-red-300 text-red-600 dark:border-red-900 dark:text-red-400`}
+                >
+                  <MdDeleteOutline className="h-5 w-5" aria-hidden />
+                  {t("groups.contextMenu.deleteRoom")}
+                </button>
+              </>
             )}
-          </span>
+          </div>
         )}
-        {confirming === channel.id ? (
-          <span className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => {
-                setConfirming(null);
-                void run(deleteChannel(groupId, channel.id));
+      </li>
+    );
+  }
+
+  function categoryHeading(category: GroupCategory) {
+    const index = categoryList.findIndex((c) => c.id === category.id);
+    const key = `category:${category.id}`;
+    const open = !wideScreen && expanded === key;
+    const remove = () => {
+      setConfirming(null);
+      setExpanded(null);
+      void run(deleteCategory(groupId, category.id));
+    };
+    if (editing === key) {
+      return <div className="flex">{renameForm(() => void run(renameCategory(groupId, category.id, draft)))}</div>;
+    }
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <h3 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-zinc-500">{category.name}</h3>
+          {!wideScreen ? (
+            moreButton(key, t("groups.groupDialogs.categoryActions", { name: category.name }))
+          ) : confirming === key ? (
+            confirmDelete(remove, t("groups.groupDialogs.theRoomsGoToTheTop"))
+          ) : (
+            <span className="flex shrink-0 items-center">
+              <IconButton
+                label={t("groups.groupSidebar.createARoomInName", { name: category.name })}
+                onClick={() => startCreating("text", category.id)}
+              >
+                <MdAdd className="h-4 w-4" />
+              </IconButton>
+              <IconButton label={t("groups.groupDialogs.moveCategoryUp")} disabled={index <= 0} onClick={() => moveCategoryBy(category.id, -1)}>
+                <MdArrowUpward className="h-4 w-4" />
+              </IconButton>
+              <IconButton
+                label={t("groups.groupDialogs.moveCategoryDown")}
+                disabled={index === categoryList.length - 1}
+                onClick={() => moveCategoryBy(category.id, 1)}
+              >
+                <MdArrowDownward className="h-4 w-4" />
+              </IconButton>
+              <IconButton
+                label={t("groups.groupDialogs.renameCategory")}
+                onClick={() => {
+                  setEditing(key);
+                  setDraft(category.name);
+                }}
+              >
+                <MdEdit className="h-4 w-4" />
+              </IconButton>
+              <IconButton label={t("common.deleteCategory")} danger onClick={() => setConfirming(key)}>
+                <MdDeleteOutline className="h-4 w-4" />
+              </IconButton>
+            </span>
+          )}
+        </div>
+        {open && (
+          <div
+            id={`actions-${key}`}
+            className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800"
+          >
+            {confirming === key ? (
+              <>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">{t("groups.groupDialogs.theRoomsGoToTheTop")}</p>
+                {confirmDelete(remove)}
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => startCreating("voice", category.id)} className={actionButton}>
+                    <MdVolumeUp className="h-5 w-5" aria-hidden />
+                    {t("common.voiceRoom")}
+                  </button>
+                  <button type="button" onClick={() => startCreating("text", category.id)} className={actionButton}>
+                    <MdChatBubbleOutline className="h-5 w-5" aria-hidden />
+                    {t("common.textRoom")}
+                  </button>
+                  <button type="button" disabled={index <= 0} onClick={() => moveCategoryBy(category.id, -1)} className={actionButton}>
+                    <MdArrowUpward className="h-5 w-5" aria-hidden />
+                    {t("common.moveUp")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === categoryList.length - 1}
+                    onClick={() => moveCategoryBy(category.id, 1)}
+                    className={actionButton}
+                  >
+                    <MdArrowDownward className="h-5 w-5" aria-hidden />
+                    {t("common.moveDown")}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpanded(null);
+                    setEditing(key);
+                    setDraft(category.name);
+                  }}
+                  className={actionButton}
+                >
+                  <MdEdit className="h-5 w-5" aria-hidden />
+                  {t("groups.groupDialogs.renameCategory")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(key)}
+                  className={`${actionButton} border-red-300 text-red-600 dark:border-red-900 dark:text-red-400`}
+                >
+                  <MdDeleteOutline className="h-5 w-5" aria-hidden />
+                  {t("common.deleteCategory")}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const createLabel =
+    creating?.kind === "category"
+      ? t("groups.groupSidebar.newCategory")
+      : creating?.kind === "voice"
+        ? t("groups.groupSidebar.newVoiceRoom")
+        : t("groups.groupSidebar.newTextRoom");
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Making a room or a category — here as well as in the list of rooms,
+          whose "+" a phone never had for a room outside a category. */}
+      {creating ? (
+        <form
+          ref={createRef}
+          onSubmit={submitNew}
+          className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
+        >
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{createLabel}</span>
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setCreating(null);
+                }
               }}
-              className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
-            >
-              {t("common.delete")}
-            </button>
-            <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
-              {t("common.cancel")}
-            </button>
-          </span>
-        ) : (
-          <span className="flex shrink-0 items-center">
-            {categoryList.length > 0 && (
+              maxLength={32}
+              enterKeyHint="done"
+              placeholder={
+                creating.kind === "category"
+                  ? t("groups.groupSidebar.exGames")
+                  : creating.kind === "voice"
+                    ? t("groups.groupSidebar.exGameNight")
+                    : t("groups.groupSidebar.exMemes")
+              }
+              className={inputClass}
+            />
+          </label>
+          {creating.kind !== "category" && categoryList.length > 0 && (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.category")}</span>
               <select
-                value={section.category?.id ?? ""}
-                onChange={(e) => commit(moveChannel(sections, channel.id, e.target.value || null, null))}
-                aria-label={t("common.roomCategory")}
-                title={t("common.category")}
-                className="mr-1 max-w-28 cursor-pointer rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                value={creating.categoryId ?? ""}
+                onChange={(e) => setCreating({ ...creating, categoryId: e.target.value || null })}
+                className={inputClass}
               >
                 <option value="">{t("common.noCategory")}</option>
                 {categoryList.map((c) => (
@@ -1366,125 +1836,62 @@ function ChannelsTab({
                   </option>
                 ))}
               </select>
-            )}
-            <IconButton label={t("common.moveUp")} disabled={index <= 0} onClick={() => moveWithin(section, channel, -1)}>
-              <MdArrowUpward className="h-4 w-4" />
-            </IconButton>
-            <IconButton label={t("common.moveDown")} disabled={index === list.length - 1} onClick={() => moveWithin(section, channel, 1)}>
-              <MdArrowDownward className="h-4 w-4" />
-            </IconButton>
-            <IconButton
-              label={t("common.rename")}
-              onClick={() => {
-                setEditing(channel.id);
-                setDraft(channel.name);
-              }}
-            >
-              <MdEdit className="h-4 w-4" />
-            </IconButton>
-            <IconButton label={t("groups.groupDialogs.roomPermissions")} onClick={() => openChannelSettings(groupId, channel.id, "permissions")}>
-              <MdTune className="h-4 w-4" />
-            </IconButton>
-            <IconButton label={t("common.delete")} danger onClick={() => setConfirming(channel.id)}>
-              <MdDeleteOutline className="h-4 w-4" />
-            </IconButton>
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  function categoryHeading(category: GroupCategory) {
-    const index = categoryList.findIndex((c) => c.id === category.id);
-    const key = `category:${category.id}`;
-    if (editing === key) {
-      return (
-        <form
-          className="flex gap-1"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setEditing(null);
-            void run(renameCategory(groupId, category.id, draft));
-          }}
-        >
-          <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={32} className={`${inputClass} py-1`} />
-          <button type="submit" className="cursor-pointer rounded-md bg-emerald-600 px-2 text-white" aria-label={t("common.save")}>
-            <MdCheck className="h-4 w-4" />
-          </button>
-        </form>
-      );
-    }
-    return (
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-zinc-500">{category.name}</p>
-        {confirming === key ? (
-          <span className="flex items-center gap-1">
-            <span className="text-[11px] text-zinc-500">{t("groups.groupDialogs.theRoomsGoToTheTop")}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setConfirming(null);
-                void run(deleteCategory(groupId, category.id));
-              }}
-              className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
-            >
-              {t("common.delete")}
-            </button>
-            <button type="button" onClick={() => setConfirming(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
+            </label>
+          )}
+          {createError && (
+            <p role="alert" className="text-sm text-red-500">
+              {createError}
+            </p>
+          )}
+          <div className="flex justify-end gap-2 max-sm:grid max-sm:grid-cols-2">
+            <button type="button" onClick={() => setCreating(null)} className={secondaryButton}>
               {t("common.cancel")}
             </button>
-          </span>
-        ) : (
-          <span className="flex shrink-0 items-center">
-            <IconButton label={t("groups.groupDialogs.moveCategoryUp")} disabled={index <= 0} onClick={() => moveCategoryBy(category.id, -1)}>
-              <MdArrowUpward className="h-4 w-4" />
-            </IconButton>
-            <IconButton
-              label={t("groups.groupDialogs.moveCategoryDown")}
-              disabled={index === categoryList.length - 1}
-              onClick={() => moveCategoryBy(category.id, 1)}
-            >
-              <MdArrowDownward className="h-4 w-4" />
-            </IconButton>
-            <IconButton
-              label={t("groups.groupDialogs.renameCategory")}
-              onClick={() => {
-                setEditing(key);
-                setDraft(category.name);
-              }}
-            >
-              <MdEdit className="h-4 w-4" />
-            </IconButton>
-            <IconButton label={t("common.deleteCategory")} danger onClick={() => setConfirming(key)}>
-              <MdDeleteOutline className="h-4 w-4" />
-            </IconButton>
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
+            <button type="submit" disabled={!newName.trim() || busy} className={primaryButton}>
+              {t("groups.groupSidebar.create")}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex flex-wrap gap-2 max-sm:grid max-sm:grid-cols-2">
+          <button type="button" onClick={() => startCreating("voice")} className={actionButton}>
+            <MdVolumeUp className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden />
+            {t("common.voiceRoom")}
+          </button>
+          <button type="button" onClick={() => startCreating("text")} className={actionButton}>
+            <MdChatBubbleOutline className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden />
+            {t("common.textRoom")}
+          </button>
+          <button type="button" onClick={() => startCreating("category")} className={`${actionButton} max-sm:col-span-2`}>
+            <MdCreateNewFolder className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden />
+            {t("groups.groupSidebar.newCategory")}
+          </button>
+        </div>
+      )}
       {sections.map((section) => {
         const rooms = [...section.voice, ...section.text];
         if (!section.category && rooms.length === 0) return null;
         return (
-          <div key={section.category?.id ?? "root"} className="flex flex-col gap-1">
+          <section key={section.category?.id ?? "root"} className="flex flex-col gap-1">
             {section.category ? (
               categoryHeading(section.category)
             ) : categoryList.length > 0 ? (
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t("common.noCategory")}</p>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t("common.noCategory")}</h3>
             ) : null}
-            {rooms.map((channel) => channelRow(section, channel))}
+            {rooms.length > 0 && <ul className="flex flex-col gap-1">{rooms.map((channel) => channelRow(section, channel))}</ul>}
             {rooms.length === 0 && <p className="px-1 text-xs text-zinc-400">{t("groups.groupDialogs.noRoomInThisCategory")}</p>}
-          </div>
+          </section>
         );
       })}
-      {error && <p className="text-sm text-red-500">{error}</p>}
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        {t("groups.groupDialogs.toCreateARoomOrA")} <b>+</b> {t("groups.groupDialogs.inTheGroupSRoomList")}
-      </p>
+      {channels.length === 0 && categoryList.length === 0 && (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.groupSidebar.noRoom")}</p>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-red-500">
+          {error}
+        </p>
+      )}
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.channelsHint")}</p>
     </div>
   );
 }
@@ -1509,7 +1916,7 @@ function IconButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className={`cursor-pointer rounded-md p-1 transition disabled:cursor-not-allowed disabled:opacity-30 ${
+      className={`cursor-pointer rounded-md p-1 transition focus-visible:outline-2 focus-visible:outline-zinc-500 disabled:cursor-not-allowed disabled:opacity-30 pointer-coarse:p-2 ${
         danger ? "text-red-500 hover:bg-red-500/10" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       }`}
     >
@@ -1714,11 +2121,11 @@ function MembersTab({ groupId }: { groupId: string }) {
                               : transferGroup(groupId, member.id)
                         )
                       }
-                      className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"
+                      className="cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white max-sm:min-h-10 max-sm:px-3 max-sm:text-sm"
                     >
                       {t("groups.groupDialogs.confirm")}
                     </button>
-                    <button type="button" onClick={() => setConfirm(null)} className="cursor-pointer px-1 text-xs text-zinc-500">
+                    <button type="button" onClick={() => setConfirm(null)} className="cursor-pointer px-1 text-xs text-zinc-500 max-sm:min-h-10 max-sm:px-3 max-sm:text-sm">
                       {t("common.cancel")}
                     </button>
                   </span>
@@ -1728,7 +2135,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                       <button
                         type="button"
                         onClick={() => setConfirm({ userId: member.id, action: "transfer" })}
-                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
+                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/10 max-sm:min-h-10 max-sm:px-3 max-sm:text-sm"
                       >
                         {t("groups.groupDialogs.handOverOwnership")}
                       </button>
@@ -1737,7 +2144,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                       <button
                         type="button"
                         onClick={() => setConfirm({ userId: member.id, action: "kick" })}
-                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 max-sm:min-h-10 max-sm:px-3 max-sm:text-sm"
                       >
                         {t("common.remove")}
                       </button>
@@ -1746,7 +2153,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                       <button
                         type="button"
                         onClick={() => setConfirm({ userId: member.id, action: "ban" })}
-                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10"
+                        className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10 max-sm:min-h-10 max-sm:px-3 max-sm:text-sm"
                       >
                         {t("common.ban")}
                       </button>
@@ -1777,7 +2184,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                         onChange={(e) => {
                           if (e.target.value) setRoles([...roleIds, e.target.value]);
                         }}
-                        className="h-6 rounded-full border border-zinc-300 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+                        className="h-6 rounded-full border border-zinc-300 bg-white px-2 text-[11px] max-sm:h-10 max-sm:px-3 max-sm:text-base dark:border-zinc-700 dark:bg-zinc-900"
                       >
                         <option value="">{t("groups.groupDialogs.chooseARole")}</option>
                         {missing.map((r) => (

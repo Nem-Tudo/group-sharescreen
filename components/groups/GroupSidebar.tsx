@@ -34,6 +34,7 @@ import {
 } from "react-icons/md";
 import { LuPanelLeftClose } from "react-icons/lu";
 import { Popover, Tooltip } from "@/components/Tooltip";
+import { MobileSheet } from "@/components/MobileSheet";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   createCategory,
@@ -1161,22 +1162,39 @@ export function GroupRoomsPanel({
             if (e.key === "Escape") setCreating(null);
           }}
           maxLength={32}
+          enterKeyHint="done"
+          aria-label={
+            creating.kind === "category"
+              ? t("groups.groupSidebar.newCategory")
+              : creating.kind === "voice"
+                ? t("groups.groupSidebar.newVoiceRoom")
+                : t("groups.groupSidebar.newTextRoom")
+          }
           placeholder={creating.kind === "category" ? t("groups.groupSidebar.exGames") : creating.kind === "voice" ? t("groups.groupSidebar.exGameNight") : t("groups.groupSidebar.exMemes")}
-          className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+          // 16px and 44px on a phone: under 16px iOS zooms the page in on focus.
+          className={`min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 ${
+            bare ? "min-h-11 text-base" : "text-sm"
+          }`}
         />
         <button
           type="submit"
           disabled={!newName.trim() || busy}
-          className="shrink-0 cursor-pointer rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
+          className={`shrink-0 cursor-pointer rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 ${
+            bare ? "min-h-11 px-4" : ""
+          }`}
         >
           {t("groups.groupSidebar.create")}
         </button>
       </div>
-      {createError && <p className="text-xs text-red-500">{createError}</p>}
+      {createError && (
+        <p role="alert" className="text-xs text-red-500">
+          {createError}
+        </p>
+      )}
       <button
         type="button"
         onClick={() => setCreating(null)}
-        className="self-start text-xs text-zinc-500 underline-offset-2 hover:underline"
+        className={`self-start text-zinc-500 underline-offset-2 hover:underline ${bare ? "min-h-11 px-1 text-sm" : "text-xs"}`}
       >
         {t("common.cancel")}
       </button>
@@ -1260,7 +1278,9 @@ export function GroupRoomsPanel({
                 type="button"
                 onClick={() => setCategoryMenuOpen((open) => (open === category.id ? null : category.id))}
                 aria-label={t("groups.groupSidebar.editCategory")}
-                className="shrink-0 cursor-pointer rounded p-0.5 text-zinc-400 opacity-0 transition hover:text-zinc-800 focus-visible:opacity-100 group-hover/cat:opacity-100 dark:hover:text-zinc-200"
+                // No hover on a touch screen to reveal it: always there, and
+                // big enough for a finger.
+                className="shrink-0 cursor-pointer rounded p-0.5 text-zinc-400 opacity-0 transition hover:text-zinc-800 focus-visible:opacity-100 group-hover/cat:opacity-100 pointer-coarse:p-2.5 pointer-coarse:opacity-100 dark:hover:text-zinc-200"
               >
                 <MdSettings className="h-3.5 w-3.5" />
               </button>
@@ -1287,7 +1307,7 @@ export function GroupRoomsPanel({
                 type="button"
                 onClick={() => setCategoryAddOpen((open) => (open === category.id ? null : category.id))}
                 aria-label={t("groups.groupSidebar.createARoomInName", { name: category.name })}
-                className="shrink-0 cursor-pointer rounded p-0.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                className="shrink-0 cursor-pointer rounded p-0.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 pointer-coarse:p-2 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
               >
                 <MdAdd className="h-4 w-4" />
               </button>
@@ -1357,8 +1377,53 @@ export function GroupRoomsPanel({
     );
   }
 
+  // On a phone (bare) there is no card header, and with it went the "+" that
+  // makes a room outside any category, or a category — only each category's
+  // own "+" was left, so a group without one could not get a room at all.
+  // The list's own heading carries it instead, with what it makes in a sheet.
+  const addSheet = isManager && bare && (
+    <MobileSheet open={addOpen} onClose={() => setAddOpen(false)} title={t("groups.groupSidebar.createARoomOrCategory")}>
+      <div className="flex flex-col pb-1">
+        {(
+          [
+            ["voice", MdVolumeUp, t("common.voiceRoom")],
+            ["text", MdChatBubbleOutline, t("common.textRoom")],
+            ["category", MdCreateNewFolder, t("common.category")],
+          ] as const
+        ).map(([kind, Icon, label]) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => startCreating(kind)}
+            className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-medium text-zinc-800 transition active:bg-zinc-100 dark:text-zinc-200 dark:active:bg-zinc-900"
+          >
+            <Icon className="h-5 w-5 shrink-0 opacity-75" aria-hidden />
+            {label}
+          </button>
+        ))}
+      </div>
+    </MobileSheet>
+  );
+
   const content = (
     <div className="flex flex-col gap-3" onContextMenu={panelMenu}>
+      {isManager && bare && (
+        <div className="-mb-1 flex items-center gap-2 pl-1">
+          <h2 className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            {t("common.rooms")}
+          </h2>
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            aria-haspopup="dialog"
+            className="flex min-h-11 shrink-0 cursor-pointer items-center gap-1 rounded-full px-3 text-sm font-medium text-zinc-700 transition active:bg-zinc-100 dark:text-zinc-300 dark:active:bg-zinc-900"
+          >
+            <MdAdd className="h-5 w-5" aria-hidden />
+            {t("groups.groupSidebar.create")}
+          </button>
+          {addSheet}
+        </div>
+      )}
       {creating?.kind === "category" && creationForm}
       {layoutError && (
         <p className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">
