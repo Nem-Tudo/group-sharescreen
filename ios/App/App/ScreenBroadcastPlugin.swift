@@ -40,6 +40,16 @@ public class ScreenBroadcastPlugin: CAPPlugin, CAPBridgedPlugin {
             nil,
             .deliverImmediately
         )
+        // A suspended app hears none of the above. Coming back to it is the
+        // moment the page has to catch up — above all with an ad pause, whose
+        // popup is waiting for exactly this.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.relayState()
+        }
     }
 
     deinit {
