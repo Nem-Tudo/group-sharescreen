@@ -443,7 +443,13 @@ contextBridge.exposeInMainWorld("golive", {
             avatar: typeof value.avatar === "string" ? value.avatar : undefined,
             lang: typeof value.lang === "string" ? value.lang : "pt",
             cursorLabel: value.cursorLabel === true,
+            sound: value.sound === true,
           });
+        },
+        // The sound of this computer for the person controlling it; main
+        // starts it only while the session allows it.
+        sound(on: unknown): Promise<boolean> {
+          return ipcRenderer.invoke(IPC.remoteControlSound, on === true);
         },
         input(events: unknown): void {
           // Plain objects of numbers, booleans and short strings, rebuilt so

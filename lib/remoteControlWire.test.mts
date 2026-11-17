@@ -70,12 +70,33 @@ test("game mode's movement and in-place clicks round-trip, and an out-of-range o
 
 test("permissions and the clipboard round-trip, and an oversized paste is refused rather than cut", async () => {
   const { encodePerms, encodeClipboard, MAX_CLIPBOARD_BYTES } = await import("./remoteControlWire.ts");
-  const perms = { mouse: false, keyboard: true, clipboard: true };
+  const perms = { mouse: false, keyboard: true, clipboard: true, sound: false };
   assert.deepEqual(decode(encodePerms(perms)), { t: "perms", perms });
+  const withSound = { mouse: true, keyboard: false, clipboard: false, sound: true };
+  assert.deepEqual(decode(encodePerms(withSound)), { t: "perms", perms: withSound });
+  // From a host page from before the sound: no bit, so no sound.
+  assert.equal((decode(encodePerms({ mouse: true, keyboard: true, clipboard: false })) as { perms: { sound: boolean } }).perms.sound, false);
   const text = "senha? não — só um texto com acentos e emoji 🎮\nsegunda linha";
   assert.deepEqual(decode(encodeClipboard(text)!), { t: "clipboard", text });
   assert.equal(encodeClipboard("x".repeat(MAX_CLIPBOARD_BYTES + 1)), null);
   // Big enough to have needed the clipboard's own size rule, under its limit.
   const big = "y".repeat(MAX_CLIPBOARD_BYTES);
   assert.equal((decode(encodeClipboard(big)!) as { text: string }).text.length, MAX_CLIPBOARD_BYTES);
+});
+
+test("the sound and the pointer: one byte each, and a state this side does not know is not one", async () => {
+  const { encodeSound, encodeSoundWant, soundStateFor, SOUND_STATES, T_POINTER, encodeSimple } = await import(
+    "./remoteControlWire.ts"
+  );
+  for (const state of SOUND_STATES) {
+    const event = decode(encodeSound(state)) as { t: string; value: number };
+    assert.equal(event.t, "sound");
+    assert.equal(soundStateFor(event.value), state);
+  }
+  assert.deepEqual(decode(encodeSoundWant(true)), { t: "sound", value: 1 });
+  assert.deepEqual(decode(encodeSoundWant(false)), { t: "sound", value: 0 });
+  assert.equal(soundStateFor(200), null);
+  assert.deepEqual(decode(encodeSimple(T_POINTER, 1)), { t: "pointer", inPicture: true });
+  assert.deepEqual(decode(encodeSimple(T_POINTER, 0)), { t: "pointer", inPicture: false });
+  assert.equal(decode(encodeSimple(T_POINTER)), null);
 });

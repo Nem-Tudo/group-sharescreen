@@ -40,6 +40,12 @@ import {
   type RemoteControlZone,
 } from "./channels";
 import { onSharedSourceChanged, setNativeVideoCursorHidden, sharedDisplayId, sharedSourceArgs } from "./nativeVideo";
+import {
+  isSystemAudioCapturing,
+  startSystemAudioCapture,
+  stopSystemAudioCapture,
+  systemAudioCaptureToken,
+} from "./systemAudio";
 import { codeForScanCode, scanCodeFor } from "./remoteControlKeys";
 
 const HELPER = "golive-input.exe";
@@ -54,6 +60,9 @@ const RATE_PER_SECOND = 400;
 const MAX_BATCH = 64;
 const CONSENT_WIDTH = 420;
 const CONSENT_HEIGHT = 580;
+// One more row in the prompt, one more switch on the banner.
+const SOUND_ROW_HEIGHT = 44;
+const SOUND_SWITCH_WIDTH = 70;
 const BANNER_WIDTH = 760;
 const BANNER_HEIGHT = 64;
 
@@ -93,6 +102,10 @@ interface Session {
   lastClipboard: string;
   /** The helper draws the name beside the pointer (--label), told "l 0/1" as the mouse comes and goes. */
   label: boolean;
+  /** "Ouvir o som do computador" was offered — the banner has its switch. */
+  soundOption: boolean;
+  /** The sound capture this session started (systemAudioCaptureToken), while it runs. */
+  soundCapture: object | null;
 }
 
 // ── Permissions ──────────────────────────────────────────────────────────
@@ -106,13 +119,21 @@ interface Session {
 // and the clipboard is only ever read or written by this file.
 
 const PERMS_FILE = "remote-control.json";
+// "Mexer no Go Live também" starts ticked: without it the person controlling
+// cannot so much as pause a video in the room for them. GoLive's always-on-top
+// windows — this prompt, the banner — stay out of reach either way.
 const DEFAULT_PERMS: RemoteControlPermissions = {
   mouse: true,
   keyboard: true,
   clipboard: false,
-  app: false,
+  app: true,
   lockOnEnd: false,
+  sound: true,
 };
+// Bumped when a default changes in a way the saved boxes should not hide:
+// before 2, "app" started unticked, so every saved file says false without
+// anybody having chosen it. A file from before is read without its "app".
+const PERMS_VERSION = 2;
 const CLIPBOARD_POLL_MS = 500;
 const MAX_CLIPBOARD_BYTES = 64 * 1024;
 
@@ -125,6 +146,7 @@ function readPerms(raw: unknown, fallback: RemoteControlPermissions): RemoteCont
     clipboard: flag("clipboard"),
     app: flag("app"),
     lockOnEnd: flag("lockOnEnd"),
+    sound: flag("sound"),
   };
 }
 
@@ -134,7 +156,11 @@ function permsPath(): string {
 
 function loadSavedPerms(): RemoteControlPermissions {
   try {
-    return readPerms(JSON.parse(readFileSync(permsPath(), "utf8")), DEFAULT_PERMS);
+    const saved: unknown = JSON.parse(readFileSync(permsPath(), "utf8"));
+    if (saved && typeof saved === "object" && (saved as Record<string, unknown>).v !== PERMS_VERSION) {
+      delete (saved as Record<string, unknown>).app;
+    }
+    return readPerms(saved, DEFAULT_PERMS);
   } catch {
     return { ...DEFAULT_PERMS };
   }
@@ -142,14 +168,14 @@ function loadSavedPerms(): RemoteControlPermissions {
 
 function savePerms(perms: RemoteControlPermissions) {
   try {
-    writeFileSync(permsPath(), JSON.stringify(perms));
+    writeFileSync(permsPath(), JSON.stringify({ ...perms, v: PERMS_VERSION }));
   } catch {
     // Next time starts from the defaults, then.
   }
 }
 
 function livePerms(perms: RemoteControlPermissions): RemoteControlLivePermissions {
-  return { mouse: perms.mouse, keyboard: perms.keyboard, clipboard: perms.clipboard };
+  return { mouse: perms.mouse, keyboard: perms.keyboard, clipboard: perms.clipboard, sound: perms.sound };
 }
 
 /** Windows' own lock screen — "Bloquear o Windows quando a sessão acabar". */
@@ -204,6 +230,7 @@ function readRequest(raw: unknown): RemoteControlRequestInfo | null {
     avatar,
     lang: readLang(value.lang),
     cursorLabel: value.cursorLabel === true,
+    sound: value.sound === true,
   };
 }
 
@@ -334,6 +361,7 @@ export function createRemoteControl(options: {
         timeoutSeconds: Math.round(CONSENT_TIMEOUT_MS / 1000),
         logo: options.logo(),
         perms: loadSavedPerms(),
+        soundOption: info.sound === true,
       };
     }
     if (session && alive(session.banner) && sender === session.banner.webContents) {
@@ -347,6 +375,7 @@ export function createRemoteControl(options: {
         timeoutSeconds: 0,
         logo: options.logo(),
         perms: session.perms,
+        soundOption: session.soundOption,
       };
     }
     return null;
@@ -356,7 +385,8 @@ export function createRemoteControl(options: {
 
   function askConsent(info: RemoteControlRequestInfo): Promise<ConsentAnswer> {
     return new Promise((resolve) => {
-      const window = createOverlay(CONSENT_WIDTH, CONSENT_HEIGHT, true, false);
+      const height = CONSENT_HEIGHT + (info.sound ? SOUND_ROW_HEIGHT : 0);
+      const window = createOverlay(CONSENT_WIDTH, height, true, false);
       const settle = (answer: ConsentAnswer) => {
         if (!pending || pending.window !== window) return;
         clearTimeout(pending.timer);
@@ -376,12 +406,12 @@ export function createRemoteControl(options: {
         // from whatever is being typed — the window itself also refuses a
         // click for its first moments (see remote-control.html), so a click
         // already on its way when it appears cannot land on "Permitir".
-        const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+        const { x, y, width, height: workHeight } = screen.getPrimaryDisplay().workArea;
         window.setBounds({
           x: Math.round(x + (width - CONSENT_WIDTH) / 2),
-          y: Math.round(y + (height - CONSENT_HEIGHT) / 2),
+          y: Math.round(y + (workHeight - height) / 2),
           width: CONSENT_WIDTH,
-          height: CONSENT_HEIGHT,
+          height,
         });
         window.showInactive();
       });
@@ -396,17 +426,26 @@ export function createRemoteControl(options: {
 
   // ── Session ───────────────────────────────────────────────────────────
 
+  function bannerWidth(active: Session) {
+    return BANNER_WIDTH + (active.soundOption ? SOUND_SWITCH_WIDTH : 0);
+  }
+
+  function placeBanner(active: Session, window: BrowserWindow) {
+    const { x, y, width } = bannerDisplay().workArea;
+    const bannerW = bannerWidth(active);
+    window.setBounds({
+      x: Math.round(x + (width - bannerW) / 2),
+      y: y + 8,
+      width: bannerW,
+      height: BANNER_HEIGHT,
+    });
+  }
+
   function openBanner(active: Session) {
-    const window = createOverlay(BANNER_WIDTH, BANNER_HEIGHT, false, true);
+    const window = createOverlay(bannerWidth(active), BANNER_HEIGHT, false, true);
     active.banner = window;
     window.once("ready-to-show", () => {
-      const { x, y, width } = bannerDisplay().workArea;
-      window.setBounds({
-        x: Math.round(x + (width - BANNER_WIDTH) / 2),
-        y: y + 8,
-        width: BANNER_WIDTH,
-        height: BANNER_HEIGHT,
-      });
+      placeBanner(active, window);
       window.showInactive();
     });
     window.on("closed", () => {
@@ -453,18 +492,59 @@ export function createRemoteControl(options: {
     clipboard.writeText(raw);
   }
 
-  /** A switch on the banner: mouse, keyboard or clipboard, during the session. */
+  /** A switch on the banner: mouse, keyboard, clipboard or sound, during the session. */
   function setLivePerm(key: unknown, on: boolean) {
     const active = session;
-    if (!active || (key !== "mouse" && key !== "keyboard" && key !== "clipboard")) return;
+    if (!active || (key !== "mouse" && key !== "keyboard" && key !== "clipboard" && key !== "sound")) return;
+    if (key === "sound" && !active.soundOption) return;
     if (active.perms[key] === on) return;
     active.perms = { ...active.perms, [key]: on };
     // Taken away: whatever it was holding down is let go.
-    if (!on && key !== "clipboard") write(active, "r\n");
+    if (!on && (key === "mouse" || key === "keyboard")) write(active, "r\n");
     if (key === "mouse") syncLabel(active);
     if (key === "clipboard") watchClipboard(active);
+    // The sound stops here, whatever the page does next.
+    if (key === "sound" && !on) stopSound(active);
     savePerms(active.perms);
     options.send({ type: "perms", perms: livePerms(active.perms) });
+  }
+
+  // ── Sound ("Ouvir o som do computador") ─────────────────────────────────
+  //
+  // The same capture a share's system audio uses (systemAudio.ts: everything
+  // but GoLive itself, the mute list honoured), streamed to the page, which
+  // sends it to the person controlling over the session's own connection —
+  // not to the room. Started only while the session allows it; stopped when
+  // it is taken away on the banner and when the session ends.
+
+  async function setSound(target: WebContents, on: boolean): Promise<boolean> {
+    const active = session;
+    if (!on) {
+      if (active) stopSound(active);
+      return false;
+    }
+    if (!active || !active.soundOption || !active.perms.sound) return false;
+    if (active.soundCapture && active.soundCapture === systemAudioCaptureToken()) return true;
+    // A share carrying system audio has the capture already, and the page
+    // tells the other side so instead of asking (see lib/remoteControl);
+    // starting one here would take it from the share.
+    if (isSystemAudioCapturing()) return false;
+    const started = await startSystemAudioCapture(target, { forRemoteControl: true });
+    if (!started) return false;
+    // The session may have ended, or the sound been taken away, meanwhile.
+    if (session !== active || !active.perms.sound) {
+      stopSystemAudioCapture();
+      return false;
+    }
+    active.soundCapture = systemAudioCaptureToken();
+    return true;
+  }
+
+  function stopSound(active: Session) {
+    const mine = active.soundCapture;
+    active.soundCapture = null;
+    // Only the capture this session started: a share started since owns it now.
+    if (mine && mine === systemAudioCaptureToken()) stopSystemAudioCapture();
   }
 
   /**
@@ -502,6 +582,7 @@ export function createRemoteControl(options: {
     }, 2000).unref?.();
     if (alive(active.banner)) active.banner.close();
     active.banner = null;
+    stopSound(active);
     setNativeVideoCursorHidden(false);
     options.send({ type: "ended", reason });
     options.onActiveChange();
@@ -557,6 +638,8 @@ export function createRemoteControl(options: {
       clipboardTimer: null,
       lastClipboard: "",
       label: withLabel,
+      soundOption: info.sound === true,
+      soundCapture: null,
     };
 
     return new Promise<RemoteControlConsent>((resolve) => {
@@ -663,7 +746,9 @@ export function createRemoteControl(options: {
     if (!answer.perms.mouse && !answer.perms.keyboard) return { ok: false, reason: "declined" };
     savePerms(answer.perms);
     if (session) return { ok: false, reason: "busy" };
-    return startHelper(info, answer.perms);
+    // A box that was not shown is not a yes: its saved value stays saved for
+    // next time, but this session does without.
+    return startHelper(info, info.sound ? answer.perms : { ...answer.perms, sound: false });
   }
 
   function input(raw: unknown) {
@@ -884,20 +969,16 @@ export function createRemoteControl(options: {
     ipcMain.on(IPC.remoteControlClipboard, (event, raw: unknown) => {
       if (fromApp(event.sender)) setClipboardFromRemote(raw);
     });
+    ipcMain.handle(IPC.remoteControlSound, (event, raw: unknown): Promise<boolean> | boolean => {
+      if (!fromApp(event.sender)) return false;
+      return setSound(event.sender, raw === true);
+    });
     onSharedSourceChanged(() => end("source-changed"));
     screen.on("display-removed", () => {
       // The helper notices a monitor that is gone by itself; the banner may
       // have been on it.
       const active = session;
-      if (active && alive(active.banner)) {
-        const { x, y, width } = bannerDisplay().workArea;
-        active.banner.setBounds({
-          x: Math.round(x + (width - BANNER_WIDTH) / 2),
-          y: y + 8,
-          width: BANNER_WIDTH,
-          height: BANNER_HEIGHT,
-        });
-      }
+      if (active && alive(active.banner)) placeBanner(active, active.banner);
     });
   }
 

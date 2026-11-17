@@ -153,6 +153,7 @@ import {
   useRemoteControl,
   useRemoteControlState,
   REMOTE_CONTROL_LABEL_FEATURE,
+  REMOTE_CONTROL_SOUND_FEATURE,
 } from "@/lib/remoteControl";
 import { RemoteControlDockButton, RemoteControlPrompt } from "@/components/RemoteControlTile";
 import { OpenInAppBanner } from "@/components/OpenInAppBanner";
@@ -3688,8 +3689,18 @@ function WatchRoomView({
   // The controller's name beside the pointer, on the screen being controlled
   // (see REMOTE_CONTROL_LABEL_FEATURE). Exposure: whoever could be controlled.
   const remoteControlLabel = useFeature(REMOTE_CONTROL_LABEL_FEATURE, { track: remoteControlHost });
+  const remoteControlState = useRemoteControlState();
+  // "Ouvir o som do computador" (see REMOTE_CONTROL_SOUND_FEATURE), a room
+  // feature like remote control. Exposure: driving someone's computer, which
+  // is when the bar with its button is on screen.
+  const remoteControlSound = useFeature(REMOTE_CONTROL_SOUND_FEATURE, {
+    room: handle,
+    track: remoteControlEnabled && remoteControlState.controller?.phase === "active",
+  });
   useRemoteControl({
     cursorLabel: remoteControlLabel.enabled,
+    sound: remoteControlEnabled && remoteControlSound.enabled,
+    screenStream: remoteControlSharing ? localStream : null,
     room: handle,
     enabled: remoteControlEnabled,
     hostEnabled: remoteControlBridge,
@@ -3698,7 +3709,6 @@ function WatchRoomView({
     forceRelay: forceRelayIce,
     lang: remoteControlLang,
   });
-  const remoteControlState = useRemoteControlState();
   // The NOVO badge goes once somebody's computer has actually been controlled.
   const remoteControlHostActive = remoteControlState.host?.phase === "active";
   useEffect(() => {

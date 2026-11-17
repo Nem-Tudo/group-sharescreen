@@ -343,6 +343,14 @@ export const IPC = {
   remoteControlWindowData: "golive:remote-control:window-data",
   /** consent/banner window -> main: the button that was pressed. */
   remoteControlWindowChoose: "golive:remote-control:window-choose",
+  /**
+   * renderer -> main (invoke): start (true) or stop (false) capturing this
+   * computer's sound for the person controlling it. Started only while the
+   * session allows it (the prompt's "Ouvir o som do computador", the banner);
+   * the PCM arrives on IPC.systemAudioData like a share's. Resolves whether it
+   * is running.
+   */
+  remoteControlSound: "golive:remote-control:sound",
 
   // ─── Discord Rich Presence ──────────────────────────────────────────────────
   /** renderer -> main: update Discord Rich Presence state. */
@@ -721,6 +729,11 @@ export interface RemoteControlRequestInfo {
    * "remote-control-label" experiment; see golive-input's --label).
    */
   cursorLabel?: boolean;
+  /**
+   * The room offers "Ouvir o som do computador" (the "remote-control-sound"
+   * experiment): the prompt shows its box, the banner its switch.
+   */
+  sound?: boolean;
 }
 
 /**
@@ -737,6 +750,8 @@ export interface RemoteControlPermissions {
   app: boolean;
   /** Windows is locked when the session ends, however it ends. */
   lockOnEnd: boolean;
+  /** The person controlling may hear this computer's sound. */
+  sound: boolean;
 }
 
 /** The part of the permissions the page and the other side need to know. */
@@ -744,6 +759,7 @@ export interface RemoteControlLivePermissions {
   mouse: boolean;
   keyboard: boolean;
   clipboard: boolean;
+  sound: boolean;
 }
 
 export type RemoteControlConsent =
@@ -836,4 +852,6 @@ export interface RemoteControlWindowData {
   logo: string | null;
   /** The prompt: the boxes as last chosen. The banner: what is allowed now. */
   perms: RemoteControlPermissions;
+  /** Whether "Ouvir o som do computador" is offered (RemoteControlRequestInfo.sound). */
+  soundOption: boolean;
 }

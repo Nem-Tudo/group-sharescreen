@@ -24,10 +24,21 @@ export const T_BUTTON_HERE = 14; // button u8, down u8 — a click where the poi
 // computer let through, and the clipboard when copying and pasting is one.
 export const T_CLIPBOARD = 15; // either way: UTF-8 text, up to MAX_CLIPBOARD_BYTES
 export const T_PERMS = 16; // host -> controller: bits u8 (PERM_*)
+// "Ouvir o som do computador": the controller asks for the sound of the
+// computer it drives (want u8, 0/1); the host answers with where that stands
+// (SOUND_STATES index). Same type both ways, like the clipboard: which way it
+// goes says which it is.
+export const T_SOUND = 17;
+// host -> controller: whether the real pointer is in the picture (u8, 0/1).
+// Only the GPU capture can leave it out; a share captured by Chromium always
+// has it drawn in, and the controller's own pointer on top of it would be a
+// second one.
+export const T_POINTER = 18;
 
 export const PERM_MOUSE = 1;
 export const PERM_KEYBOARD = 2;
 export const PERM_CLIPBOARD = 4;
+export const PERM_SOUND = 8;
 /** Text copied across in one go, at most. Far under a data channel's message limit. */
 export const MAX_CLIPBOARD_BYTES = 64 * 1024;
 
@@ -35,13 +46,31 @@ export interface RemoteControlPerms {
   mouse: boolean;
   keyboard: boolean;
   clipboard: boolean;
+  /** Hearing the computer's sound ("Ouvir o som do computador"); absent from a host app from before it. */
+  sound?: boolean;
 }
+
+/**
+ * Where the sound of the computer being driven stands, as the host says it:
+ *   off         nothing asked for, or turned off
+ *   on          its sound is coming down the remote control connection
+ *   unavailable this computer cannot send it (Windows 10, an older app)
+ *   refused     the person there did not allow it (the prompt or the banner)
+ *   share       it is already in the screen share, heard like any viewer hears it
+ *   echo        on, but everything the speakers play, the room included (Windows 10)
+ */
+export const SOUND_STATES = ["off", "on", "unavailable", "refused", "share", "echo"] as const;
+export type RemoteControlSoundState = (typeof SOUND_STATES)[number];
 
 export function encodePerms(perms: RemoteControlPerms): ArrayBuffer {
   const bytes = new Uint8Array(3);
   bytes[0] = VERSION;
   bytes[1] = T_PERMS;
-  bytes[2] = (perms.mouse ? PERM_MOUSE : 0) | (perms.keyboard ? PERM_KEYBOARD : 0) | (perms.clipboard ? PERM_CLIPBOARD : 0);
+  bytes[2] =
+    (perms.mouse ? PERM_MOUSE : 0) |
+    (perms.keyboard ? PERM_KEYBOARD : 0) |
+    (perms.clipboard ? PERM_CLIPBOARD : 0) |
+    (perms.sound ? PERM_SOUND : 0);
   return bytes.buffer;
 }
 
@@ -192,6 +221,12 @@ export type Decoded =
   | { t: "zone"; zone: RemoteControlZone }
   | { t: "clipboard"; text: string }
   | { t: "perms"; perms: RemoteControlPerms }
+  /**
+   * T_SOUND, as the byte it carries: the host reads it as "want" (1) or not,
+   * the controller as a SOUND_STATES index (see soundStateFor).
+   */
+  | { t: "sound"; value: number }
+  | { t: "pointer"; inPicture: boolean }
   | { t: "ready" };
 
 export function decode(data: unknown): Decoded | null {
@@ -267,14 +302,32 @@ export function decode(data: unknown): Decoded | null {
           mouse: (bits & PERM_MOUSE) !== 0,
           keyboard: (bits & PERM_KEYBOARD) !== 0,
           clipboard: (bits & PERM_CLIPBOARD) !== 0,
+          sound: (bits & PERM_SOUND) !== 0,
         },
       };
     }
+    case T_SOUND:
+      return data.byteLength === 3 ? { t: "sound", value: view.getUint8(2) } : null;
+    case T_POINTER:
+      return data.byteLength === 3 ? { t: "pointer", inPicture: view.getUint8(2) === 1 } : null;
     case T_READY:
       return { t: "ready" };
     default:
       return null;
   }
+}
+
+/** T_SOUND's byte as the controller reads it: the host's state, or null for one it does not know. */
+export function soundStateFor(value: number): RemoteControlSoundState | null {
+  return SOUND_STATES[value] ?? null;
+}
+
+export function encodeSound(state: RemoteControlSoundState): ArrayBuffer {
+  return encodeSimple(T_SOUND, SOUND_STATES.indexOf(state));
+}
+
+export function encodeSoundWant(on: boolean): ArrayBuffer {
+  return encodeSimple(T_SOUND, on ? 1 : 0);
 }
 
 /** Whether a later sequence number is newer, across the u16 wrap. */

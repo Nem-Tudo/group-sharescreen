@@ -46,6 +46,10 @@ import {
   type RemoteControlShellEvent,
 } from "./desktop";
 import { connectionRegistry } from "./connectionRegistry";
+import { startPlainLoopback, startRemoteControlSound, type DesktopSystemAudio } from "./desktopSystemAudio";
+import { getStoredSpeakerDeviceId } from "./mediaPreferences";
+import { nativeVideoSourceFor } from "./nativeVideoCapture";
+import { setElementSinkId } from "./useMediaDevices";
 import { trackFeatureEvent } from "./features";
 import { iceConfigFor } from "./iceConfig";
 import { signalingClient, type PeerInfo } from "./signalingClient";
@@ -56,6 +60,7 @@ import {
   T_BYE,
   T_CURSOR,
   T_LOCAL,
+  T_POINTER,
   T_READY,
   T_ZONE,
   ZONES,
@@ -72,15 +77,19 @@ import {
   encodeWheel,
   encodeClipboard,
   encodePerms,
+  encodeSound,
+  encodeSoundWant,
+  soundStateFor,
   newer,
   type RemoteControlBlocked,
   type RemoteControlCursor,
   type RemoteControlZone,
   type RemoteControlPerms,
+  type RemoteControlSoundState,
 } from "./remoteControlWire";
 import { RemoteControlMirror, permsBits, type MirrorEntry } from "./remoteControlMirror";
 
-export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone, RemoteControlPerms };
+export type { RemoteControlBlocked, RemoteControlCursor, RemoteControlZone, RemoteControlPerms, RemoteControlSoundState };
 
 export const REMOTE_CONTROL_FEATURE = "remote-control";
 
@@ -102,6 +111,29 @@ export const REMOTE_CONTROL_LABEL_EVENTS = {
   shown: "rc_label_shown",
   /** It was asked for and could not be (old app or helper, old Windows). */
   off: "rc_label_off",
+} as const;
+
+/**
+ * The experiment "Ouvir o som do computador": the person controlling turns on
+ * the sound of the computer they drive (a button in their bar), sent to them
+ * alone over the session's own connection; the person being controlled allows
+ * it in the prompt (ticked by default) and can take it away on the banner. A
+ * room feature, like remote control itself: both sides read the same answer.
+ */
+export const REMOTE_CONTROL_SOUND_FEATURE = "remote-control-sound";
+export const REMOTE_CONTROL_SOUND_EVENTS = {
+  /** The bar's sound button turned on / off. */
+  on: "rc_sound_on",
+  off: "rc_sound_off",
+  /** What the host answered to an "on". */
+  playing: "rc_sound_playing",
+  unavailable: "rc_sound_unavailable",
+  refused: "rc_sound_refused",
+  inShare: "rc_sound_in_share",
+  /** Playing, with the room in it (Windows 10 on the other side). */
+  echo: "rc_sound_echo",
+  /** A session ended with the sound heard at some point; value: seconds it was on. */
+  seconds: "rc_sound_seconds",
 } as const;
 
 /** Usage stats. Each name has to be in the feature's "site events" to count. */
@@ -287,9 +319,17 @@ let hostSharing = false;
 
 /** The "remote-control-label" experiment says this person gets the tag. */
 let cursorLabel = false;
+/** The "remote-control-sound" experiment is on in this room. */
+let soundFeature = false;
+/** The screen this page shares, while it does — what the room sees of this computer. */
+let hostStream: MediaStream | null = null;
 
 function track(name: string, value?: number) {
   trackFeatureEvent(name, { room, feature: REMOTE_CONTROL_FEATURE, ...(value ? { value } : {}) });
+}
+
+function trackSound(name: string, value?: number) {
+  trackFeatureEvent(name, { room, feature: REMOTE_CONTROL_SOUND_FEATURE, ...(value ? { value } : {}) });
 }
 
 function trackLabel(name: string, value?: number) {
@@ -327,6 +367,18 @@ export interface RemoteControlSnapshot {
     rtt: number | null;
     /** What the person there let through; null from a host app that does not say (mouse and keyboard, then). */
     perms: RemoteControlPerms | null;
+    /**
+     * Their real pointer is drawn in the picture (a share Chromium captures),
+     * so this side's own pointer stays out of the way over it — one pointer,
+     * not two. False until the host says otherwise, as an older host never does.
+     */
+    pointerInPicture: boolean;
+    /**
+     * "Ouvir o som do computador" (REMOTE_CONTROL_SOUND_FEATURE): null where
+     * the room does not offer it. state is the host's last answer, null while
+     * an "on" waits for one.
+     */
+    sound: { wanted: boolean; state: RemoteControlSoundState | null; since: number } | null;
   } | null;
   /** A short message for the room to show once (refused, ended...). */
   notice: { key: string; name: string | null; at: number; seconds?: number } | null;
@@ -407,6 +459,19 @@ interface HostSession {
   zone: number;
   /** What the person here let through (the shell's prompt and banner) — told to the other side. */
   perms: RemoteControlPerms;
+  /** Whether this computer's pointer is in the picture, as last told (-1: not yet). */
+  pointer: number;
+  /** The other side asked for this computer's sound. */
+  soundWanted: boolean;
+  /** Where that stands, as last told to them. */
+  soundState: RemoteControlSoundState;
+  /** The capture going to them, while it runs. */
+  sound: DesktopSystemAudio | null;
+  /** That capture has the room in it too (Windows 10, see hostSetSound). */
+  soundEcho: boolean;
+  soundStarting: boolean;
+  /** The audio sender on the current connection — present when their page offered to receive sound. */
+  soundSender: RTCRtpSender | null;
 }
 
 let host: HostSession | null = null;
@@ -531,6 +596,9 @@ function hostOnMessage(raw: unknown) {
       // A stamped ping is the other side measuring the round trip.
       if (event.stamp !== null) hostSend(encodePong(event.stamp));
       return;
+    case "sound":
+      void hostSetSound(active, event.value === 1);
+      return;
     case "bye":
       endHost("viewer");
       return;
@@ -559,6 +627,9 @@ function hostAttachChannel(active: HostSession, channel: RTCDataChannel) {
       if (active.cursor >= 0) hostSend(encodeSimple(T_CURSOR, active.cursor));
       if (active.zone >= 0) hostSend(encodeSimple(T_ZONE, active.zone));
       hostSend(encodePerms(active.perms));
+      hostSyncPointer(active, true);
+      // Where the sound stood, for a connection that came back.
+      if (active.soundWanted) hostSend(encodeSound(active.soundState));
       // Told to the room once the connection is really up: before that,
       // nobody is controlling anything.
       hostAnnounce(active.peerId);
@@ -608,9 +679,18 @@ async function hostOnOffer(from: string, sdp: unknown) {
     if (host !== active || active.pc !== pc) return;
     if (pc.connectionState === "failed" || pc.connectionState === "closed") hostSetPaused(true);
   };
+  active.soundSender = null;
   try {
     await pc.setRemoteDescription({ type: "offer", sdp });
     await flushCandidates(pc, active.candidates);
+    // Their page offered to receive this computer's sound: answered as a
+    // sender with no track yet, so the sound can come and go by replaceTrack.
+    const audio = pc.getTransceivers().find((transceiver) => transceiver.receiver.track?.kind === "audio");
+    if (audio) {
+      audio.direction = "sendonly";
+      active.soundSender = audio.sender;
+      if (active.sound) hostAttachSound(active);
+    }
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     if (host === active && active.pc === pc) sendSignal(active.peerId, { kind: "answer", sdp: answer.sdp });
@@ -642,10 +722,136 @@ function hostOnSignal(from: string, data: Record<string, unknown>) {
   else if (data.kind === "bye") endHost("viewer");
 }
 
+/**
+ * Whether this computer's real pointer is in the picture the other side
+ * drives. The shell takes it out for the session (setNativeVideoCursorHidden),
+ * but only the GPU capture can do that, and only from the app version that
+ * came with it; a share Chromium captures always has it drawn in.
+ */
+const POINTER_HIDDEN_SINCE = [1, 1, 5];
+
+function appAtLeast(wanted: number[]): boolean {
+  const version = getDesktopBridge()?.appVersion;
+  if (typeof version !== "string") return false;
+  const parts = version.split(/[.-]/).map((part) => Number.parseInt(part, 10));
+  for (let i = 0; i < wanted.length; i++) {
+    const have = Number.isFinite(parts[i]) ? parts[i] : 0;
+    if (have !== wanted[i]) return have > wanted[i];
+  }
+  return true;
+}
+
+function pointerInPicture(): boolean {
+  const video = hostStream?.getVideoTracks()[0];
+  return !(video && nativeVideoSourceFor(video) && appAtLeast(POINTER_HIDDEN_SINCE));
+}
+
+/** Tells the other side about the pointer when it changed — or always, on a new connection. */
+function hostSyncPointer(active: HostSession, always = false) {
+  const now = pointerInPicture() ? 1 : 0;
+  if (!always && active.pointer === now) return;
+  active.pointer = now;
+  hostSend(encodeSimple(T_POINTER, now));
+}
+
+// ── Sound ("Ouvir o som do computador") ──────────────────────────────────
+//
+// The other side's page offers to receive audio on the session's connection
+// (a recvonly transceiver); this side answers sendonly with no track, so
+// turning the sound on and off later is a replaceTrack — never a new
+// negotiation. On Windows 11 the capture is the shell's (it checks the person
+// here allowed it); on Windows 10 it is Chromium's plain loopback, started
+// here only after the same yes (perms.sound, which only an app with the
+// prompt's box reports). A share already carrying system audio is heard
+// through the share, as every viewer hears it, and is not sent twice.
+
+function hostSendSound(active: HostSession, state: RemoteControlSoundState) {
+  active.soundState = state;
+  hostSend(encodeSound(state));
+  mirror.note(["snd", state]);
+}
+
+function hostAttachSound(active: HostSession) {
+  const sender = active.soundSender;
+  if (!sender) return;
+  void sender.replaceTrack(active.sound?.track ?? null).catch(() => {
+    // The connection is going; the next one attaches it again.
+  });
+}
+
+function hostStopSound(active: HostSession) {
+  const sound = active.sound;
+  active.sound = null;
+  hostAttachSound(active);
+  sound?.stop();
+}
+
+function shareHasSound(): boolean {
+  return Boolean(hostStream?.getAudioTracks().some((track) => track.readyState === "live"));
+}
+
+async function hostSetSound(active: HostSession, want: boolean) {
+  active.soundWanted = want;
+  if (!want) {
+    hostStopSound(active);
+    hostSendSound(active, "off");
+    return;
+  }
+  const desktop = getDesktopBridge();
+  // Anything but a go: whatever was being sent stops (the banner's switch
+  // taken away arrives here with the sound already playing).
+  const no: RemoteControlSoundState | null = !soundFeature
+    ? "unavailable"
+    : shareHasSound()
+      ? "share"
+      : // An app from before the sound: its prompt never asked, so there is
+        // no yes to go on.
+        !desktop?.remoteControl?.sound
+        ? "unavailable"
+        : !active.perms.sound
+          ? "refused"
+          : null;
+  if (no) {
+    hostStopSound(active);
+    return hostSendSound(active, no);
+  }
+  if (active.sound) {
+    hostAttachSound(active);
+    return hostSendSound(active, active.soundEcho ? "echo" : "on");
+  }
+  if (active.soundStarting) return;
+  active.soundStarting = true;
+  // Windows 11: everything but GoLive (the shell's capture). Where that
+  // cannot run — Windows 10, which lacks process loopback — everything the
+  // speakers play, the room's voices included: the other side is told it
+  // comes with an echo.
+  let echo = false;
+  let sound = desktop?.systemAudio ? await startRemoteControlSound() : null;
+  if (!sound && host === active && active.soundWanted && active.perms.sound) {
+    sound = await startPlainLoopback();
+    echo = sound !== null;
+  }
+  active.soundStarting = false;
+  // Asked again while it started: whatever is wanted *now* decides.
+  if (host !== active || !active.soundWanted || !active.perms.sound || shareHasSound()) {
+    sound?.stop();
+    if (host === active && active.soundWanted) void hostSetSound(active, true);
+    return;
+  }
+  if (!sound) return hostSendSound(active, "unavailable");
+  active.sound = sound;
+  active.soundEcho = echo;
+  hostAttachSound(active);
+  hostSendSound(active, echo ? "echo" : "on");
+}
+
 function hostWatchdog() {
   const active = host;
   if (!active || !active.input) return;
   const now = Date.now();
+  // The share can move to Chromium's capture mid-session (the GPU one
+  // failing), and the pointer with it into the picture.
+  if (active.input.readyState === "open") hostSyncPointer(active);
   if (!active.paused && now - active.lastHeardAt > SILENCE_MS) hostSetPaused(true);
   if (active.paused && active.pausedSince && now - active.pausedSince > RESUME_MS) endHost("lost");
   // Now and then the whole picture again (duration, permissions, pointer
@@ -699,9 +905,13 @@ function hostShellEvent(event: RemoteControlShellEvent) {
   if (event.type === "perms") {
     // Changed on the banner, during the session.
     if (!host) return;
+    const before = host.perms;
     host.perms = event.perms;
     hostSend(encodePerms(event.perms));
     mirror.note(["p", permsBits(event.perms)]);
+    // The sound switch on the banner: taken away stops it here (the shell
+    // stopped the capture already); given back starts it again if wanted.
+    if (host.soundWanted && Boolean(before.sound) !== Boolean(event.perms.sound)) void hostSetSound(host, true);
     return;
   }
   if (event.type === "clipboard") {
@@ -733,6 +943,7 @@ function endHost(reason: HostEndReason, options: { shellEnded?: boolean } = {}) 
   const active = host;
   if (!active) return;
   host = null;
+  hostStopSound(active);
   mirror.reset();
   clearInterval(active.watchdog);
   if (active.connectTimer) clearTimeout(active.connectTimer);
@@ -785,6 +996,13 @@ function startHostSession(
     cursor: -1,
     zone: -1,
     perms,
+    pointer: -1,
+    soundWanted: false,
+    soundState: "off",
+    sound: null,
+    soundEcho: false,
+    soundStarting: false,
+    soundSender: null,
   };
   active.connectTimer = setTimeout(() => {
     if (host === active && !active.input) endHost("timeout");
@@ -811,6 +1029,7 @@ async function askShell(
       handle: peer.handle ?? undefined,
       lang,
       cursorLabel,
+      sound: soundFeature,
     });
   } catch {
     return { ok: false, reason: "failed" };
@@ -909,6 +1128,20 @@ interface ControllerSession {
   /** The host's picture is set to play with no added delay (see setLowLatency). */
   lowLatency: boolean;
   perms: RemoteControlPerms | null;
+  pointerInPicture: boolean;
+  /** Whether this session's connection offers to receive sound (the experiment, when it connected). */
+  soundOffered: boolean;
+  soundWanted: boolean;
+  soundState: RemoteControlSoundState | null;
+  /** When soundState last changed — for a notice that lasts a few seconds. */
+  soundStateAt: number;
+  /** No answer to an "on" from an older host means it cannot. */
+  soundTimer: ReturnType<typeof setTimeout> | null;
+  /** Where the host's sound plays. */
+  audio: HTMLAudioElement | null;
+  /** When the sound last started playing (0: not playing), and the seconds before that. */
+  soundSince: number;
+  soundSeconds: number;
 }
 
 let controller: ControllerSession | null = null;
@@ -933,9 +1166,113 @@ function publishController() {
           zone: active.zone,
           rtt: active.rtt,
           perms: active.perms,
+          pointerInPicture: active.pointerInPicture,
+          sound: active.soundOffered
+            ? { wanted: active.soundWanted, state: active.soundState, since: active.soundStateAt }
+            : null,
         }
       : null,
   });
+}
+
+// ── The sound of the computer being driven ───────────────────────────────
+
+const SOUND_ANSWER_MS = 5000;
+
+/** The host is sending its sound down this connection (with the room in it or not). */
+export function soundPlays(state: RemoteControlSoundState | null): boolean {
+  return state === "on" || state === "echo";
+}
+
+function controllerSoundPlaying(active: ControllerSession, playing: boolean) {
+  if (playing && !active.soundSince) active.soundSince = Date.now();
+  if (!playing && active.soundSince) {
+    active.soundSeconds += (Date.now() - active.soundSince) / 1000;
+    active.soundSince = 0;
+  }
+  const audio = active.audio;
+  if (!audio) return;
+  audio.muted = !playing;
+  if (playing) void audio.play().catch(() => {});
+}
+
+function controllerAudio(active: ControllerSession): HTMLAudioElement {
+  if (active.audio) return active.audio;
+  const audio = new Audio();
+  audio.autoplay = true;
+  audio.muted = true;
+  // The speakers picked for the room, where the browser can choose.
+  const sinkId = getStoredSpeakerDeviceId();
+  if (sinkId) void setElementSinkId(audio, sinkId).catch(() => {});
+  active.audio = audio;
+  return audio;
+}
+
+/** The bar's sound button: this computer hears the one it drives, or stops. */
+export function setRemoteControlSound(on: boolean) {
+  const active = controller;
+  if (!active || !active.soundOffered || active.soundWanted === on) return;
+  active.soundWanted = on;
+  if (active.soundTimer) clearTimeout(active.soundTimer);
+  active.soundTimer = null;
+  trackSound(on ? REMOTE_CONTROL_SOUND_EVENTS.on : REMOTE_CONTROL_SOUND_EVENTS.off);
+  if (on) {
+    // Made and started inside the click, so the browser lets it play once
+    // there is something to play.
+    const audio = controllerAudio(active);
+    void audio.play().catch(() => {});
+    active.soundState = null;
+    active.soundTimer = setTimeout(() => {
+      active.soundTimer = null;
+      if (controller !== active || !active.soundWanted || active.soundState !== null) return;
+      active.soundState = "unavailable";
+      publishController();
+    }, SOUND_ANSWER_MS);
+  } else {
+    active.soundState = "off";
+    controllerSoundPlaying(active, false);
+  }
+  controllerSend(encodeSoundWant(on));
+  publishController();
+}
+
+function controllerOnSound(active: ControllerSession, state: RemoteControlSoundState) {
+  if (active.soundTimer) clearTimeout(active.soundTimer);
+  active.soundTimer = null;
+  const changed = active.soundState !== state;
+  active.soundState = state;
+  if (changed) active.soundStateAt = Date.now();
+  controllerSoundPlaying(active, active.soundWanted && soundPlays(state));
+  if (changed && active.soundWanted) {
+    const event =
+      state === "on"
+        ? REMOTE_CONTROL_SOUND_EVENTS.playing
+        : state === "echo"
+          ? REMOTE_CONTROL_SOUND_EVENTS.echo
+        : state === "share"
+          ? REMOTE_CONTROL_SOUND_EVENTS.inShare
+          : state === "refused"
+            ? REMOTE_CONTROL_SOUND_EVENTS.refused
+            : state === "unavailable"
+              ? REMOTE_CONTROL_SOUND_EVENTS.unavailable
+              : null;
+    if (event) trackSound(event);
+  }
+  publishController();
+}
+
+function controllerEndSound(active: ControllerSession) {
+  if (active.soundTimer) clearTimeout(active.soundTimer);
+  active.soundTimer = null;
+  controllerSoundPlaying(active, false);
+  if (active.soundSeconds > 0) trackSound(REMOTE_CONTROL_SOUND_EVENTS.seconds, Math.max(1, Math.round(active.soundSeconds)));
+  active.soundSeconds = 0;
+  const audio = active.audio;
+  active.audio = null;
+  if (audio) {
+    audio.pause();
+    audio.srcObject = null;
+  }
 }
 
 // The room plays every screen a tenth of a second late on purpose, to ride
@@ -1006,7 +1343,19 @@ function controllerOnMessage(raw: unknown) {
         publishController();
         if (first) for (const listener of drivingListeners) listener(active.hostId);
       }
+      // A connection that came back: the sound was on, so it is asked for again.
+      if (active.soundOffered && active.soundWanted) controllerSend(encodeSoundWant(true));
       return;
+    case "pointer":
+      if (active.pointerInPicture === event.inPicture) return;
+      active.pointerInPicture = event.inPicture;
+      publishController();
+      return;
+    case "sound": {
+      const state = soundStateFor(event.value);
+      if (state && active.soundOffered) controllerOnSound(active, state);
+      return;
+    }
     case "pong": {
       const sample = (Math.round(performance.now()) - event.stamp) >>> 0;
       // A stamp from before a page reload, or simply nonsense: not a round trip.
@@ -1076,6 +1425,18 @@ async function controllerConnect(active: ControllerSession) {
   }
   active.pointer = pointer;
   active.input = input;
+  // Ready to receive the computer's sound, should it be asked for: answered
+  // by the host with an empty sender (see hostOnOffer), so no renegotiation
+  // later. An older host leaves it inactive and never answers "sound".
+  if (active.soundOffered) {
+    pc.addTransceiver("audio", { direction: "recvonly" });
+    pc.ontrack = (event) => {
+      if (controller !== active || active.pc !== pc || event.track.kind !== "audio") return;
+      const audio = controllerAudio(active);
+      audio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+      controllerSoundPlaying(active, active.soundWanted && soundPlays(active.soundState));
+    };
+  }
   input.onclose = () => {
     if (controller === active && active.pc === pc) controllerLost(active);
   };
@@ -1162,6 +1523,7 @@ function endController(reason: ControllerEndReason) {
   if (!active) return;
   releaseHeld(active);
   controller = null;
+  controllerEndSound(active);
   setRemoteKeyGrab(false);
   if (active.lowLatency) setLowLatency(active.hostId, false);
   if (active.pingTimer) clearInterval(active.pingTimer);
@@ -1205,6 +1567,15 @@ function newController(hostId: string, hostUserId: string, hostName: string | nu
     rtt: null,
     lowLatency: false,
     perms: null,
+    pointerInPicture: false,
+    soundOffered: soundFeature,
+    soundWanted: false,
+    soundState: null,
+    soundStateAt: 0,
+    soundTimer: null,
+    audio: null,
+    soundSince: 0,
+    soundSeconds: 0,
   };
   // Stamped, so the host answers and the bar can show the round trip.
   active.pingTimer = setInterval(() => {
@@ -1596,6 +1967,10 @@ export function useRemoteControl(options: {
   lang: "pt" | "en" | "es";
   /** The "remote-control-label" experiment: the controller's name follows the pointer here. */
   cursorLabel?: boolean;
+  /** The "remote-control-sound" experiment is on in this room. */
+  sound?: boolean;
+  /** The screen this page shares — whether it carries sound, and whether the pointer is in it. */
+  screenStream?: MediaStream | null;
 }) {
   const { enabled, hostEnabled, open, sharingScreen } = options;
 
@@ -1604,7 +1979,9 @@ export function useRemoteControl(options: {
     forceRelay = options.forceRelay;
     lang = options.lang;
     cursorLabel = options.cursorLabel === true;
-  }, [options.room, options.forceRelay, options.lang, options.cursorLabel]);
+    soundFeature = options.sound === true;
+    hostStream = options.screenStream ?? null;
+  }, [options.room, options.forceRelay, options.lang, options.cursorLabel, options.sound, options.screenStream]);
 
   useEffect(() => {
     if (!enabled) return;

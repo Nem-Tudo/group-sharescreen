@@ -31,6 +31,8 @@ import {
   MdVerifiedUser,
   MdMouse,
   MdSportsEsports,
+  MdVolumeOff,
+  MdVolumeUp,
 } from "react-icons/md";
 import Tippy from "@tippyjs/react";
 import { Tooltip } from "@/components/Tooltip";
@@ -53,7 +55,9 @@ import {
   sendRemoteKey,
   sendRemoteMove,
   sendRemoteWheel,
+  setRemoteControlSound,
   setRemoteKeyGrab,
+  soundPlays,
   stopHostingRemoteControl,
   trackRemoteControlEvent,
   useRemoteControlState,
@@ -242,7 +246,33 @@ function pointerFor(mine: Driving): string {
   if (mine.zone !== "ok") return "not-allowed";
   // Hidden over there (a video playing, typing) — but this side still needs
   // something to aim with.
-  return mine.cursor === "none" ? "default" : mine.cursor;
+  if (mine.cursor === "none") return "default";
+  // Their real pointer is drawn in the picture (a share Chromium captures,
+  // which cannot leave it out): that one is the pointer, and this side's own
+  // on top of it would be a second one trailing it.
+  if (mine.pointerInPicture) return "none";
+  return mine.cursor;
+}
+
+const ECHO_NOTICE_MS = 8000;
+
+/** The sound button's tooltip, from where the host says the sound stands. */
+function soundLabelKey(sound: NonNullable<Driving["sound"]>): string {
+  if (!sound.wanted) return "remoteControl.sound.turnOn";
+  switch (sound.state) {
+    case "on":
+      return "remoteControl.sound.turnOff";
+    case "echo":
+      return "remoteControl.sound.echo";
+    case "share":
+      return "remoteControl.sound.inShare";
+    case "refused":
+      return "remoteControl.sound.refused";
+    case "unavailable":
+      return "remoteControl.sound.unavailable";
+    default:
+      return "remoteControl.sound.starting";
+  }
 }
 
 function latencyTone(ms: number): string {
@@ -317,6 +347,16 @@ export function RemoteControlTileLayer({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const grabsKeys = canGrabRemoteKeys();
+  // The sound came on with the room in it (Windows 10 over there): said under
+  // the bar for a few seconds each time, and kept in the button's tooltip.
+  const echoAt = mine?.sound?.wanted && mine.sound.state === "echo" ? mine.sound.since : 0;
+  const [echoSeenAt, setEchoSeenAt] = useState(0);
+  useEffect(() => {
+    if (!echoAt) return;
+    const timer = setTimeout(() => setEchoSeenAt(echoAt), Math.max(0, echoAt + ECHO_NOTICE_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [echoAt]);
+  const echoNotice = echoAt > 0 && echoSeenAt !== echoAt;
   // "Modo jogo" (Parsec's approach): games aim with how far the mouse moved,
   // and ignore where a pointer is put, so the mouse is held inside the
   // surface (pointer lock) and only movement goes across. Remembered for
@@ -476,6 +516,8 @@ export function RemoteControlTileLayer({
         ? t("remoteControl.localActive", { name: mine.hostName ?? "?" })
         : mine.blocked
           ? t(`remoteControl.blocked.${mine.blocked.why}`)
+          : echoNotice
+          ? t("remoteControl.sound.echoHint")
           : // What the person there let through, when it is not everything.
             mine.perms && !mine.perms.mouse
             ? t("remoteControl.perms.keyboardOnly")
@@ -680,6 +722,31 @@ export function RemoteControlTileLayer({
                 </div>
               )}
             </div>
+            {mine.sound && (
+              // "Ouvir o som do computador": off at the start of every session.
+              <BarButton
+                label={t(soundLabelKey(mine.sound))}
+                active={mine.sound.wanted && soundPlays(mine.sound.state)}
+                onClick={() => {
+                  setRemoteControlSound(!mine.sound?.wanted);
+                  refocus();
+                }}
+              >
+                {mine.sound.wanted && (soundPlays(mine.sound.state) || mine.sound.state === "share") ? (
+                  <MdVolumeUp className={`h-4 w-4 ${mine.sound.state === "echo" ? "text-amber-400" : ""}`} />
+                ) : (
+                  <MdVolumeOff
+                    className={`h-4 w-4 ${
+                      mine.sound.wanted && mine.sound.state === null
+                        ? "animate-pulse"
+                        : mine.sound.wanted && (mine.sound.state === "refused" || mine.sound.state === "unavailable")
+                          ? "text-amber-400"
+                          : ""
+                    }`}
+                  />
+                )}
+              </BarButton>
+            )}
             <BarButton
               label={t(gameMode ? "remoteControl.game.off" : "remoteControl.game.on")}
               active={gameMode}

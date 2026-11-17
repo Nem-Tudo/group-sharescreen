@@ -94,12 +94,65 @@ export async function startExcludedSystemAudio(): Promise<DesktopSystemAudio | n
   // no-audio path did every expensive thing here and *then* found out, by
   // which point the click's activation could already be gone.
   if (!(await bridge.start())) return null;
+  return trackFromRunningCapture(bridge, () => bridge.stop());
+}
 
+/**
+ * This computer's sound for the person controlling it ("Ouvir o som do
+ * computador", see lib/remoteControl.ts): the same capture, started by the
+ * shell's remote control — which checks the session allows it — instead of
+ * by a share. Null when it could not be started (Windows 10, an app from
+ * before it, the sound not allowed, a share already holding the capture).
+ */
+export async function startRemoteControlSound(): Promise<DesktopSystemAudio | null> {
+  const desktop = getDesktopBridge();
+  const bridge = desktop?.systemAudio;
+  const remote = desktop?.remoteControl;
+  if (!bridge || !remote?.sound) return null;
+  const stop = () => void remote.sound?.(false);
+  let started = false;
+  try {
+    started = await remote.sound(true);
+  } catch {
+    started = false;
+  }
+  if (!started) return null;
+  return trackFromRunningCapture(bridge, stop);
+}
+
+/**
+ * Everything this computer's speakers play, GoLive included — the room's
+ * voices with it. Only for remote control's sound where the excluding capture
+ * cannot run (Windows 10): the person controlling is told it comes with an
+ * echo. Electron's desktop loopback through the legacy constraints, which
+ * needs no picker and no click; it has to ask for video too, which is stopped
+ * at once (and asked for tiny, so the moment it runs costs nothing).
+ */
+export async function startPlainLoopback(): Promise<DesktopSystemAudio | null> {
+  if (!getDesktopBridge() || typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return null;
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { mandatory: { chromeMediaSource: "desktop" } },
+      video: { mandatory: { chromeMediaSource: "desktop", maxWidth: 160, maxHeight: 90, maxFrameRate: 1 } },
+    } as unknown as MediaStreamConstraints);
+  } catch {
+    return null;
+  }
+  for (const video of stream.getVideoTracks()) video.stop();
+  const track = stream.getAudioTracks()[0];
+  if (!track) return null;
+  return { track, stop: () => track.stop() };
+}
+
+type SystemAudioBridge =NonNullable<NonNullable<ReturnType<typeof getDesktopBridge>>["systemAudio"]>;
+
+async function trackFromRunningCapture(bridge: SystemAudioBridge, stopHelper: () => void): Promise<DesktopSystemAudio | null> {
   // From here on the helper is running, so a graph that cannot be built has
   // to stop it rather than leave an OS capture with nothing draining it.
-  const pcm = await startPcmAudioTrack({ onStop: () => bridge.stop() });
+  const pcm = await startPcmAudioTrack({ onStop: stopHelper });
   if (!pcm) {
-    bridge.stop();
+    stopHelper();
     return null;
   }
 

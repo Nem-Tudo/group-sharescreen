@@ -289,7 +289,15 @@ export interface DesktopBridge {
       lang: "pt" | "en" | "es";
       /** Their name follows the pointer on this screen (ignored by an app from before it). */
       cursorLabel?: boolean;
+      /** "Ouvir o som do computador" is offered in the prompt (ignored by an app from before it). */
+      sound?: boolean;
     }): Promise<RemoteControlConsent>;
+    /**
+     * Starts or stops capturing this computer's sound for the person
+     * controlling it; resolves whether it runs. The PCM comes on
+     * systemAudio.onData. Absent on an app from before it.
+     */
+    sound?(on: boolean): Promise<boolean>;
     input(events: RemoteControlInputEvent[]): void;
     /** Holds the input (and lets go of every key) while the other side is reconnecting. */
     pause(paused: boolean): void;
@@ -417,7 +425,7 @@ export interface DesktopBridge {
 
 /** The shell's answer to a remote control request — see electron/channels.ts. */
 /** What the person being controlled let through (see electron/channels.ts). */
-export type RemoteControlShellPermissions = { mouse: boolean; keyboard: boolean; clipboard: boolean };
+export type RemoteControlShellPermissions = { mouse: boolean; keyboard: boolean; clipboard: boolean; sound?: boolean };
 
 export type RemoteControlConsent =
   | { ok: true; perms?: RemoteControlShellPermissions }

@@ -257,9 +257,10 @@
             clipboard: ["Copiar e colar entre os computadores", "Só texto, e só o que for copiado a partir de agora."],
             app: ["Mexer no Go Live também", "Esta janela e o botão Parar, nunca."],
             lockOnEnd: ["Bloquear o Windows quando a sessão acabar", "Pede sua senha para voltar a usar o computador."],
+            sound: ["Ouvir o som do computador", "Só a pessoa que está controlando, e só se ela ligar."],
           },
           needOne: "Libere pelo menos o mouse ou o teclado.",
-          live: { mouse: "Mouse", keyboard: "Teclado", clipboard: "Copiar e colar" },
+          live: { mouse: "Mouse", keyboard: "Teclado", clipboard: "Copiar e colar", sound: "Som" },
           liveHint: "Clique para liberar ou bloquear durante a sessão",
           allow: "Permitir",
           allowIn: "Permitir ({s})",
@@ -288,9 +289,10 @@
             clipboard: ["Copy and paste between the computers", "Text only, and only what is copied from now on."],
             app: ["Use Go Live too", "This window and the Stop button, never."],
             lockOnEnd: ["Lock Windows when the session ends", "Your password is needed to use the computer again."],
+            sound: ["Hear this computer's sound", "Only the person controlling, and only if they turn it on."],
           },
           needOne: "Allow at least the mouse or the keyboard.",
-          live: { mouse: "Mouse", keyboard: "Keyboard", clipboard: "Copy & paste" },
+          live: { mouse: "Mouse", keyboard: "Keyboard", clipboard: "Copy & paste", sound: "Sound" },
           liveHint: "Click to allow or block during the session",
           allow: "Allow",
           allowIn: "Allow ({s})",
@@ -319,9 +321,10 @@
             clipboard: ["Copiar y pegar entre las computadoras", "Solo texto, y solo lo que se copie a partir de ahora."],
             app: ["Usar Go Live también", "Esta ventana y el botón Detener, nunca."],
             lockOnEnd: ["Bloquear Windows cuando termine la sesión", "Se pedirá tu contraseña para volver a usar la computadora."],
+            sound: ["Escuchar el sonido de la computadora", "Solo quien está controlando, y solo si lo activa."],
           },
           needOne: "Permite al menos el mouse o el teclado.",
-          live: { mouse: "Mouse", keyboard: "Teclado", clipboard: "Copiar y pegar" },
+          live: { mouse: "Mouse", keyboard: "Teclado", clipboard: "Copiar y pegar", sound: "Sonido" },
           liveHint: "Haz clic para permitir o bloquear durante la sesión",
           allow: "Permitir",
           allowIn: "Permitir ({s})",
@@ -380,7 +383,11 @@
         const perms = Object.assign({}, data.perms);
         document.getElementById("permsTitle").textContent = t.permsTitle;
         const list = document.getElementById("perms");
-        for (const key of ["mouse", "keyboard", "clipboard", "app", "lockOnEnd"]) {
+        // The sound only when the room offers it (main says so); unshown, its
+        // saved value rides along untouched and main leaves it out of the session.
+        const keys = ["mouse", "keyboard", "clipboard", "app", "lockOnEnd"];
+        if (data.soundOption) keys.splice(3, 0, "sound");
+        for (const key of keys) {
           const row = document.createElement("label");
           row.className = "perm";
           const box = document.createElement("input");
@@ -474,10 +481,13 @@
           mouse: "M12 2a6 6 0 0 0-6 6v8a6 6 0 0 0 12 0V8a6 6 0 0 0-6-6zm0 2a4 4 0 0 1 4 4v1h-3V4.13A4 4 0 0 1 12 4zm-1 .13V9H8V8a4 4 0 0 1 3-3.87zM8 11h8v5a4 4 0 0 1-8 0z",
           keyboard: "M3 6h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm1 2v8h16V8zm2 1h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h2v2h-2zM7 13h10v2H7z",
           clipboard: "M9 2h6a1 1 0 0 1 1 1v1h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V3a1 1 0 0 1 1-1zm1 2v2h4V4zM6 6v14h12V6h-2v2H8V6z",
+          sound: "M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z",
         };
         const live = Object.assign({}, data.perms);
         const holder = document.getElementById("bannerPerms");
-        for (const key of ["mouse", "keyboard", "clipboard"]) {
+        const liveKeys = ["mouse", "keyboard", "clipboard"];
+        if (data.soundOption) liveKeys.push("sound");
+        for (const key of liveKeys) {
           const button = document.createElement("button");
           button.type = "button";
           button.title = t.liveHint;

@@ -397,6 +397,16 @@ export function isSystemAudioCapturing(): boolean {
 }
 
 /**
+ * The running capture, as something only good for comparing: remote control
+ * keeps the one it started and stops it only if it is still that one — a
+ * share started since has taken the capture over (see the stop at the top of
+ * startSystemAudioCapture), and stopping it would take the room's sound away.
+ */
+export function systemAudioCaptureToken(): object | null {
+  return capture;
+}
+
+/**
  * Starts the capture and streams PCM to `webContents`.
  *
  * Resolves false when the capture could not be started — including when this
@@ -411,14 +421,22 @@ export function isSystemAudioCapturing(): boolean {
  * milliseconds later would otherwise be reported as success, and the share
  * would come out silent instead of falling back.
  */
-export async function startSystemAudioCapture(webContents: WebContents): Promise<boolean> {
+export async function startSystemAudioCapture(
+  webContents: WebContents,
+  options: { forRemoteControl?: boolean } = {}
+): Promise<boolean> {
   if (!isSystemAudioExclusionSupported()) return false;
   const settings = getSystemAudioSettings();
   // "Compartilhar som da tela", switched off. Answering false rather than
   // starting a capture that produces nothing is what makes the share come
   // out with no audio track at all, instead of a live but permanently silent
   // one (see the display-media handler in main.ts, which also reads this).
-  if (!settings.enabled) return false;
+  //
+  // Not for remote control's "Ouvir o som do computador" (remoteControl.ts):
+  // that sound goes only to the person controlling, and the person here said
+  // yes to it in the prompt — a question of its own, apart from what the
+  // room hears. The mute list still applies.
+  if (!settings.enabled && !options.forRemoteControl) return false;
 
   // A second share while one is running would otherwise leave the first
   // helper orphaned, writing into a pipe nobody reads.
