@@ -17,6 +17,7 @@ import { MemberActionsModal } from "@/components/MemberActionsModal";
 import { CosmeticsStoreDialog } from "@/components/CosmeticsStoreDialog";
 import { GiftPlanDialog } from "@/components/GiftPlanDialog";
 import { GiftClaimDialog } from "@/components/GiftClaimDialog";
+import { PlanUnlockPopup } from "@/components/PlanUnlockGuide";
 import { NotSoldInAppNotice } from "@/components/NotSoldInApp";
 import { useSellsHere } from "@/lib/storePolicy";
 import { ThemeEditorDialog } from "@/components/ThemeEditorDialog";
@@ -76,6 +77,8 @@ const customPopups: Record<string, ComponentType> = {
   cosmetics_store: CosmeticsStoreDialog as ComponentType,
   gift_plan: notInIOSApp(GiftPlanDialog as ComponentType<Record<string, unknown>>),
   gift_claim: notInIOSApp(GiftClaimDialog as ComponentType<Record<string, unknown>>),
+  // What a plan that just arrived unlocked — see components/PlanUnlockGuide.
+  plan_unlocks: PlanUnlockPopup as ComponentType,
   theme_editor: ThemeEditorDialog as ComponentType,
   theme_hub: ThemeHubDialog as ComponentType,
   room_theme: RoomThemePicker as ComponentType,

@@ -14,6 +14,8 @@ import { PlanBand, planTone, PLAN_TONE_BUTTON } from "@/components/PlanBand";
 import { planIcon } from "@/components/planIcons";
 import { PurchaseCelebration, type CelebrationFace } from "@/components/PurchaseCelebration";
 import { PurchaseHappyArt } from "@/components/PurchaseHappyArt";
+import { PlanUnlockInline } from "@/components/PlanUnlockGuide";
+import { useUnlockGuideHost } from "@/lib/planUnlockGuide";
 import { UserAvatar } from "@/components/UserAvatar";
 import { planTierOf, verifiedBadge } from "@/lib/entitlements";
 import type { PixCharge } from "@/lib/premiumApi";
@@ -195,6 +197,9 @@ export function PixChargeContent({
   }, [checking]);
 
   useShake(() => rootRef.current?.closest("[role='dialog'], [data-popup-id]"), holding || checking);
+  // The account can refresh before the "paid" screen renders: the unlock
+  // guide is this dialog's to show, not the layout watcher's.
+  useUnlockGuideHost(!confirmation?.gift);
 
   return (
     <div ref={rootRef}>
@@ -325,6 +330,11 @@ export function PurchasePaidScreen({
         )}
 
         <p className="mt-5 text-center text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
+
+        {/* What the plan just opened, and where each thing lives (experiment
+            plan-unlock-guide). Their own plan only: a present's perks belong
+            to somebody else. */}
+        {confirmation && !gift && <PlanUnlockInline planId={confirmation.planId} onNavigate={onClose} />}
 
         {extra && <div className="mt-4 w-full text-left">{extra}</div>}
 

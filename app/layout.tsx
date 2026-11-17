@@ -20,6 +20,7 @@ import { GiftNotifier } from "@/components/GiftNotifier";
 import { ThemeLikeNotifier } from "@/components/ThemeLikeNotifier";
 import { ProfileCommentNotifier } from "@/components/ProfileCommentNotifier";
 import { GiftClaimHost } from "@/components/GiftClaimHost";
+import { PlanUnlockWatcher } from "@/components/PlanUnlockGuide";
 import { DmNotifier } from "@/components/DmNotifier";
 import { DesktopUnreadFlash } from "@/components/DesktopUnreadFlash";
 import { GroupNotifier } from "@/components/GroupNotifier";
@@ -378,6 +379,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {/* Opens the present somebody arrived holding — see /gift/[code],
                     which redirects here with the code on the URL. */}
                 <GiftClaimHost />
+                {/* The "what you unlocked" guide for a plan that arrived with no
+                    confirmation screen to show it (experiment plan-unlock-guide). */}
+                <PlanUnlockWatcher />
                 <DmNotifier />
                 {/* Keeps the desktop app's taskbar entry flashing while the
                     bell has anything unread. Renders nothing. */}

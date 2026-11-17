@@ -63,6 +63,7 @@ export const PRO_SOURCES = [
   "workshop", // workshop page
   "gift_notice", // "you got a plan" notification
   "gift_dialog", // gift dialog's link to the full page
+  "unlock_guide", // "ainda dá para ir além" in the plan unlock guide
   "cancel_page", // back from the cancel page
   "pix_recover", // "your Pix expired" push or card (lib/billingRescue)
   "renewal_rescue", // "your card was refused" push or card (lib/billingRescue)

@@ -81,7 +81,7 @@ import {
   type ComparisonRow,
 } from "./PlanComparison";
 import { ProCardsHero, ProCardsTable, ProEveryPlan, ProPlanCards } from "./ProCardsLayout";
-import { translate } from "@/lib/i18n";
+import { FEATURE_LABELS, formatUploadLimit } from "@/lib/planPerks";
 import { formatLocale } from "@/lib/i18n";
 
 // The Pro subscription page: what it costs, what it unlocks, and the one
@@ -101,56 +101,11 @@ import { formatLocale } from "@/lib/i18n";
 // document: changing what premium costs is an edit to one row, and every
 // surface that quotes a price follows.
 
-/** An upload limit in MiB, as people say it: "100 MB", or "1 GB" from 1024 up. */
 /** The feature's key in the admin panel. Target: user. */
 const PRO_SUB_HIGHLIGHT_FEATURE = "pro-sub-highlight";
 
-function formatUploadLimit(mb: number): string {
-  if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
-  return `${mb} MB`;
-}
-
-// What each entitlement is called in front of a person. Keys come from
-// lib/entitlements.ts; a feature with no entry here still counts and is
-// simply not listed, which is the right behaviour for a client that predates
-// a perk the server already grants.
-// Every gated feature needs a line here, and the failure when one is missing
-// is silent: the row below drops anything it cannot name, so a perk the plan
-// really grants simply never appears on the page selling it. That is what
-// happened to the two avatar features — added to the ladder, never given a
-// sentence.
-const FEATURE_LABELS: Partial<Record<Feature, string>> = {
-  get verified_badge() { return translate("pro.proPanel.beVerifiedAndGetAnAuthenticity"); },
-  get quality_2160p() { return translate("pro.proPanel.broadcastInUpTo4k2160p"); },
-  get quality_1440p() { return translate("pro.proPanel.broadcastIn2k1440p"); },
-  get fps_120() { return translate("pro.proPanel.upTo240FramesPerSecond"); },
-  get bitrate_maximo() { return translate("pro.proPanel.bitrateOfUpTo32Mbps"); },
-  get no_ads() { return translate("pro.proPanel.browseWithNoAds"); },
-  get avatar_gallery() { return translate("pro.proPanel.exclusiveAvatarsForYourProfilePicture"); },
-  get avatar_upload() { return translate("pro.proPanel.useAnyImageOfYoursAs"); },
-  get avatar_shape() { return translate("pro.proPanel.chooseYourAvatarShape"); },
-  get banner_upload() { return translate("pro.proPanel.uploadYourOwnProfileBanner"); },
-  get profile_gradient() { return translate("pro.proPanel.chooseYourProfileSBackgroundColours"); },
-  get profile_song() { return translate("pro.proPanel.putASongOnYourProfile"); },
-  get profile_group() { return translate("pro.proPanel.showAGroupOnYourProfile"); },
-  get profile_links() { return translate("pro.proPanel.linkYourSocialNetworksOnYour"); },
-  get room_theme() { return translate("pro.proPanel.createThemesAndGiveRoomsYour"); },
-  get room_theme_publish() { return translate("pro.proPanel.publishYourThemesOnDiscoverFor"); },
-  get camera_effect_publish() { return translate("pro.proPanel.publishCameraEffects"); },
-  get camera_effect_others() { return translate("pro.proPanel.putEffectsOnOthers"); },
-  get room_theme_set() { return translate("pro.proPanel.changeTheThemeOfAnyRoom"); },
-  get uncapped_relay() { return translate("pro.proPanel.noQualityLimitOnRelayedConnections"); },
-  get force_relay() { return translate("pro.proPanel.hideYourIpFromEveryoneInA"); },
-  get dedicated_turn() { return translate("pro.proPanel.dedicatedTurn"); },
-  get room_theme_gradient() { return translate("pro.proPanel.useAGradientInYourThemes"); },
-  get clip_no_watermark() { return translate("pro.proPanel.clipWithoutWatermark"); },
-  get call_transcript() { return translate("pro.proPanel.transcribeYourCalls"); },
-  get live_translation() { return translate("pro.proPanel.liveTranslation"); },
-  // The room's tools, one row per rung (see lib/roomTools.ts's TOOL_FEATURES).
-  get room_tools_tasks() { return translate("pro.proPanel.roomToolsTasks"); },
-  get room_tools_text() { return translate("pro.proPanel.roomToolsText"); },
-  get room_tools_draw() { return translate("pro.proPanel.roomToolsDraw"); },
-};
+// What each entitlement is called: lib/planPerks.ts, shared with the unlock
+// guide that explains a plan right after it is bought.
 
 // The perks about the broadcast itself — what GoLive is for — which the
 // comparison table lists before everything else.

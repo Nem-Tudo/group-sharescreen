@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MdClose, MdLock } from "react-icons/md";
 import { PurchasePaidScreen, type PurchaseConfirmation } from "@/components/PixChargeModal";
+import { useUnlockGuideHost } from "@/lib/planUnlockGuide";
 import { trackFeatureEvent } from "@/lib/features";
 import type { InlineCheckout } from "@/lib/premiumApi";
 import {
@@ -81,6 +82,8 @@ function CheckoutDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useShake(() => dialogRef.current, shaking);
+  // The paid screen shows the unlock guide itself (see lib/planUnlockGuide).
+  useUnlockGuideHost(!confirmation?.gift);
   useEffect(
     () => () => {
       if (revealTimer.current) clearTimeout(revealTimer.current);

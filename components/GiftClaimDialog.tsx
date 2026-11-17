@@ -7,6 +7,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { PlanBand, planTone, PLAN_TONE_BUTTON } from "@/components/PlanBand";
 import { UserAvatar } from "@/components/UserAvatar";
 import { planIcon } from "@/components/planIcons";
+import { PlanUnlockInline } from "@/components/PlanUnlockGuide";
 import { useAuth } from "@/lib/AuthContext";
 import { accountTierOf, planTierOf, tierAbove, verifiedBadge } from "@/lib/entitlements";
 import {
@@ -16,6 +17,7 @@ import {
   type RedeemFailure,
 } from "@/lib/premiumApi";
 import { useT } from "@/lib/useI18n";
+import { useUnlockGuideHost } from "@/lib/planUnlockGuide";
 import { formatLocale } from "@/lib/i18n";
 
 // "Você recebeu um presente."
@@ -93,6 +95,9 @@ export function GiftClaimDialog({
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<RedeemFailure | null>(null);
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
+  // Redeeming refreshes the account under this dialog: the unlock guide is
+  // drawn here, in the "resgatado" state, not by the layout's watcher.
+  useUnlockGuideHost(true);
 
   useEffect(() => {
     if (!code) return;
@@ -326,10 +331,14 @@ export function GiftClaimDialog({
                       ? t("giftClaimDialog.itIsAllYoursUntilValue", { value: periodEndLabel(state.until) })
                       : t("giftClaimDialog.itIsAllYoursEnjoy")}
                   </p>
+                  {/* What it opened, and where (experiment plan-unlock-guide). */}
+                  <div className="w-full">
+                    <PlanUnlockInline planId={gift.planId} onNavigate={() => closePopup(true)} />
+                  </div>
                   <button
                     type="button"
                     onClick={() => closePopup(true)}
-                    className="mt-1 w-full rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                    className="mt-3 w-full rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                   >
                     {t("giftClaimDialog.startUsingIt")}
                   </button>
