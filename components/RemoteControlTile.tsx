@@ -36,6 +36,7 @@ import {
 } from "react-icons/md";
 import Tippy from "@tippyjs/react";
 import { Tooltip } from "@/components/Tooltip";
+import { isMobileApp } from "@/lib/desktop";
 import { useTileExperimentTip } from "@/lib/clipsMode";
 import { containRect } from "@/components/roomTools/AnnotationLayer";
 import { useT } from "@/lib/useI18n";
@@ -1322,6 +1323,11 @@ export function RemoteControlDockButton({
       </>
     );
   };
+
+  // The phone apps: a phone can never be controlled, nor ask (no mouse), so
+  // the switch could only ever open a dialog sending them to download the
+  // Windows app. Nothing to offer here outside a session.
+  if (isMobileApp() && !inSession) return null;
 
   // Taking requests here: the switch, on, whoever else is in the room.
   if (allowOn && hostBlock === null) return allowButton(true);

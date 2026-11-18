@@ -7,7 +7,7 @@ import { trackEvent, trackDownloadClick } from "@/lib/analytics";
 import { DownloadIcon, ShareIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
-import { isDesktopApp } from "@/lib/desktop";
+import { isAppShell } from "@/lib/desktop";
 import { detectDownloadPlatform, type DownloadPlatform } from "@/lib/downloadTargets";
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
@@ -61,9 +61,11 @@ export function InstallAppButton() {
 
   useEffect(() => {
     if (isStandaloneDisplay()) return;
-    // Inside the Electron build already — offering to install it would be
-    // offering something the person is looking at.
-    if (isDesktopApp()) return;
+    // Inside any of the apps already (desktop, Android, iOS) — offering to
+    // install it would be offering something the person is looking at. The
+    // iOS one matters most: its web view reads as iPhone Safari, which is
+    // exactly who the "Adicionar à Tela de Início" hint is for.
+    if (isAppShell()) return;
     try {
       if (window.localStorage.getItem(DISMISSED_STORAGE_KEY) === "true") return;
     } catch {

@@ -599,7 +599,6 @@
   "admin.features.platform.desktop-browser": "Navegador (PC)",
   "admin.features.platform.desktop-app": "App desktop",
   "admin.features.platform.mobile-browser": "Navegador (celular)",
-  "admin.features.platform.mobile-app": "App Android",
   "admin.features.serverOnlyLabel": "Só no servidor (não é enviada ao site)",
   "admin.features.siteEvents": "Eventos do site",
   "admin.features.data": "Dados do experiment",
@@ -986,7 +985,6 @@
   "androidScreenCapture.couldNotPrepareTheScreenCapture": "Não foi possível preparar a captura de tela.",
   "androidScreenCapture.couldNotStartTheScreenCapture": "Não foi possível iniciar a captura de tela.",
   "androidScreenCapture.screenSharingCancelled": "Compartilhamento de tela cancelado.",
-  "announcement.appMobile": "App (celular)",
   "announcement.appPc": "App (PC)",
   "announcement.browserMobile": "Navegador (celular)",
   "announcement.browserPc": "Navegador (PC)",
@@ -6174,5 +6172,11 @@
   "iosScreen.couldNotStart": "Não foi possível começar a compartilhar a tela. Tente de novo.",
   "iosScreen.notAllowedInRoom": "Esta sala não permite que você compartilhe a tela.",
   "iosScreen.banned": "Você não pode compartilhar a tela agora.",
-  "notificationSettings.kindFriendLive": "Amigos ao vivo (card na ilha e na tela bloqueada)"
+  "notificationSettings.kindFriendLive": "Amigos ao vivo (card na ilha e na tela bloqueada)",
+  "admin.features.platform.android-app": "App Android",
+  "admin.features.platform.ios-app": "App iOS",
+  "announcement.appAndroid": "App Android",
+  "announcement.appIos": "App iOS (iPhone)",
+  "admin.features.platform.mobile-app": "Apps de celular (Android e iOS)",
+  "announcement.appMobile": "Apps de celular (Android e iOS)"
 }

@@ -3,7 +3,7 @@
 // so both sides agree on the shape and the color→CSS mapping never drifts
 // between the admin's preview and what real visitors actually see.
 
-import { isDesktopApp, isMobileApp } from "./desktop";
+import { isDesktopApp, isMobileApp, mobileAppOS } from "./desktop";
 import { translate } from "@/lib/i18n";
 
 export type AnnouncementColor = "green" | "red" | "blue";
@@ -18,22 +18,25 @@ export type AnnouncementSound = "always" | "live-only" | "off";
 // Which kinds of client a banner is meant for. Mirrors
 // server/signaling.ts's AnnouncementDevice.
 //
-// "mobile-app" is the Android shell (see lib/capacitorBridge.ts), reported by
-// currentAnnouncementDevice() below. It was defined and selectable for a long
-// time before anything reported it, on the reasoning that the day a native
-// build shipped the only change needed would be in that function — which is
-// how it turned out.
+// "android-app" and "ios-app" are the two phone shells (Capacitor — see
+// lib/capacitorBridge.ts), each reported by currentAnnouncementDevice() below;
+// "mobile-app" targets both at once. Same buckets as a feature's platforms
+// (lib/features.ts).
 export type AnnouncementDevice =
   | "desktop-browser"
   | "desktop-app"
   | "mobile-browser"
-  | "mobile-app";
+  | "mobile-app"
+  | "android-app"
+  | "ios-app";
 
 export const ANNOUNCEMENT_DEVICES: AnnouncementDevice[] = [
   "desktop-browser",
   "desktop-app",
   "mobile-browser",
   "mobile-app",
+  "android-app",
+  "ios-app",
 ];
 
 export const ANNOUNCEMENT_DEVICE_LABELS: Record<AnnouncementDevice, string> = {
@@ -41,6 +44,8 @@ export const ANNOUNCEMENT_DEVICE_LABELS: Record<AnnouncementDevice, string> = {
   get "desktop-app"() { return translate("announcement.appPc"); },
   get "mobile-browser"() { return translate("announcement.browserMobile"); },
   get "mobile-app"() { return translate("announcement.appMobile"); },
+  get "android-app"() { return translate("announcement.appAndroid"); },
+  get "ios-app"() { return translate("announcement.appIos"); },
 };
 
 export type Announcement = {
@@ -187,13 +192,16 @@ export function isMobileDevice(): boolean {
  * connection at register time and the Android bridge does not exist yet at
  * that moment — see isMobileApp() in lib/desktop.ts.
  *
- * Note that an installed PWA is deliberately *not* "mobile-app": it is the
+ * Note that an installed PWA is deliberately *not* one of the apps: it is the
  * same website in a chrome-less window, indistinguishable to everything else
  * in this codebase, and calling it an app here would mean "App (celular)"
  * silently targeting people who never installed anything of the sort.
  */
 export function currentAnnouncementDevice(): AnnouncementDevice {
-  if (isMobileDevice()) return isMobileApp() ? "mobile-app" : "mobile-browser";
+  if (isMobileDevice()) {
+    if (!isMobileApp()) return "mobile-browser";
+    return mobileAppOS() === "ios" ? "ios-app" : "android-app";
+  }
   return isDesktopApp() ? "desktop-app" : "desktop-browser";
 }
 
@@ -211,5 +219,7 @@ export function announcementTargetsDevice(
 ): boolean {
   const devices = announcement.devices;
   if (!Array.isArray(devices) || devices.length === 0) return true;
-  return devices.includes(device);
+  if (devices.includes(device)) return true;
+  // "mobile-app" on the banner reaches either phone app.
+  return (device === "android-app" || device === "ios-app") && devices.includes("mobile-app");
 }

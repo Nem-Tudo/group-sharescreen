@@ -1742,7 +1742,13 @@ export async function runAutoFlagRules(): Promise<{ accounts: number; grants: nu
 // Feature rollouts (see the API's featureStore.ts)
 
 export type FeatureTarget = "user" | "room" | "group";
-export type FeaturePlatform = "desktop-browser" | "desktop-app" | "mobile-browser" | "mobile-app";
+export type FeaturePlatform =
+  | "desktop-browser"
+  | "desktop-app"
+  | "mobile-browser"
+  | "mobile-app"
+  | "android-app"
+  | "ios-app";
 
 export interface FeatureOverride {
   id: string;

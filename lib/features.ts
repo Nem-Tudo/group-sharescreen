@@ -32,7 +32,24 @@ import { useAuth } from "./AuthContext";
 // setLocalFeatureOverride).
 
 export type FeatureTarget = "user" | "room" | "group";
-export type FeaturePlatform = "desktop-browser" | "desktop-app" | "mobile-browser" | "mobile-app";
+/**
+ * Where a feature can be limited to. "mobile-app" is both phone apps at once;
+ * "android-app" and "ios-app" are each alone. The site always reports the
+ * specific one, and platformListAllows lets "mobile-app" take either.
+ */
+export type FeaturePlatform =
+  | "desktop-browser"
+  | "desktop-app"
+  | "mobile-browser"
+  | "mobile-app"
+  | "android-app"
+  | "ios-app";
+
+/** Whether a feature limited to `list` reaches `platform` — "mobile-app" standing for both apps. */
+export function platformListAllows(list: readonly FeaturePlatform[], platform: FeaturePlatform): boolean {
+  if (list.includes(platform)) return true;
+  return (platform === "android-app" || platform === "ios-app") && list.includes("mobile-app");
+}
 
 export interface PublicFeature {
   key: string;
@@ -227,7 +244,7 @@ export function decideFeature(
       }
     }
   }
-  if (feature.platforms.length > 0 && (!context.platform || !feature.platforms.includes(context.platform))) {
+  if (feature.platforms.length > 0 && (!context.platform || !platformListAllows(feature.platforms, context.platform))) {
     return { variant: null, group: null, reason: "ineligible" };
   }
 

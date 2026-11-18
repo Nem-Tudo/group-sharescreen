@@ -51,7 +51,15 @@ const primaryClass =
   "rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
 const cardClass = "rounded-lg border border-zinc-200 p-3 dark:border-zinc-800";
 
-const PLATFORMS: FeaturePlatform[] = ["desktop-browser", "desktop-app", "mobile-browser", "mobile-app"];
+// "mobile-app" is both phone apps; "android-app" / "ios-app" each alone.
+const PLATFORMS: FeaturePlatform[] = [
+  "desktop-browser",
+  "desktop-app",
+  "mobile-browser",
+  "mobile-app",
+  "android-app",
+  "ios-app",
+];
 const STAGES = [0, 1, 5, 10, 25, 50, 100];
 
 function percent(bp: number): string {

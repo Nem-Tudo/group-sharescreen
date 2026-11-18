@@ -593,6 +593,16 @@ export async function armSavedShareSource(): Promise<boolean> {
  * name box. One question, asked in one place, so a third shell is one line
  * here rather than a hunt through the screens.
  */
+/**
+ * Which phone app this is — "ios" or "android" — or null outside them. What
+ * reports "ios-app" or "android-app" for feature and announcement targeting
+ * (see lib/announcement.ts's currentAnnouncementDevice).
+ */
+export function mobileAppOS(): "ios" | "android" | null {
+  if (!isMobileApp()) return null;
+  return Capacitor.getPlatform() === "ios" ? "ios" : "android";
+}
+
 export function isAppShell(): boolean {
   return isDesktopApp() || isMobileApp();
 }

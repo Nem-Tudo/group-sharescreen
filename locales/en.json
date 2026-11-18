@@ -599,7 +599,6 @@
   "admin.features.platform.desktop-browser": "Browser (desktop)",
   "admin.features.platform.desktop-app": "Desktop app",
   "admin.features.platform.mobile-browser": "Browser (mobile)",
-  "admin.features.platform.mobile-app": "Android app",
   "admin.features.serverOnlyLabel": "Server only (not sent to the site)",
   "admin.features.siteEvents": "Site events",
   "admin.features.data": "Experiment data",
@@ -986,7 +985,6 @@
   "androidScreenCapture.couldNotPrepareTheScreenCapture": "Could not prepare the screen capture.",
   "androidScreenCapture.couldNotStartTheScreenCapture": "Could not start the screen capture.",
   "androidScreenCapture.screenSharingCancelled": "Screen sharing cancelled.",
-  "announcement.appMobile": "App (mobile)",
   "announcement.appPc": "App (PC)",
   "announcement.browserMobile": "Browser (mobile)",
   "announcement.browserPc": "Browser (PC)",
@@ -6174,5 +6172,11 @@
   "iosScreen.couldNotStart": "Couldn't start sharing your screen. Try again.",
   "iosScreen.notAllowedInRoom": "This room doesn't let you share your screen.",
   "iosScreen.banned": "You can't share your screen right now.",
-  "notificationSettings.kindFriendLive": "Friends going live (card on the island and lock screen)"
+  "notificationSettings.kindFriendLive": "Friends going live (card on the island and lock screen)",
+  "admin.features.platform.android-app": "Android app",
+  "admin.features.platform.ios-app": "iOS app",
+  "announcement.appAndroid": "Android app",
+  "announcement.appIos": "iOS app (iPhone)",
+  "admin.features.platform.mobile-app": "Phone apps (Android and iOS)",
+  "announcement.appMobile": "Phone apps (Android and iOS)"
 }

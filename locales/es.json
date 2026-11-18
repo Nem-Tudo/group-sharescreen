@@ -599,7 +599,6 @@
   "admin.features.platform.desktop-browser": "Navegador (PC)",
   "admin.features.platform.desktop-app": "App de escritorio",
   "admin.features.platform.mobile-browser": "Navegador (móvil)",
-  "admin.features.platform.mobile-app": "App Android",
   "admin.features.serverOnlyLabel": "Solo en el servidor (no se envía al sitio)",
   "admin.features.siteEvents": "Eventos del sitio",
   "admin.features.data": "Datos del experimento",
@@ -986,7 +985,6 @@
   "androidScreenCapture.couldNotPrepareTheScreenCapture": "No se pudo preparar la captura de pantalla.",
   "androidScreenCapture.couldNotStartTheScreenCapture": "No se pudo iniciar la captura de pantalla.",
   "androidScreenCapture.screenSharingCancelled": "Compartir pantalla cancelado.",
-  "announcement.appMobile": "App (móvil)",
   "announcement.appPc": "App (PC)",
   "announcement.browserMobile": "Navegador (móvil)",
   "announcement.browserPc": "Navegador (PC)",
@@ -6175,5 +6173,11 @@
   "iosScreen.couldNotStart": "No se pudo empezar a compartir la pantalla. Inténtalo de nuevo.",
   "iosScreen.notAllowedInRoom": "Esta sala no te permite compartir la pantalla.",
   "iosScreen.banned": "No puedes compartir la pantalla ahora.",
-  "notificationSettings.kindFriendLive": "Amigos en vivo (tarjeta en la isla y la pantalla bloqueada)"
+  "notificationSettings.kindFriendLive": "Amigos en vivo (tarjeta en la isla y la pantalla bloqueada)",
+  "admin.features.platform.android-app": "App Android",
+  "admin.features.platform.ios-app": "App iOS",
+  "announcement.appAndroid": "App Android",
+  "announcement.appIos": "App iOS (iPhone)",
+  "admin.features.platform.mobile-app": "Apps de celular (Android e iOS)",
+  "announcement.appMobile": "Apps de celular (Android e iOS)"
 }
