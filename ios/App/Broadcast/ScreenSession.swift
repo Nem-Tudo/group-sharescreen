@@ -248,11 +248,15 @@ final class ScreenSession: NSObject {
         send(reply)
     }
 
+    /// Returns at once. Closing every viewer's connection can take seconds
+    /// (WebRTC closes them one by one), and the caller is iOS waiting to call
+    /// the broadcast over — the system sheet spun until it was. The block
+    /// keeps this object alive until the teardown is done.
     func stop() {
-        queue.sync {
-            guard !ended else { return }
-            ended = true
-            teardown()
+        queue.async {
+            guard !self.ended else { return }
+            self.ended = true
+            self.teardown()
         }
     }
 
@@ -266,6 +270,9 @@ final class ScreenSession: NSObject {
     }
 
     private func teardown() {
+        // Said before the socket goes, so the room drops this screen at once
+        // rather than after the server's hold on a vanished connection.
+        if joined { send(["type": "leave"]) }
         live = false
         removePreview()
         heartbeat?.cancel()
