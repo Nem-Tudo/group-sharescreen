@@ -191,7 +191,7 @@ SCREEN SHARING
 Sharing your own screen is not available on iPhone (WKWebView has no screen capture). On iPhone you join rooms, watch what others share, and talk by voice, camera and chat. The app description says so.
 
 BACKGROUND AUDIO
-The "audio" background mode keeps the call's audio playing when the app goes to the background during a call.
+The "audio" and "voip" background modes keep a call going when the app goes to the background: while the person is in a room, the app reports it to CallKit as an ongoing call, so they keep talking and hearing the room from other apps or the lock screen.
 ```
 
 ---
