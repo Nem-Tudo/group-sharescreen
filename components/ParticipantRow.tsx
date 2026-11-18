@@ -14,13 +14,11 @@ import {
   SpeakerMuteIcon,
 } from "./icons";
 import {
-  MdOutlineDesktopWindows,
   MdOutlineOndemandVideo,
-  MdOutlineSmartphone,
   MdBackHand,
   MdHandyman,
 } from "react-icons/md";
-import { FaAndroid, FaApple, FaCrown, FaLinux, FaWindows } from "react-icons/fa";
+import { FaAndroid, FaApple, FaCrown, FaWindows } from "react-icons/fa";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { UserAvatar } from "./UserAvatar";
@@ -474,10 +472,12 @@ export const ParticipantRow = memo(function ParticipantRow({
 });
 
 /**
- * The app badge: the device (a phone or a computer) with the logo of its
- * system drawn inside its screen. The phone and the computer are the same fact
- * about a person, so they share the size and colour; the logo only says which.
- * Without a known system it is the bare device, as before.
+ * The app badge: the device — a phone or a computer, drawn here as outlines
+ * with an empty screen — and the logo of its system inside that screen. The
+ * stock icons both had something on their screens already (a window, a
+ * button), and a logo on top of that read as a smudge at 16 px. The phone and
+ * the computer are the same fact about a person, so they share size and
+ * colour; without a known system it is the bare device, as before.
  */
 function AppDeviceIcon({
   device,
@@ -486,19 +486,33 @@ function AppDeviceIcon({
   device: "phone" | "pc";
   os: "ios" | "android" | "windows" | "macos" | "linux" | null;
 }) {
-  const Device = device === "phone" ? MdOutlineSmartphone : MdOutlineDesktopWindows;
   const Logo =
-    os === "ios" || os === "macos" ? FaApple : os === "android" ? FaAndroid : os === "windows" ? FaWindows : os === "linux" ? FaLinux : null;
+    os === "ios" || os === "macos" ? FaApple : os === "android" ? FaAndroid : os === "windows" ? FaWindows : null;
   return (
-    <span className="relative flex h-4 w-4 shrink-0 items-center justify-center text-indigo-500 dark:text-indigo-400">
-      <Device className="h-4 w-4" />
-      {Logo && (
-        // Centred on the screen of each outline: the phone's sits a hair
-        // above its middle, the monitor's well above (its stand is below).
-        <Logo
-          className={`absolute left-1/2 -translate-x-1/2 ${device === "phone" ? "top-[4px] h-[7px] w-[7px]" : "top-[3px] h-[6px] w-[6px]"}`}
-        />
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden className="h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-400">
+      {device === "phone" ? (
+        <>
+          <rect x="3.4" y="0.9" width="9.2" height="14.2" rx="2.1" stroke="currentColor" strokeWidth="1.4" />
+          {Logo && <Logo x={4.9} y={4.9} size={6.2} />}
+        </>
+      ) : (
+        <>
+          <rect x="0.9" y="1.7" width="14.2" height="9.6" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
+          <path d="M8 11.3v2.4M4.8 14.3h6.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          {Logo && <Logo x={5.1} y={3.6} size={5.8} />}
+          {/* Linux: a terminal prompt rather than Tux, whose outline drawing
+              turns into a smudge at this size. */}
+          {os === "linux" && (
+            <path
+              d="M4.4 4.6l2.3 1.9-2.3 1.9M7.9 8.5h3.6"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+        </>
       )}
-    </span>
+    </svg>
   );
 }
