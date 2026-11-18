@@ -277,7 +277,9 @@ function startPipeline(id, readable, writable, turns) {
     reactions: [],
     hands: [],
     handTick: 0,
-    handState: { thumbFrames: 0, lastThumb: 0, lastClap: 0, apartAt: 0, pair: null },
+    // `poses`: per held hand pose (see HAND_POSES), how many looks in a row it
+    // has been seen and when it last fired.
+    handState: { poses: {}, lastClap: 0, apartAt: 0, pair: null },
     render3dFailed: false,
     warpFailed: false,
     missed: 0,
@@ -1459,7 +1461,8 @@ function drawPartyHat(ctx, f) {
 //   head (its pose, from the 3D points): nod → ✅, shake → ❌, face raised →
 //   confetti
 //   hands (MediaPipe's hand landmarker, loaded only with the switch on):
-//   clap → 👏 and confetti, thumbs up → 👍
+//   clap → 👏 and confetti, thumbs up → 👍, thumbs down → 👎, middle finger
+//   → 🖕, OK sign → 👌
 //
 // No tongue: MediaPipe's tongueOut blendshape was never trained and stays at 0.
 
@@ -1732,7 +1735,7 @@ function spawnReactions(p, face, index, now) {
 }
 
 // ---------------------------------------------------------------------------
-// Hands, for the claps and the thumbs up. Indices are MediaPipe's hand
+// Hands, for the claps and the held poses. Indices are MediaPipe's hand
 // landmarks: 0 the wrist, 2/4 the base and tip of the thumb, 5/9/13/17 the
 // knuckles, 6/10/14/18 the middle joints and 8/12/16/20 the fingertips.
 
@@ -1750,33 +1753,92 @@ function handSize(hand) {
   return dist(hand[0], hand[9]) || 1;
 }
 
+// A finger curled in: its tip no further from the wrist than its middle joint.
+function folded(hand, tip, joint) {
+  return dist(hand[tip], hand[0]) < dist(hand[joint], hand[0]) * 1.05;
+}
+
+// A finger held out straight: its tip clearly further from the wrist than its
+// middle joint.
+function extended(hand, tip, joint) {
+  return dist(hand[tip], hand[0]) > dist(hand[joint], hand[0]) * 1.15;
+}
+
+const FOUR_FINGERS = [[8, 6], [12, 10], [16, 14], [20, 18]];
+
 function thumbsUp(hand) {
   const size = handSize(hand);
-  const folded = [[8, 6], [12, 10], [16, 14], [20, 18]].every(
-    ([tip, joint]) => dist(hand[tip], hand[0]) < dist(hand[joint], hand[0]) * 1.05
-  );
-  if (!folded) return false;
+  if (!FOUR_FINGERS.every(([tip, joint]) => folded(hand, tip, joint))) return false;
   if (hand[4].y > hand[2].y - 0.5 * size) return false;
   return hand.every((q, i) => i === 3 || i === 4 || q.y > hand[4].y);
+}
+
+// The same fist, upside down: the thumb's tip the lowest point of the hand.
+function thumbsDown(hand) {
+  const size = handSize(hand);
+  if (!FOUR_FINGERS.every(([tip, joint]) => folded(hand, tip, joint))) return false;
+  if (hand[4].y < hand[2].y + 0.5 * size) return false;
+  return hand.every((q, i) => i === 3 || i === 4 || q.y < hand[4].y);
+}
+
+// Only the middle finger out, pointing up; the thumb may be tucked or not,
+// people hold it either way.
+function middleFinger(hand) {
+  const size = handSize(hand);
+  if (!extended(hand, 12, 10)) return false;
+  if (!folded(hand, 8, 6) || !folded(hand, 16, 14) || !folded(hand, 20, 18)) return false;
+  // Pointing up, and standing well clear of the curled ones.
+  if (hand[12].y > hand[0].y - 0.9 * size) return false;
+  return hand[12].y < Math.min(hand[8].y, hand[16].y, hand[20].y) - 0.35 * size;
+}
+
+// Thumb and index tips touching in a ring, the other three held out.
+function okSign(hand) {
+  const size = handSize(hand);
+  if (dist(hand[4], hand[8]) > 0.35 * size) return false;
+  return extended(hand, 12, 10) && extended(hand, 16, 14) && extended(hand, 20, 18);
+}
+
+// The poses a hand holds to say something. Each one fires its emoji once it
+// has been seen for two looks in a row — a hand passing through the shape
+// does not count — and then rests for `cooldown` ms. `from` is the landmark
+// the emoji comes out of; `fall` sends it downwards (a thumbs down sinks).
+const HAND_POSES = [
+  { name: "thumbs", test: thumbsUp, char: "👍", from: 4 },
+  { name: "thumbs_down", test: thumbsDown, char: "👎", from: 4, fall: true },
+  { name: "middle_finger", test: middleFinger, char: "🖕", from: 12 },
+  { name: "ok", test: okSign, char: "👌", from: 8 },
+];
+const POSE_COOLDOWN_MS = 1200;
+
+function poseReactions(p, now) {
+  const st = p.handState;
+  for (const pose of HAND_POSES) {
+    const seen = st.poses[pose.name] || (st.poses[pose.name] = { frames: 0, last: 0 });
+    const hand = p.hands.find(pose.test);
+    if (!hand) {
+      seen.frames = 0;
+      continue;
+    }
+    seen.frames += 1;
+    if (seen.frames !== 2 || now - seen.last <= POSE_COOLDOWN_MS) continue;
+    seen.last = now;
+    const size = handSize(hand);
+    const at = hand[pose.from];
+    if (pose.fall) {
+      emoji(p, pose.char, at.x, at.y + 0.4 * size, 0.9 * size, { vy: 0.4 * size });
+    } else {
+      emoji(p, pose.char, at.x, at.y - 0.4 * size, 0.9 * size, { vy: -0.4 * size });
+    }
+    report(pose.name);
+  }
 }
 
 function handReactions(p, now) {
   const st = p.handState;
   const hands = p.hands;
 
-  const thumb = hands.find(thumbsUp);
-  if (thumb) {
-    st.thumbFrames += 1;
-    // Held for two looks in a row, so a hand passing through the pose does not count.
-    if (st.thumbFrames === 2 && now - st.lastThumb > 1200) {
-      st.lastThumb = now;
-      const size = handSize(thumb);
-      emoji(p, "👍", thumb[4].x, thumb[4].y - 0.4 * size, 0.9 * size, { vy: -0.4 * size });
-      report("thumbs");
-    }
-  } else {
-    st.thumbFrames = 0;
-  }
+  poseReactions(p, now);
 
   const clap = (at, size) => {
     st.lastClap = now;
