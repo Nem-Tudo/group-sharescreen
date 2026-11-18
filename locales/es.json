@@ -6181,5 +6181,9 @@
   "admin.features.platform.mobile-app": "Apps de celular (Android e iOS)",
   "announcement.appMobile": "Apps de celular (Android e iOS)",
   "participantRow.nameIsUsingTheGoliveIos": "{name} está usando la app de Go Live en iPhone",
-  "participantRow.nameIsUsingTheGoliveAndroid": "{name} está usando la app de Go Live en Android"
+  "participantRow.nameIsUsingTheGoliveAndroid": "{name} está usando la app de Go Live en Android",
+  "videoTile.iosScreenSharing": "Estás compartiendo la pantalla del iPhone",
+  "videoTile.iosScreenConnecting": "Empezando a compartir la pantalla…",
+  "videoTile.iosScreenSharingHint": "Quien está en la sala ve todo lo que aparece en tu pantalla, incluso en otras apps.",
+  "videoTile.iosScreenStop": "Dejar de compartir"
 }

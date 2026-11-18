@@ -21,7 +21,7 @@
 // which is only testable on a real phone.
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { isIOSApp } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
 
@@ -36,6 +36,8 @@ export const IOS_BACKGROUND_CALL_EVENTS = {
   systemMute: "ios_call_system_mute",
   /** Ended from the system's controls, which left the room. */
   systemEnd: "ios_call_system_end",
+  /** The system call could not be started (the message is shown in the room). */
+  fail: "ios_call_fail",
 } as const;
 
 interface BackgroundCallPlugin {
@@ -74,10 +76,13 @@ export function useIOSBackgroundCall({
   toggleMic: () => void;
   /** The room's own "Sair". */
   hangUp: () => void;
-}) {
+}): { error: string | null; dismissError: () => void } {
   const available = useSyncExternalStore(noopSubscribe, isAvailable, () => false);
   const enabled = useFeature(IOS_BACKGROUND_CALL_FEATURE, { track: available }).enabled && available;
   const active = enabled && inRoom;
+  // Why the system call did not start, said in the room rather than
+  // swallowed: without it the voice dies in the background with no clue why.
+  const [error, setError] = useState<string | null>(null);
 
   // Read through refs by the listeners, which are set up once per call.
   const micOnRef = useRef(micOn);
@@ -105,9 +110,21 @@ export function useIOSBackgroundCall({
     }).then((h) => (disposed ? void h.remove() : handles.push(h)));
     void BackgroundCall.start({ title, muted: !micOnRef.current })
       .then(({ supported }) => {
-        if (supported) trackFeatureEvent(IOS_BACKGROUND_CALL_EVENTS.start, { feature: IOS_BACKGROUND_CALL_FEATURE });
+        if (disposed) return;
+        if (supported) {
+          setError(null);
+          trackFeatureEvent(IOS_BACKGROUND_CALL_EVENTS.start, { feature: IOS_BACKGROUND_CALL_FEATURE });
+        } else {
+          setError("CallKit indisponível neste aparelho (região).");
+          trackFeatureEvent(IOS_BACKGROUND_CALL_EVENTS.fail, { feature: IOS_BACKGROUND_CALL_FEATURE, value: 1 });
+        }
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        if (disposed) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setError(`Chamada do sistema não iniciou: ${message || "erro desconhecido"}`);
+        trackFeatureEvent(IOS_BACKGROUND_CALL_EVENTS.fail, { feature: IOS_BACKGROUND_CALL_FEATURE, value: 2 });
+      });
     return () => {
       disposed = true;
       handles.forEach((h) => void h.remove());
@@ -122,4 +139,6 @@ export function useIOSBackgroundCall({
     if (!active) return;
     void BackgroundCall.setMuted({ muted: !micOn }).catch(() => {});
   }, [active, micOn]);
+
+  return { error: active ? error : null, dismissError: () => setError(null) };
 }

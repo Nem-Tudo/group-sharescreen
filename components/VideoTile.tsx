@@ -40,7 +40,7 @@ import {
   FlipVerticalIcon,
   ResetIcon,
 } from "@/components/icons";
-import { MdOutlineChat, MdPauseCircleOutline } from "react-icons/md";
+import { MdOutlineChat, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
@@ -1901,6 +1901,46 @@ export function StoppedPeerTile({
       >
         <EyeIcon className="h-5 w-5" />
         {t("videoTile.resumeBroadcast")}
+      </button>
+    </PlaceholderTile>
+  );
+}
+
+// This iPhone's own screen, while its broadcast extension sends it (see
+// lib/iosScreenBroadcast.ts). Not a picture of it: the screen *is* this app
+// while you look at the room, and a mirror of it inside itself would be a
+// hall of mirrors that costs an encoder for nothing. What a computer's own
+// preview tells you — that it is going out, and how to stop it — is said here.
+export function IOSScreenSelfTile({
+  state,
+  message,
+  fill = false,
+  onStop,
+}: {
+  state: "connecting" | "live" | "paused";
+  /** The extension's own words, for "paused" (the ad pause). */
+  message?: string | null;
+  fill?: boolean;
+  onStop: () => void;
+}) {
+  const t = useT();
+  return (
+    <PlaceholderTile fill={fill}>
+      <MdOutlineScreenShare className={`h-8 w-8 ${state === "live" ? "text-emerald-400" : "text-zinc-400"}`} />
+      <div className="flex flex-col items-center justify-center px-4 text-center text-sm">
+        <p className="font-medium text-zinc-100">
+          {state === "connecting" ? t("videoTile.iosScreenConnecting") : t("videoTile.iosScreenSharing")}
+        </p>
+        <p className="mt-0.5 text-zinc-400">
+          {state === "paused" && message ? message : t("videoTile.iosScreenSharingHint")}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onStop}
+        className="flex items-center gap-1.5 rounded-lg bg-red-500/90 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-500"
+      >
+        {t("videoTile.iosScreenStop")}
       </button>
     </PlaceholderTile>
   );

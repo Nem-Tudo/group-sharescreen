@@ -133,7 +133,7 @@ import {
   SoundEffectsToggle,
 } from "@/components/SitePreferenceToggles";
 import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE, useSettingsCallSlot } from "@/lib/settingsHub";
-import { VideoTile, StoppedPeerTile, ResumingPeerTile } from "@/components/VideoTile";
+import { VideoTile, StoppedPeerTile, ResumingPeerTile, IOSScreenSelfTile } from "@/components/VideoTile";
 import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
@@ -2322,7 +2322,7 @@ function WatchRoomView({
   // The iPhone app: while in this room, a system call (CallKit) keeps the app
   // — and so this page's microphone and sound — alive in the background, with
   // the system's mute and hang-up wired to ours. See lib/iosBackgroundCall.ts.
-  useIOSBackgroundCall({
+  const iosCall = useIOSBackgroundCall({
     inRoom: state.room === handle && Boolean(state.name),
     title: group ? group.channelName : dm ? dm.displayName : recentRoomPresentation(handle).name,
     micOn: isMicOn,
@@ -6379,6 +6379,24 @@ function WatchRoomView({
   // (`screen:<id>`, `camera:<id>`), remembered until changed. Both used to share the bare id,
   // so turning somebody's camera down also turned their screen down; that
   // old value is still read as the starting point for either until it is set.
+  // This iPhone sharing its screen through the broadcast extension: its own
+  // tile, where a computer would show its own preview (see IOSScreenSelfTile).
+  if (localScreenVisible && iosScreenActive) {
+    const id = tileId("screen", SELF_TILE_OWNER);
+    const iosState = iosScreen.state === "paused" ? "paused" : iosScreen.state === "live" ? "live" : "connecting";
+    tiles.push({
+      id,
+      render: (fill) => (
+        <IOSScreenSelfTile
+          state={iosState}
+          message={iosScreen.message}
+          fill={fill}
+          onStop={() => void stopIOSScreenBroadcast()}
+        />
+      ),
+    });
+  }
+
   for (const [peerId, stream] of visibleScreenEntries) {
     const peer = state.peers.find((p) => p.id === peerId);
     const volumeKey = `screen:${peer?.userId ?? peerId}`;
@@ -9980,6 +9998,21 @@ function WatchRoomView({
         <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {shareError ?? extraScreenError}
         </p>
+      )}
+      {/* Diagnostic while the iPhone's background voice is being tested: why
+          the system call (CallKit) did not start, word for word from iOS. */}
+      {iosCall.error && (
+        <div className="flex items-start gap-3 bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          <p className="flex-1 break-words">{iosCall.error}</p>
+          <button
+            type="button"
+            onClick={iosCall.dismissError}
+            aria-label={translate("common.close")}
+            className="shrink-0 cursor-pointer px-1 text-base leading-none"
+          >
+            ×
+          </button>
+        </div>
       )}
       {iosScreenOn && iosScreen.state === "error" && iosScreen.message && (
         <div className="flex items-start gap-3 bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
