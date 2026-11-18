@@ -297,19 +297,6 @@ function RemovalGuard({ onRemoved }: { onRemoved: () => void }) {
   return null;
 }
 
-// Refusals that no retry will turn into a join: being banned from the room,
-// the room being full or app-only, and the like. Anything not listed here
-// (rate limits, a captcha, a generic failure) may still go through on its own.
-const FINAL_REFUSALS = new Set([
-  "banned",
-  "full",
-  "app-only",
-  "obs-unauthorized",
-  "streamer-mode-disabled",
-  "device-limit",
-  "name",
-]);
-
 /**
  * Ends a call whose room refused to let this connection in, once nobody is
  * looking at it. A refused join is not a removal — there was never a room to
@@ -333,7 +320,14 @@ function RefusalGuard({
 }) {
   const joinErrorKind = useSignalingSelector(selectJoinErrorKind);
   const room = useSignalingSelector(selectRoom);
-  const refused = joinErrorKind !== null && FINAL_REFUSALS.has(joinErrorKind) && room !== handle;
+  // Any join error, not only the final-sounding ones: every "join-error"
+  // drops the client's desiredRoom (see signalingClient), so nothing retries
+  // it on its own — a refusal of any kind is a call that is not happening.
+  // That includes answering "no" to "você já está nessa sala em outro
+  // dispositivo", which lands here as a generic error and was exactly what
+  // left the bar stuck. The question itself is not an error (joinErrorKind
+  // stays null while it is asked), so a call waiting on it is left alone.
+  const refused = joinErrorKind !== null && room !== handle;
   // Armed only once the error has been clear at least once under this call —
   // which every join does first (see signalingClient's joinRoom). A refusal
   // left over from an earlier room would otherwise end a call started from
