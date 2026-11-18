@@ -1,0 +1,240 @@
+# Builds the iOS app signed Ad Hoc — installable on the iPhones registered in
+# the Apple Developer portal, without the App Store or TestFlight — and
+# publishes it as a pre-release with an over-the-air install link.
+#
+# Runs on a pushed tag named ios-adhoc-<anything>. Not v*, which is what
+# release-desktop.yml publishes; and a pre-release that is never "latest", so
+# the desktop app's updater (which reads the latest release) never sees it.
+#
+# Secrets (made from the files in the Apple Developer portal — see
+# ios/README.md):
+#   IOS_DIST_P12, IOS_DIST_P12_PASSWORD   the Apple Distribution certificate + key
+#   IOS_PROFILE_APP                       Ad Hoc profile for me.nemtudo.golive
+#   IOS_PROFILE_BROADCAST                 … for me.nemtudo.golive.broadcast
+#   IOS_PROFILE_WIDGETS                   … for me.nemtudo.golive.widgets
+#
+# Installing: open the itms-services:// link the last step prints, in Safari on
+# a registered iPhone. A device not in the profiles cannot install it.
+
+name: iOS Ad Hoc build
+
+on:
+  push:
+    tags:
+      - "ios-adhoc-*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-adhoc
+
+env:
+  TEAM_ID: AXW52CZS3K
+
+jobs:
+  build:
+    runs-on: macos-26
+    env:
+      TAG: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the secrets
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          IOS_PROFILE_APP: ${{ secrets.IOS_PROFILE_APP }}
+          IOS_PROFILE_BROADCAST: ${{ secrets.IOS_PROFILE_BROADCAST }}
+          IOS_PROFILE_WIDGETS: ${{ secrets.IOS_PROFILE_WIDGETS }}
+        run: |
+          for name in IOS_DIST_P12 IOS_DIST_P12_PASSWORD IOS_PROFILE_APP IOS_PROFILE_BROADCAST IOS_PROFILE_WIDGETS; do
+            if [ -z "${!name}" ]; then echo "::error::Secret $name is not set"; exit 1; fi
+          done
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt of 3), retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Sync the Capacitor project
+        run: npx cap sync ios
+
+      - name: Install the certificate and the profiles
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          IOS_PROFILE_APP: ${{ secrets.IOS_PROFILE_APP }}
+          IOS_PROFILE_BROADCAST: ${{ secrets.IOS_PROFILE_BROADCAST }}
+          IOS_PROFILE_WIDGETS: ${{ secrets.IOS_PROFILE_WIDGETS }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          kpass="$(uuidgen)"
+          security create-keychain -p "$kpass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kpass" "$keychain"
+          printf '%s' "$IOS_DIST_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -P "$IOS_DIST_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$kpass" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/dist.p12"
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+          dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$dir"
+          install_profile() {
+            local file="$RUNNER_TEMP/$1.mobileprovision"
+            printf '%s' "$2" | base64 --decode > "$file"
+            local uuid
+            uuid="$(security cms -D -i "$file" | plutil -extract UUID raw -)"
+            cp "$file" "$dir/$uuid.mobileprovision"
+            echo "$1_UUID=$uuid" >> "$GITHUB_ENV"
+          }
+          install_profile APP "$IOS_PROFILE_APP"
+          install_profile BROADCAST "$IOS_PROFILE_BROADCAST"
+          install_profile WIDGETS "$IOS_PROFILE_WIDGETS"
+          security find-identity -v -p codesigning "$keychain"
+
+      # Command-line build settings apply to every target at once, and each of
+      # the three needs its own profile — so each target's Release
+      # configuration is pointed at its own, in this checkout only.
+      - name: Point each target at its profile
+        run: |
+          node - <<'EOF'
+          const fs = require("fs");
+          const file = "ios/App/App.xcodeproj/project.pbxproj";
+          let s = fs.readFileSync(file, "utf8");
+          const targets = {
+            "504EC3181FED79650016851F": process.env.APP_UUID,
+            "60A1D000000000000000002E": process.env.BROADCAST_UUID,
+            "60A1D0000000000000000049": process.env.WIDGETS_UUID,
+          };
+          for (const [id, uuid] of Object.entries(targets)) {
+            const start = s.indexOf(`\t\t${id} /* Release */ = {`);
+            if (start < 0 || !uuid) throw new Error(`release config ${id} or its profile missing`);
+            const end = s.indexOf("\n\t\t};", start);
+            let block = s.slice(start, end);
+            block = block
+              .split("\n")
+              .filter((line) => !/^\s*(CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM) =/.test(line))
+              .join("\n")
+              .replace(
+                "buildSettings = {",
+                `buildSettings = {\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = ${process.env.TEAM_ID};\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = ${uuid};`
+              );
+            s = s.slice(0, start) + block + s.slice(end);
+          }
+          fs.writeFileSync(file, s);
+          EOF
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            | tee "$RUNNER_TEMP/archive.log" \
+            | grep -E "error:|warning: .*(provision|sign)|ARCHIVE (SUCCEEDED|FAILED)|\*\* " || true
+          grep -q "ARCHIVE SUCCEEDED" "$RUNNER_TEMP/archive.log"
+
+      - name: Export the .ipa
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>release-testing</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>me.nemtudo.golive</key><string>$APP_UUID</string>
+              <key>me.nemtudo.golive.broadcast</key><string>$BROADCAST_UUID</string>
+              <key>me.nemtudo.golive.widgets</key><string>$WIDGETS_UUID</string>
+            </dict>
+            <key>thinning</key><string>&lt;none&gt;</string>
+            <key>compileBitcode</key><false/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+          mkdir -p "$RUNNER_TEMP/release"
+          mv "$RUNNER_TEMP/export/"*.ipa "$RUNNER_TEMP/release/GoLive.ipa"
+          ls -la "$RUNNER_TEMP/release"
+
+      # The over-the-air manifest, written here rather than by Xcode so the
+      # address in it is exactly where the release step puts the file.
+      - name: Write the install manifest
+        run: |
+          base="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          sips -z 57 57 ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png --out "$RUNNER_TEMP/release/icon-57.png" > /dev/null
+          sips -z 512 512 ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png --out "$RUNNER_TEMP/release/icon-512.png" > /dev/null
+          cat > "$RUNNER_TEMP/release/manifest.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>items</key>
+            <array>
+              <dict>
+                <key>assets</key>
+                <array>
+                  <dict><key>kind</key><string>software-package</string><key>url</key><string>$base/GoLive.ipa</string></dict>
+                  <dict><key>kind</key><string>display-image</string><key>url</key><string>$base/icon-57.png</string></dict>
+                  <dict><key>kind</key><string>full-size-image</string><key>url</key><string>$base/icon-512.png</string></dict>
+                </array>
+                <key>metadata</key>
+                <dict>
+                  <key>bundle-identifier</key><string>me.nemtudo.golive</string>
+                  <key>bundle-version</key><string>$VERSION</string>
+                  <key>kind</key><string>software</string>
+                  <key>title</key><string>Go Live</string>
+                </dict>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --prerelease \
+            --latest=false \
+            --title "iOS Ad Hoc $VERSION (${{ github.run_number }})" \
+            --notes "Build Ad Hoc do app iOS, só para os iPhones cadastrados. Para instalar, abra no Safari do iPhone: itms-services://?action=download-manifest&url=https://github.com/${{ github.repository }}/releases/download/$TAG/manifest.plist" \
+            "$RUNNER_TEMP/release/"*
+          echo "Install link: itms-services://?action=download-manifest&url=https://github.com/${{ github.repository }}/releases/download/$TAG/manifest.plist"
+
+      - name: Remove the keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN" ]; then security delete-keychain "$KEYCHAIN" || true; fi
