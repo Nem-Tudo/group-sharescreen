@@ -17,18 +17,29 @@ import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent } from "@/lib/features";
 import { APPLE_LOGIN_EVENTS, APPLE_LOGIN_FEATURE, isApplePlatform, useAppleLoginVisible } from "@/lib/appleLogin";
 import { translate } from "@/lib/i18n";
+import { Tooltip } from "@/components/Tooltip";
 
 // "Entrar com Discord/Google", wherever a login or signup form is shown.
 //
-// Which buttons appear comes from the API (only providers it holds
-// credentials for), so a deployment without them renders nothing at all
-// here rather than a button that 404s — including the surrounding divider.
+// Every provider is drawn from the first frame, in its final place, and the
+// API's list (only providers it holds credentials for) only decides which of
+// them work. One it does not offer stays where it is, disabled, and says so on
+// hover — rather than the old behaviour of drawing nothing until the list
+// arrived, which made the whole form grow under the cursor a beat after it
+// opened, and silently dropped a button somebody may have come looking for.
 //
 // A first login with a provider comes back as a signup ticket instead of a
 // session, and the username step that follows *replaces* the form these
 // buttons sit under. That's why the ticket goes out through `onTicket`
 // instead of being rendered here: this component can't hide its own parent,
 // and rendering the step in place left the two stacked on screen.
+
+// What is drawn before the API answers, and the order it is drawn in.
+const DEFAULT_PROVIDERS: OAuthProvider[] = [
+  { id: "discord", label: "Discord" },
+  { id: "google", label: "Google" },
+  { id: "apple", label: "Apple" },
+];
 
 const PROVIDER_STYLE: Record<
   OAuthProviderId,
@@ -93,7 +104,10 @@ export function OAuthButtons({
     return () => controller.abort();
   }, []);
 
-  const appleVisible = useAppleLoginVisible(Boolean(providers?.some((p) => p.id === "apple")));
+  // Apple is still behind its experiment (see lib/appleLogin.ts); that decides
+  // whether it is drawn at all. Whether it *works* is the API's list, like the
+  // others.
+  const appleVisible = useAppleLoginVisible(true);
 
   async function handleClick(provider: OAuthProviderId) {
     setError(null);
@@ -125,15 +139,17 @@ export function OAuthButtons({
     }
   }
 
-  // `null` is "still loading", `[]` is "this deployment has none" — both
-  // render nothing, so the form never flashes an empty divider.
-  // Hidden where it is not on yet (see lib/appleLogin.ts). On Apple devices
-  // it leads, in Apple's look; elsewhere it goes last, looking like the rest.
+  // `null` is "still loading": every button is drawn and clickable, since the
+  // list almost always lands before anybody reaches for one, and a provider
+  // that turns out to be missing answers with an error message anyway.
+  // Apple is hidden where it is not on yet (see lib/appleLogin.ts). On Apple
+  // devices it leads, in Apple's look; elsewhere it goes last, looking like
+  // the rest.
   const appleDevice = isApplePlatform();
-  const shown = (providers ?? [])
+  const offered = new Map((providers ?? []).map((provider) => [provider.id, provider]));
+  const shown = DEFAULT_PROVIDERS.map((provider) => offered.get(provider.id) ?? provider)
     .filter((provider) => provider.id !== "apple" || appleVisible)
     .sort((a, b) => (Number(b.id === "apple") - Number(a.id === "apple")) * (appleDevice ? 1 : -1));
-  if (shown.length === 0) return null;
 
   const divider = dividerLabel && (
     <div className="flex items-center gap-3">
@@ -150,17 +166,26 @@ export function OAuthButtons({
       {dividerPosition === "above" && divider}
       {shown.map((provider) => {
         const style = provider.id === "apple" && appleDevice ? APPLE_HIGHLIGHT_STYLE : PROVIDER_STYLE[provider.id];
+        const unavailable = providers !== null && !offered.has(provider.id);
         return (
-          <button
+          <Tooltip
             key={provider.id}
-            type="button"
-            onClick={() => handleClick(provider.id)}
-            disabled={pending !== null}
-            className={`flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border px-4 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${style.className}`}
+            content={unavailable ? t("oAuthButtons.unavailable", { label: provider.label }) : null}
+            // A disabled button fires no pointer events, so the hint hangs
+            // off a wrapper (see Tooltip's wrapperClassName).
+            wrapperClassName={unavailable ? "flex w-full" : undefined}
           >
-            {style.icon}
-            {pending === provider.id ? t("common.opening") : t("oAuthButtons.continueWithLabel", { label: provider.label })}
-          </button>
+            <button
+              type="button"
+              onClick={() => handleClick(provider.id)}
+              disabled={pending !== null || unavailable}
+              aria-disabled={unavailable || undefined}
+              className={`flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border px-4 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${style.className}`}
+            >
+              {style.icon}
+              {pending === provider.id ? t("common.opening") : t("oAuthButtons.continueWithLabel", { label: provider.label })}
+            </button>
+          </Tooltip>
         );
       })}
       {error && <p className="text-sm text-red-500">{error}</p>}

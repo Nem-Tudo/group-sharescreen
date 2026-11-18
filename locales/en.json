@@ -6169,6 +6169,7 @@
   "authForms.alreadyOnGolive": "Already on GoLive?",
   "authForms.signInToIt": "Sign in to it",
   "oAuthButtons.continueWithLabel": "Continue with {label}",
+  "oAuthButtons.unavailable": "Signing in with {label} isn't available right now",
   "iosScreen.couldNotStart": "Couldn't start sharing your screen. Try again.",
   "iosScreen.notAllowedInRoom": "This room doesn't let you share your screen.",
   "iosScreen.banned": "You can't share your screen right now.",
