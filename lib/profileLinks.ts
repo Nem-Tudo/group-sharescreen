@@ -39,7 +39,21 @@ import { MdLink } from "react-icons/md";
 // is to want it" rather than alphabetically — the point of the list is to be
 // scanned, and the five people actually look for should not be under S.
 
-export type ProfileLink = { network: string; url: string };
+/**
+ * `name` is the label its owner typed for the link (optional, at most
+ * MAX_LINK_NAME_LENGTH). `autoName` is filled in by the API for a link whose
+ * URL only carries an id (a Spotify account with no username, a Steam or
+ * YouTube channel id) — read-only here, the API ignores it on save.
+ */
+export type ProfileLink = { network: string; url: string; name?: string; autoName?: string };
+
+/** Mirrors the API's MAX_LINK_NAME_LENGTH. */
+export const MAX_LINK_NAME_LENGTH = 40;
+
+/** What a link's chip says: its owner's name for it, the looked-up one, the handle, the network. */
+export function linkLabel(link: ProfileLink): string {
+  return link.name || link.autoName || handleFromUrl(link.url) || networkMeta(link.network).label;
+}
 
 export type NetworkMeta = {
   id: string;
@@ -114,8 +128,33 @@ export function handleFromUrl(url: string): string | null {
     const segments = parsed.pathname.split("/").filter(Boolean);
     const last = segments[segments.length - 1];
     if (!last || last.length > 30) return null;
-    return last.replace(/^@/, "") || null;
+    const handle = last.replace(/^@/, "");
+    if (!handle || looksLikeId(handle)) return null;
+    return handle;
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a path segment is a machine id rather than a name somebody chose —
+ * in which case the chip says the network's name instead of a string nobody
+ * can read. Several networks put an id where a handle would be:
+ *
+ * - Spotify: open.spotify.com/user/313etxfmdfgtfw3pfw7lu6umshua (accounts
+ *   made through Facebook or e-mail never get a username at all);
+ * - YouTube: /channel/UCxxxxxxxxxxxxxxxxxxxxxx;
+ * - Steam: /profiles/76561198000000000, and Facebook's numeric ids;
+ * - Facebook's "profile.php?id=…", whose last segment is the script's name.
+ */
+function looksLikeId(handle: string): boolean {
+  // A file name, not a person.
+  if (/\.(php|html?|aspx?)$/i.test(handle)) return true;
+  // Long runs of digits: Steam ids, Facebook ids, phone numbers.
+  if (/^\d{9,}$/.test(handle)) return true;
+  // YouTube channel ids.
+  if (/^UC[\w-]{22}$/.test(handle)) return true;
+  // Long and a mix of letters and digits with nothing separating them, which
+  // is what generated ids look like and chosen names almost never do.
+  return handle.length >= 16 && /\d/.test(handle) && /[a-z]/i.test(handle) && !/[._-]/.test(handle);
 }

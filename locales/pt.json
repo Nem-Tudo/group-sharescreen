@@ -4317,6 +4317,8 @@
   "profileLinks.title": "Redes sociais",
   "profileLinks.network": "Rede",
   "profileLinks.link": "Link",
+  "profileLinks.name": "Nome no perfil",
+  "profileLinks.namePlaceholder": "Nome no perfil (opcional) — {name}",
   "profileLinks.add": "Adicionar rede",
   "profileLinks.remove": "Remover",
   "profileLinks.hint": "Até {max} redes sociais",

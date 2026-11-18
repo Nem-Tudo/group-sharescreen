@@ -4317,6 +4317,8 @@
   "profileLinks.title": "Social links",
   "profileLinks.network": "Network",
   "profileLinks.link": "Link",
+  "profileLinks.name": "Name on profile",
+  "profileLinks.namePlaceholder": "Name on profile (optional) — {name}",
   "profileLinks.add": "Add a network",
   "profileLinks.remove": "Remove",
   "profileLinks.hint": "Up to {max} links. Each one has to be on the chosen network's own site.",

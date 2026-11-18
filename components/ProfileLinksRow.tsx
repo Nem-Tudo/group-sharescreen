@@ -1,6 +1,6 @@
 "use client";
 
-import { handleFromUrl, networkMeta, type ProfileLink } from "@/lib/profileLinks";
+import { linkLabel, networkMeta, type ProfileLink } from "@/lib/profileLinks";
 import type { ProfileThemeStyle } from "@/lib/profileTheme";
 
 // The row of social links under somebody's name — the read-only half of the
@@ -29,7 +29,6 @@ export function ProfileLinksRow({
     <div className="mt-3 flex flex-wrap gap-2">
       {links.map((link, index) => {
         const meta = networkMeta(link.network);
-        const handle = handleFromUrl(link.url);
         return (
           <a
             // Duplicates of one network are allowed (two channels, two sites),
@@ -47,7 +46,7 @@ export function ProfileLinksRow({
             }
           >
             <meta.Icon className="h-3.5 w-3.5 shrink-0" style={{ color: meta.color }} />
-            <span className="truncate">{handle ?? meta.label}</span>
+            <span className="truncate">{linkLabel(link)}</span>
           </a>
         );
       })}

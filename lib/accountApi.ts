@@ -74,7 +74,7 @@ export type Account = {
    *
    * Absent on a response from an older API, read as an empty list.
    */
-  profileLinks?: { network: string; url: string }[];
+  profileLinks?: { network: string; url: string; name?: string; autoName?: string }[];
   /**
    * The room theme this account wears, by id (see lib/roomThemes.ts), or null
    * for the site's own look.
@@ -517,7 +517,7 @@ export type UpdateProfileInput = {
    * The whole list of social links, replacing whatever was there. An empty
    * array clears them; absent leaves them alone.
    */
-  profileLinks?: { network: string; url: string }[];
+  profileLinks?: { network: string; url: string; name?: string; autoName?: string }[];
   /** Null clears the gradient; absent leaves it alone. */
   profileTheme?: { from: string; to: string; angle: number } | null;
   /** A YouTube link. Null or "" clears it; absent leaves it alone. */

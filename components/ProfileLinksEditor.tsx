@@ -2,8 +2,10 @@
 
 import { MdAdd, MdClose } from "react-icons/md";
 import {
+  MAX_LINK_NAME_LENGTH,
   MAX_PROFILE_LINKS,
   NETWORKS,
+  linkLabel,
   networkMeta,
   type ProfileLink,
 } from "@/lib/profileLinks";
@@ -45,7 +47,17 @@ export function ProfileLinksEditor({
   const t = useT();
 
   function update(index: number, patch: Partial<ProfileLink>) {
-    onChange(links.map((link, i) => (i === index ? { ...link, ...patch } : link)));
+    // A changed link is a different account: the name the server looked up
+    // for the old one goes (the save looks up the new one's). The name its
+    // owner typed stays — that one is theirs.
+    onChange(
+      links.map((link, i) => {
+        if (i !== index) return link;
+        const next = { ...link, ...patch };
+        if (patch.url !== undefined || patch.network !== undefined) delete next.autoName;
+        return next;
+      })
+    );
   }
 
   function remove(index: number) {
@@ -67,7 +79,8 @@ export function ProfileLinksEditor({
       {links.map((link, index) => {
         const meta = networkMeta(link.network);
         return (
-          <div key={index} className="flex items-center gap-1.5">
+          <div key={index} className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
             <meta.Icon className="h-4 w-4 shrink-0" style={{ color: meta.color }} />
             <select
               value={link.network}
@@ -108,6 +121,24 @@ export function ProfileLinksEditor({
             >
               <MdClose className="h-4 w-4" />
             </button>
+          </div>
+          {/* What the chip on the profile says. Optional: left empty, it is
+              the name looked up for the account, or the handle in the link,
+              or the network — whichever comes first, shown as the
+              placeholder so it is clear what empty means. */}
+          <input
+            type="text"
+            value={link.name ?? ""}
+            disabled={disabled}
+            maxLength={MAX_LINK_NAME_LENGTH}
+            onChange={(e) => update(index, { name: e.target.value || undefined })}
+            placeholder={t("profileLinks.namePlaceholder", {
+              name: linkLabel({ ...link, name: undefined }),
+            })}
+            aria-label={t("profileLinks.name")}
+            className={`ml-5.5 mr-8 ${inputClass.replace("text-sm", "text-xs")}`}
+            style={fieldStyle}
+          />
           </div>
         );
       })}
