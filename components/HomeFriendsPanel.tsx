@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MdCall, MdChatBubbleOutline, MdPersonAdd } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -9,6 +9,8 @@ import { UserProfileDialog } from "@/components/UserProfileDialog";
 import { Tooltip } from "@/components/Tooltip";
 import { AddFriendDialog } from "@/components/AddFriendDialog";
 import { HomeRecentMessages } from "@/components/HomeRecentMessages";
+import { SkeletonRows } from "@/components/HomeSkeletons";
+import { readHomePanels, writeHomePanels } from "@/lib/homePanelsCache";
 import { useAuth } from "@/lib/AuthContext";
 import { verifiedBadge } from "@/lib/entitlements";
 import type { PresenceInfo } from "@/lib/signalingClient";
@@ -162,13 +164,29 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const { account, loading: resolvingAccount } = useAuth();
   const { graph, loading } = useSocialGraph();
+  // What this panel showed last visit, drawn while the read above is in flight
+  // so a returning visitor opens on their friends rather than on placeholders
+  // (see lib/homePanelsCache). Dropped the moment the read answers.
+  const accountId = account?.id ?? null;
+  const cached = useMemo(() => (accountId ? readHomePanels(accountId) : null), [accountId]);
+  const listed = loading ? cached?.friends ?? null : graph.friends;
+  const friendCount = loading ? cached?.friendCount ?? listed?.length ?? 0 : graph.friends.length;
+  const incomingCount = loading ? cached?.incoming ?? 0 : graph.incoming.length;
+  useEffect(() => {
+    if (loading || !accountId) return;
+    writeHomePanels(accountId, {
+      friends: graph.friends,
+      friendCount: graph.friends.length,
+      incoming: graph.incoming.length,
+    });
+  }, [loading, accountId, graph]);
   // Subscribed here rather than per row so the panel holds one subscription
   // for the whole list — and because the order is the list's decision, which
   // means the list is what has to know who is around. Each face asks for its
   // own dot on top of this (UserAvatar does it from `userId`); the interest is
   // reference-counted, so the two do not fight (see lib/presence).
-  const presence = usePresenceMap(graph.friends.map((user) => user.id));
-  const friends = useMemo(() => byPresence(graph.friends, presence), [graph.friends, presence]);
+  const presence = usePresenceMap((listed ?? []).map((user) => user.id));
+  const friends = useMemo(() => byPresence(listed ?? [], presence), [listed, presence]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // What a call refused, if it refused. "Ligar" changes nothing on this page
@@ -177,10 +195,11 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
   // reasoning as the friends page's own error line.
   const [error, setError] = useState<string | null>(null);
 
-  // Nothing at all for a guest, and nothing while we still don't know: the
-  // panel appearing a beat after the page settled would shove the room form
-  // sideways under somebody's cursor.
-  if (resolvingAccount || !account) return null;
+  // Nothing at all for a guest. While the account is still resolving there is
+  // a token on disk, so an account is all but certain: the panel is drawn
+  // right away with placeholders rather than appearing a beat after the page
+  // settled, which shoved the room form sideways under somebody's cursor.
+  if (!resolvingAccount && !account) return null;
 
   async function call(user: SocialUser) {
     if (busyId) return;
@@ -197,7 +216,13 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
       // panel is stretched to match the two beside it on the home page (see
       // app/page.tsx's items-stretch). Without it the panel would simply grow
       // and leave the extra space blank under a short list.
-      className={`flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
+      //
+      // lg:overflow-y-auto is the safety net for the cap the home page puts on
+      // this card (its form's height): the messages block, the header and the
+      // requests line do not shrink the way the list does, and when together
+      // they outgrow a short form they used to spill out under the card's
+      // bottom edge. Now the card scrolls instead.
+      className={`flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 lg:overflow-y-auto dark:border-white/10 dark:bg-zinc-950 ${className}`}
     >
       {/* Above the friends, and inside the same card rather than a fourth
           box on the page: what somebody came back to GoLive for is usually
@@ -210,8 +235,8 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           {t("common.friends")}
-          {graph.friends.length > 0 && (
-            <span className="ml-1.5 font-normal text-zinc-400">{graph.friends.length}</span>
+          {friendCount > 0 && (
+            <span className="ml-1.5 font-normal text-zinc-400">{friendCount}</span>
           )}
         </h2>
         <span className="flex shrink-0 items-center gap-2">
@@ -219,8 +244,9 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
             <button
               type="button"
               onClick={() => setAdding(true)}
+              disabled={!account}
               aria-label={t("common.addFriend")}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-300 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+              className="flex h-7 w-7 disabled:opacity-50 items-center justify-center rounded-lg border border-zinc-300 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
             >
               <MdPersonAdd className="h-4 w-4" />
             </button>
@@ -237,14 +263,14 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
       {/* Somebody waiting on an answer is the one thing worth interrupting
           this list for — and answering it is the friends page's job, so this
           is a pointer and not a second set of buttons. */}
-      {graph.incoming.length > 0 && (
+      {incomingCount > 0 && (
         <Link
           href="/friends"
           className="mt-3 block rounded-lg border border-emerald-600/30 bg-emerald-50 px-2.5 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/60"
         >
-          {graph.incoming.length === 1
+          {incomingCount === 1
             ? "1 pedido de amizade esperando"
-            : `${graph.incoming.length} pedidos de amizade esperando`}
+            : `${incomingCount} pedidos de amizade esperando`}
         </Link>
       )}
 
@@ -257,9 +283,9 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
         </p>
       )}
 
-      {loading ? (
-        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
-      ) : graph.friends.length === 0 ? (
+      {listed === null ? (
+        <SkeletonRows count={4} trailing="icons" />
+      ) : listed.length === 0 ? (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
           {t("common.youDonTHaveAnyFriends")}{" "}
           <button
@@ -275,7 +301,7 @@ export function HomeFriendsPanel({ className = "" }: { className?: string }) {
         // Capped and scrolled rather than allowed to run: this sits next to a
         // form, and a list of forty people would decide how tall the whole
         // page is.
-        <ul className="mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
+        <ul className="content-in mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
           {friends.map((user) => (
             <FriendRow
               key={user.id}

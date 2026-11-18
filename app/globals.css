@@ -48,6 +48,80 @@ html[data-obs="true"] div:has(> iframe[src*="challenges.cloudflare.com"]) {
   animation: golive-reveal-late 8s step-end forwards;
 }
 
+/* Loading placeholders shaped like the content they stand in for (see
+   components/HomeSkeletons). A light sweep rather than a blink: it reads as
+   "on its way" without pulling the eye the way a pulsing block does. */
+@keyframes golive-skeleton-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.skeleton-block {
+  background-color: rgb(0 0 0 / 0.06);
+  background-image: linear-gradient(
+    90deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.55) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: golive-skeleton-sweep 1.5s ease-in-out infinite;
+}
+
+:where([data-theme="dark"]) .skeleton-block {
+  background-color: rgb(255 255 255 / 0.06);
+  background-image: linear-gradient(
+    90deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.05) 50%,
+    transparent 70%
+  );
+}
+
+/* Shown a beat late, so a load that finishes quickly never flashes a
+   placeholder at all — under ~150 ms the swap is invisible anyway. */
+@keyframes golive-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.skeleton-late {
+  animation: golive-appear 200ms ease-out 150ms both;
+}
+
+/* Real content replacing a placeholder: a short fade instead of a pop. */
+.content-in {
+  animation: golive-appear 220ms ease-out both;
+}
+
+/* The connecting line under the room form, held back so an ordinary
+   reconnect (most take well under a second) never shows it. */
+.status-late {
+  animation: golive-appear 250ms ease-out 900ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block {
+    animation: none;
+  }
+  .skeleton-late,
+  .content-in {
+    animation: none;
+  }
+  .status-late {
+    animation: golive-appear 0s linear 900ms both;
+  }
+}
+
 /* The theme is a choice now, not just an OS setting: every `dark:` utility
    keys off `data-theme="dark"` on <html> instead of the prefers-color-scheme
    media query Tailwind defaults to. lib/theme.ts owns the three-way

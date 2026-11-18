@@ -29,6 +29,7 @@ import { signalingClient, getStoredName } from "./signalingClient";
 import { useGuestToken, getStoredGuestToken } from "./guestToken";
 import { fetchGuestPoints } from "./guestPoints";
 import { resetNotifyPrefs } from "./notifyPrefs";
+import { clearHomePanels } from "./homePanelsCache";
 import { useT } from "@/lib/useI18n";
 
 type AuthContextValue = {
@@ -335,6 +336,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // The silenced conversations belong to the account that is leaving, and
     // the next one to sign in here must not inherit them.
     resetNotifyPrefs();
+    // Same: the home page's remembered friends, groups and conversations.
+    clearHomePanels();
     logoutAccount();
     setAccount(null);
     setConnections(null);

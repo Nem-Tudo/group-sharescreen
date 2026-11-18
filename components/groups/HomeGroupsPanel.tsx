@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdExplore, MdLink } from "react-icons/md";
 import { BetaMark } from "@/components/BetaMark";
+import { SkeletonRows } from "@/components/HomeSkeletons";
+import { readHomePanels, writeHomePanels } from "@/lib/homePanelsCache";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupName } from "@/components/groups/GroupName";
@@ -46,6 +48,9 @@ const CARD_ACTION = "shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transit
 
 const ICON_BUTTON =
   "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-zinc-300 text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900";
+
+const PANEL_CLASS =
+  "flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950";
 
 const MENU_ITEM =
   "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-900";
@@ -156,11 +161,50 @@ export function HomeGroupsPanel({ className = "" }: { className?: string }) {
   const { account, loading } = useAuth();
   const guestToken = useGuestToken();
   // Same reason as the friends panel: appearing a beat after the page settled
-  // would shove the form sideways under somebody's cursor.
-  if (loading) return null;
+  // would shove the form sideways under somebody's cursor. `loading` only
+  // ever means "there is an account token on disk", so an account — and
+  // with it this panel — is all but certain: its outline is drawn now.
+  if (loading) return <GroupsPanelSkeleton className={className} />;
   const identity = account?.id ?? guestToken;
   if (!identity) return null;
   return <GroupsPanelBody className={className} identity={identity} isAccount={Boolean(account)} />;
+}
+
+function GroupsHeading({ count }: { count?: number }) {
+  const t = useT();
+  return (
+    <h2 className="flex items-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+      {/* The site's own beta tag (see BetaMark), at the size it has in a
+          room's account card. */}
+      <span className="mr-2 text-[10px] font-bold">
+        <BetaMark />
+      </span>
+      {t("common.groups")}
+      {count !== undefined && count > 0 && <span className="ml-1.5 font-normal text-zinc-400">{count}</span>}
+    </h2>
+  );
+}
+
+/** The panel while the account resolves: the real heading, placeholder rows. */
+function GroupsPanelSkeleton({ className }: { className: string }) {
+  const t = useT();
+  return (
+    <aside className={`${PANEL_CLASS} ${className}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <GroupsHeading />
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="skeleton-block h-7 w-7 rounded-lg" aria-hidden="true" />
+          <Link
+            href="/groups"
+            className="text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            {t("common.seeAll")}
+          </Link>
+        </span>
+      </div>
+      <SkeletonRows count={3} face="square" trailing="button" />
+    </aside>
+  );
 }
 
 function GroupsPanelBody({
@@ -181,7 +225,15 @@ function GroupsPanelBody({
   useEffect(() => {
     syncGroupsIdentity(identity);
   }, [identity]);
-  const { groups } = useMyGroups();
+  const { groups: fresh } = useMyGroups();
+  // Last visit's list while this one loads, accounts only (see
+  // lib/homePanelsCache). A guest's identity is a token, not an account, and
+  // their list is short-lived enough not to be worth remembering.
+  const cached = useMemo(() => (isAccount ? readHomePanels(identity)?.groups ?? null : null), [isAccount, identity]);
+  const groups = fresh ?? cached;
+  useEffect(() => {
+    if (isAccount && fresh) writeHomePanels(identity, { groups: fresh });
+  }, [isAccount, identity, fresh]);
 
   // A guest with no groups sees the page they always saw — see the header.
   if (!isAccount && (!groups || groups.length === 0)) return null;
@@ -189,7 +241,7 @@ function GroupsPanelBody({
   const mentions = (groups ?? []).reduce((n, g) => n + g.mentions, 0);
   // Only once the list has answered, so it never flashes up for somebody who
   // turns out to be in it already.
-  const offerOfficial = groups !== null && !groups.some((g) => g.id === OFFICIAL_GROUP_ID);
+  const offerOfficial = fresh !== null && !fresh.some((g) => g.id === OFFICIAL_GROUP_ID);
 
   return (
     <aside
@@ -197,20 +249,10 @@ function GroupsPanelBody({
       // panel is stretched to match the two beside it on the home page (see
       // app/page.tsx's items-stretch). Without it the panel would simply grow
       // and leave the extra space blank under a short list.
-      className={`flex w-full max-w-md flex-col rounded-2xl border border-black/10 bg-white p-5 shadow-sm lg:w-88 dark:border-white/10 dark:bg-zinc-950 ${className}`}
+      className={`${PANEL_CLASS} ${className}`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="flex items-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          {/* The site's own beta tag (see BetaMark), at the size it has in a
-              room's account card. */}
-          <span className="mr-2 text-[10px] font-bold">
-            <BetaMark />
-          </span>
-          {t("common.groups")}
-          {groups && groups.length > 0 && (
-            <span className="ml-1.5 font-normal text-zinc-400">{groups.length}</span>
-          )}
-        </h2>
+        <GroupsHeading count={groups?.length} />
         <span className="flex shrink-0 items-center gap-2">
           {/* One "+" for both ways of getting another group — joining one
               somebody invited you to, or making your own — rather than two
@@ -307,7 +349,7 @@ function GroupsPanelBody({
       )} */}
 
       {groups === null ? (
-        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t("common.loading")}</p>
+        <SkeletonRows count={3} face="square" trailing="button" />
       ) : groups.length === 0 ? (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
           {t("common.youAreNotInAnyGroup")}{" "}
@@ -334,7 +376,7 @@ function GroupsPanelBody({
         // Each group as a card — the same one the official group has in the
         // "+" menu: its face, its name, who and how many, and a button. The
         // whole card is the link; "Abrir" is drawn on it, not a second target.
-        <ul className="mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
+        <ul className="content-in mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
           {groups.map((group) => (
             <li key={group.id}>
               <Link

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MdChatBubbleOutline } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -11,6 +11,7 @@ import { messageSummary } from "@/lib/dmThread";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { verifiedBadge } from "@/lib/entitlements";
 import { useRecentConversations } from "@/lib/useRecentConversations";
+import { readHomePanels, writeHomePanels } from "@/lib/homePanelsCache";
 import { useT } from "@/lib/useI18n";
 
 // The last few conversations, at the top of the home page's friends panel.
@@ -37,7 +38,18 @@ export function HomeRecentMessages() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const { account } = useAuth();
   const live = useDmLive();
-  const { rows, totalUnread } = useRecentConversations(MAX_ROWS);
+  const recent = useRecentConversations(MAX_ROWS);
+  // Last visit's rows while the list is read (see lib/homePanelsCache): this
+  // block sits above the friends list, and appearing a second after the page
+  // drew pushed that whole list down under somebody's cursor.
+  const accountId = account?.id ?? null;
+  const cached = useMemo(() => (accountId ? readHomePanels(accountId) : null), [accountId]);
+  const rows = recent.loaded ? recent.rows : cached?.conversations ?? [];
+  const totalUnread = recent.loaded ? recent.totalUnread : cached?.totalUnread ?? 0;
+  useEffect(() => {
+    if (!recent.loaded || !accountId) return;
+    writeHomePanels(accountId, { conversations: recent.rows, totalUnread: recent.totalUnread });
+  }, [recent.loaded, recent.rows, recent.totalUnread, accountId]);
 
   if (!account || rows.length === 0) return null;
 

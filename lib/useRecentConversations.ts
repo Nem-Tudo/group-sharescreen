@@ -72,6 +72,8 @@ export interface RecentConversations {
   rows: Conversation[];
   /** Across every conversation, not just the ones returned above. */
   totalUnread: number;
+  /** Whether the list has been read at least once — `rows` is empty until then. */
+  loaded: boolean;
   /** Marks one read on the server and here, without waiting for a re-read. */
   markRead: (userId: string) => void;
 }
@@ -118,5 +120,5 @@ export function useRecentConversations(limit: number): RecentConversations {
     publish(cache?.map((c) => (c.user.id === userId ? { ...c, unread: 0 } : c)) ?? cache);
   }
 
-  return { rows, totalUnread, markRead };
+  return { rows, totalUnread, loaded: conversations !== null, markRead };
 }

@@ -41,6 +41,7 @@ import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { RecentRooms } from "@/components/RecentRooms";
 import { HomeGroupsPanel } from "@/components/groups/HomeGroupsPanel";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
+import { RoomFormSkeleton } from "@/components/HomeSkeletons";
 import { prewarmCaptcha } from "@/lib/turnstile";
 import { MdChevronRight, MdLock, MdOutlineMap, MdPublic } from "react-icons/md";
 import { SocialLinks } from "@/components/SocialLinks";
@@ -544,7 +545,7 @@ export default function Home() {
       ref={v2 ? undefined : formRef}
       className={v2
         ? `relative w-full rounded-[20px] bg-white p-5 sm:p-6 dark:bg-[#161b22] ${guestHero ? "lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-center [&>*:first-child]:mt-0" : ""}`
-        : "w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950"}
+        : "relative w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8 dark:border-white/10 dark:bg-zinc-950"}
     >
       {v2 && !guestHero && (
         // The brand mark where the reference puts its mascot: the one
@@ -625,59 +626,32 @@ export default function Home() {
             {t("common.useThisTab")}
           </button>
         </div>
-      ) : restoring ? (
-        <div className="mt-8 flex flex-col items-start gap-2">
-          <p className="text-sm text-sky-500 dark:text-zinc-400">{t("common.connecting")}</p>
-          {stuckReconnecting && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  // Not a page reload: the socket is what is stuck, and
-                  // reloading would throw away everything else that is
-                  // already loaded to fix one connection.
-                  //
-                  // Through retryIdentity when there is an account, because
-                  // the socket is not always the stuck part: a register
-                  // that never went out (or was refused) leaves
-                  // signalingClient with no desired name, and reconnecting
-                  // a socket that will register nothing is a button that
-                  // does nothing. It calls retryNow() itself either way.
-                  if (account) void retryIdentity();
-                  else signalingClient.retryNow();
-                  setStuckReconnecting(false);
-                }}
-                className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-              >
-                {t("common.tryAgain")}
-              </button>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {t("page.itIsTakingLongerThanUsual")}
-              </p>
-            </>
-          )}
-        </div>
       ) : !mounted ? (
         // The one frame where a returning visitor still looks brand new
-        // (see `mounted`), sized so the layout does not jump when the real
-        // content lands.
+        // (see `mounted`) — and the server-rendered state, so the first thing
+        // anybody sees. Drawn as the room form's outline at its real height,
+        // so the card already has the size it settles on and nothing around
+        // it moves when the form lands (see components/HomeSkeletons).
         //
-        // It says something, and it carries an escape hatch, because this
-        // is also the exact markup a visitor is left staring at if the page
-        // never hydrates — and a silent empty box is the worst possible
-        // thing to leave them with. The link is a plain anchor revealed by
-        // a CSS animation (see .reveal-when-stuck), so it works when no
-        // JavaScript on the page is running at all, which is precisely the
-        // situation it exists for.
-        <div className="mt-8 flex h-24 flex-col items-start gap-2">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading2")}</p>
+        // It carries an escape hatch, because this is also the exact markup
+        // a visitor is left staring at if the page never hydrates — and a
+        // silent placeholder is the worst possible thing to leave them with.
+        // The link is a plain anchor revealed by a CSS animation (see
+        // .reveal-when-stuck), so it works when no JavaScript on the page is
+        // running at all, which is precisely the situation it exists for.
+        <div className="relative">
+          <RoomFormSkeleton v2={v2} />
+          <p className="sr-only">{t("common.loading2")}</p>
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages --
               A plain anchor on purpose. <Link> is client-side navigation,
               which needs the very JavaScript that has failed to arrive in
               the one situation this link exists for; it would render a
               control that does nothing. A real href does a full document
               load with no script involved at all. */}
-          <a href="/" className={`reveal-when-stuck ${linkButtonClass}`}>
+          <a
+            href="/"
+            className="reveal-when-stuck absolute inset-x-0 top-1/2 mx-auto w-fit -translate-y-1/2 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 underline underline-offset-2 shadow-md hover:text-zinc-950 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+          >
             {t("page.itTookTooLongReloadThe")}
           </a>
         </div>
@@ -721,7 +695,7 @@ export default function Home() {
             onTicket={setOAuthTicket}
           />
         </div>
-      ) : !registered ? (
+      ) : !registered && !restoring ? (
         <>
           {/* The app has no guest mode — this shell is account-only, so
               offering the name box here would be a form whose only outcome
@@ -940,6 +914,53 @@ export default function Home() {
                   ? t("common.joinTheRoom")
                   : t("page.createRoom")}
           </button>
+          {/* Still connecting (see `restoring`). The form above is already
+            usable — a room name, a click and the room page connects on its
+            own — so this is a footnote rather than the whole card, which is
+            what it used to be: a card that said only "Conectando..." was a
+            third of the height of the form it turned into, and every card
+            around it jumped when it did.
+
+            Laid over the card's bottom padding instead of in the flow, so its
+            arrival and departure move nothing; and held back (.status-late)
+            so the ordinary sub-second connect never shows it. */}
+          {restoring && !stuckReconnecting && (
+            <p
+              role="status"
+              className="status-late pointer-events-none absolute inset-x-0 bottom-0.5 flex items-center justify-center gap-1.5 text-[11px] text-zinc-500 sm:bottom-1 dark:text-zinc-400"
+            >
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500" aria-hidden="true" />
+              {t("common.connecting")}
+            </p>
+          )}
+          {restoring && stuckReconnecting && (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {t("page.itIsTakingLongerThanUsual")}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  // Not a page reload: the socket is what is stuck, and
+                  // reloading would throw away everything else that is
+                  // already loaded to fix one connection.
+                  //
+                  // Through retryIdentity when there is an account, because
+                  // the socket is not always the stuck part: a register
+                  // that never went out (or was refused) leaves
+                  // signalingClient with no desired name, and reconnecting
+                  // a socket that will register nothing is a button that
+                  // does nothing. It calls retryNow() itself either way.
+                  if (account) void retryIdentity();
+                  else signalingClient.retryNow();
+                  setStuckReconnecting(false);
+                }}
+                className="rounded-lg border border-zinc-300 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                {t("common.tryAgain")}
+              </button>
+            </div>
+          )}
         </form>
       )}
     </main>
@@ -981,15 +1002,17 @@ export default function Home() {
       <div className={`flex min-h-[calc(100dvh-3.5rem-var(--app-tabbar-h))] [html[data-crawler]_&]:min-h-0 shrink-0 flex-col items-center justify-start lg:justify-center lg:py-16 ${v2
         ? "gap-6 bg-zinc-100 px-5 pt-5 pb-8 [font-family:var(--font-jakarta),sans-serif] dark:bg-[#0d1117]"
         : "gap-3 bg-zinc-50 px-4 pt-4 pb-6 dark:bg-black"}`}>
-        {peopleOnline !== null && (<div className="inline-flex gap-2">
+        {/* Always there, with its height held, rather than appearing when
+          the count arrives: the block below is centred on the screen, so a
+          row popping in above it moved every card on the page down. */}
+        <div className={`inline-flex gap-2 ${v2 ? "empty:hidden" : "min-h-[30px] lg:min-h-[38px]"}`}>
           {/* In the redesign the count is a card of its own under the form. */}
-          {!v2 && <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+          {!v2 && peopleOnline !== null && <span className="content-in flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             {tc("home.peopleInRoomsNow", peopleOnline)}
           </span>}
           <DownloadAppButton source="home" />
         </div>
-        )}
         {false && <>
 
           <h2 style={{ color: "#ff2828", maxWidth: "500px", fontSize: "1.3rem" }}>{t("page.theSiteIsTemporarilyDown")}</h2>
