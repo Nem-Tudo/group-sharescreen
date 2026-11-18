@@ -127,11 +127,14 @@ enum Strings {
 }
 
 final class ScreenSession: NSObject {
-    // Bounds of what is encoded. The phone's screen is ~1170×2530; a quarter
-    // of that keeps text readable on a viewer's screen while leaving the
-    // extension room under its memory ceiling with several encoders running.
-    private static let maxWidth: Int32 = 1280
-    private static let maxHeight: Int32 = 720
+    // How many pixels are encoded, at most — about 720p's worth. The phone's
+    // screen is ~1170×2530; a quarter of that keeps text readable on a
+    // viewer's screen while leaving the extension room under its memory
+    // ceiling with several encoders running. The *shape* is the screen's own
+    // (see fitOutputFormat): asked for as 1280×720, WebRTC's adapter crops a
+    // ~9:19.5 phone screen down to 9:16, which cut off the status bar and the
+    // dock.
+    private static let maxPixels = 1280 * 720
     private static let maxFps: Int32 = 24
     private static let maxBitrateBps = 2_500_000
     /// Viewers served at once. Past this, later arrivals wait for a slot.
@@ -198,7 +201,6 @@ final class ScreenSession: NSObject {
         let decoders = RTCDefaultVideoDecoderFactory()
         factory = RTCPeerConnectionFactory(encoderFactory: encoders, decoderFactory: decoders)
         videoSource = factory.videoSource(forScreenCast: true)
-        videoSource.adaptOutputFormat(toWidth: Self.maxWidth, height: Self.maxHeight, fps: Self.maxFps)
         videoTrack = factory.videoTrack(with: videoSource, trackId: "golive-ios-screen")
         capturer = RTCVideoCapturer(delegate: videoSource)
         super.init()
@@ -296,10 +298,27 @@ final class ScreenSession: NSObject {
     // MARK: - frames (called on ReplayKit's thread)
 
     private var lastFrameNs: Int64 = 0
+    /// The buffer size the output format was fitted to (see fitOutputFormat).
+    private var fittedSize: (Int, Int) = (0, 0)
+
+    /// Asks WebRTC for the screen's own aspect ratio at no more than maxPixels.
+    /// The adapter takes one landscape size and applies it to either
+    /// orientation, so the long side goes first; even numbers, which the
+    /// hardware encoder wants.
+    private func fitOutputFormat(width: Int, height: Int) {
+        guard width > 0, height > 0, (width, height) != fittedSize else { return }
+        fittedSize = (width, height)
+        let scale = min(1, (Double(Self.maxPixels) / Double(width * height)).squareRoot())
+        let even = { (value: Double) -> Int32 in Int32(max(2, Int(value) / 2 * 2)) }
+        let long = even(Double(max(width, height)) * scale)
+        let short = even(Double(min(width, height)) * scale)
+        videoSource.adaptOutputFormat(toWidth: long, height: short, fps: Self.maxFps)
+    }
 
     func push(_ sampleBuffer: CMSampleBuffer) {
         if adPaused { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        fitOutputFormat(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
         let seconds = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
         let timeNs = Int64(seconds * 1_000_000_000)
         // ReplayKit can deliver up to 60 fps; anything past the cap is work

@@ -71,6 +71,9 @@
 	<array>
 		<string>audio</string>
 		<string>remote-notification</string>
+		<!-- CallKit refuses a call (CXErrorCodeRequestTransactionError
+		     .unentitled) from an app without it — see BackgroundCallPlugin. -->
+		<string>voip</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
