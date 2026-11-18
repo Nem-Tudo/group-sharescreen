@@ -549,10 +549,13 @@ final class ScreenSession: NSObject {
     }
 
     /// Whether this peer should get the screen at all. Not this person's own
-    /// devices — the app they started it from would only be watching itself —
-    /// and not another phone's screen broadcast, which never watches.
+    /// phone app — the iPhone it is coming from, which would only be watching
+    /// itself (it shows its own tile instead) — but any other device of theirs
+    /// does, the way a share reaches your own second computer. And not another
+    /// phone's screen broadcast, which never watches.
     private func isViewer(_ summary: [String: Any]) -> Bool {
-        if let userId = summary["userId"] as? String, userId == selfUserId { return false }
+        if let userId = summary["userId"] as? String, userId == selfUserId,
+           (summary["mobileApp"] as? Bool) == true { return false }
         if let screenOf = summary["screenOf"] as? String, !screenOf.isEmpty { return false }
         return true
     }
