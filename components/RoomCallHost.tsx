@@ -20,7 +20,7 @@ import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { playConnectSound } from "@/lib/soundEffects";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
-import { selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
+import { selectJoinErrorKind, selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
 import { useT } from "@/lib/useI18n";
 import { useDesktopCoverHide } from "@/lib/desktopCover";
 
@@ -151,6 +151,7 @@ export function RoomCallHost() {
           <>
             <ConnectSound key={`connect:${session.handle}`} handle={session.handle} />
             <RemovalGuard onRemoved={hangUp} />
+            <RefusalGuard handle={session.handle} parked={outlet === null} onRefused={endCall} />
             <WatchRoom
               key={session.handle}
               handle={session.handle}
@@ -286,9 +287,63 @@ function RemovalGuard({ onRemoved }: { onRemoved: () => void }) {
     onRemovedRef.current = onRemoved;
   }, [onRemoved]);
   useEffect(() => {
-    if (roomRemoval && !previous.current) onRemovedRef.current();
+    // A *new* removal, by identity: each "room-removed" is a fresh object. The
+    // old test (`!previous.current`) missed a ban that arrived while an
+    // earlier kick was still sitting in state — it is only cleared by the
+    // next successful join — and left the call, and its bar, behind.
+    if (roomRemoval && roomRemoval !== previous.current) onRemovedRef.current();
     previous.current = roomRemoval;
   }, [roomRemoval]);
+  return null;
+}
+
+// Refusals that no retry will turn into a join: being banned from the room,
+// the room being full or app-only, and the like. Anything not listed here
+// (rate limits, a captcha, a generic failure) may still go through on its own.
+const FINAL_REFUSALS = new Set([
+  "banned",
+  "full",
+  "app-only",
+  "obs-unauthorized",
+  "streamer-mode-disabled",
+  "device-limit",
+  "name",
+]);
+
+/**
+ * Ends a call whose room refused to let this connection in, once nobody is
+ * looking at it. A refused join is not a removal — there was never a room to
+ * be removed from — so RemovalGuard never saw it, and somebody banned from a
+ * room who walked away from its error screen kept the floating "in a call"
+ * bar for good: pointing at a room they were not in, leading back to the same
+ * refusal, with no hang-up button because the room's controls never loaded.
+ *
+ * Only while parked (no page showing the room): on the room's own page the
+ * refusal is the screen explaining it, and ending the call there would take
+ * that explanation away.
+ */
+function RefusalGuard({
+  handle,
+  parked,
+  onRefused,
+}: {
+  handle: string;
+  parked: boolean;
+  onRefused: () => void;
+}) {
+  const joinErrorKind = useSignalingSelector(selectJoinErrorKind);
+  const room = useSignalingSelector(selectRoom);
+  const refused = joinErrorKind !== null && FINAL_REFUSALS.has(joinErrorKind) && room !== handle;
+  // Armed only once the error has been clear at least once under this call —
+  // which every join does first (see signalingClient's joinRoom). A refusal
+  // left over from an earlier room would otherwise end a call started from
+  // anywhere but its own page (answering a DM call on the home page, say) in
+  // the very commit it began, before its own join had even gone out.
+  const armedRef = useRef(false);
+  useEffect(() => {
+    if (joinErrorKind === null) armedRef.current = true;
+    if (armedRef.current && parked && refused) onRefused();
+  }, [joinErrorKind, parked, refused, onRefused]);
   return null;
 }
 

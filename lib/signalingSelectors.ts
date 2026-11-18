@@ -42,6 +42,7 @@ export const selectCameraEffectSendResult = (s: SignalingState) => s.cameraEffec
 export const selectLastThemeLike = (s: SignalingState) => s.lastThemeLike;
 export const selectPresence = (s: SignalingState) => s.presence;
 export const selectRoomRemoval = (s: SignalingState) => s.roomRemoval;
+export const selectJoinErrorKind = (s: SignalingState) => s.joinErrorKind;
 
 // ─── Multi-field slices ───────────────────────────────────────────────────
 //
