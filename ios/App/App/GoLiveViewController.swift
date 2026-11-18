@@ -14,7 +14,19 @@ import Capacitor
 ///
 /// 2. The plugins that live in this target, not in an npm package, are
 ///    registered here (Capacitor only finds packaged plugins on its own).
+///
+/// 3. The on-screen keyboard shrinks the web view instead of covering it. The
+///    site asks for exactly that (interactive-widget=resizes-content in its
+///    viewport), which Chrome honours and WebKit ignores: without this, the
+///    chat composer that opened the keyboard ends up underneath it. With the
+///    web view shortened to the keyboard's edge, the page's dvh layout
+///    becomes as tall as what is left, the same as on Android. The form bar
+///    WebKit puts over the keyboard ("^ v ✓") is removed too — the site has
+///    no forms to step through, and it hid the composer's first line.
 class GoLiveViewController: CAPBridgeViewController {
+
+    /// The web view's bottom edge, moved up by the keyboard's height.
+    private var webBottom: NSLayoutConstraint?
 
     /// Dark until the page says otherwise: the launch screen and the site's
     /// theme-color are both #09090b, so the first frame matches either way.
@@ -39,9 +51,11 @@ class GoLiveViewController: CAPBridgeViewController {
             container.addSubview(web)
             web.translatesAutoresizingMaskIntoConstraints = false
             let guide = container.safeAreaLayoutGuide
+            let bottom = web.bottomAnchor.constraint(equalTo: guide.bottomAnchor)
+            webBottom = bottom
             NSLayoutConstraint.activate([
                 web.topAnchor.constraint(equalTo: guide.topAnchor),
-                web.bottomAnchor.constraint(equalTo: guide.bottomAnchor),
+                bottom,
                 web.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
                 web.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
             ])
@@ -53,6 +67,33 @@ class GoLiveViewController: CAPBridgeViewController {
             web.scrollView.backgroundColor = barColor
         }
         super.viewDidLoad()
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        if let web = webView { InputAccessoryRemover.remove(from: web) }
+    }
+
+    @objc private func keyboardWillChange(_ note: Notification) {
+        guard let bottom = webBottom, let info = note.userInfo else { return }
+        var overlap: CGFloat = 0
+        if note.name != UIResponder.keyboardWillHideNotification,
+           let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            let frame = view.convert(end, from: nil)
+            // Measured from the safe area's bottom, which the web view is
+            // already pinned to: the home-indicator strip is behind the
+            // keyboard anyway. A floating iPad keyboard does not reach the
+            // bottom edge and covers nothing that needs moving.
+            if frame.maxY >= view.bounds.maxY - 1 {
+                overlap = max(0, view.bounds.maxY - frame.minY - view.safeAreaInsets.bottom)
+            }
+        }
+        guard bottom.constant != -overlap else { return }
+        bottom.constant = -overlap
+        let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
+            self.view.layoutIfNeeded()
+        }
     }
 
     /// Paints the strips around the web view and picks the status bar's text
@@ -63,5 +104,34 @@ class GoLiveViewController: CAPBridgeViewController {
         webView?.backgroundColor = color
         webView?.scrollView.backgroundColor = color
         setStatusBarStyle(dark ? .lightContent : .darkContent)
+    }
+}
+
+/// Takes WebKit's form bar ("^ v ✓") off the keyboard. There is no public
+/// switch for it: the bar is the inputAccessoryView of WebKit's private
+/// content view, so that one view is moved to a subclass, made at runtime,
+/// whose inputAccessoryView is nil — the same technique @capacitor/keyboard's
+/// setAccessoryBarVisible uses. Done once per web view; harmless if WebKit
+/// ever renames the view (nothing matches, nothing changes).
+private enum InputAccessoryRemover {
+    final class NoAccessory: NSObject {
+        @objc var inputAccessoryView: AnyObject? { nil }
+    }
+
+    static func remove(from webView: WKWebView) {
+        guard let content = webView.scrollView.subviews.first(where: {
+            String(describing: type(of: $0)).hasPrefix("WKContent")
+        }), let base = object_getClass(content) else { return }
+        let name = String(cString: class_getName(base)) + "_GoLiveNoAccessory"
+        var subclass: AnyClass? = NSClassFromString(name)
+        if subclass == nil, let made = objc_allocateClassPair(base, name, 0) {
+            let selector = #selector(getter: NoAccessory.inputAccessoryView)
+            if let method = class_getInstanceMethod(NoAccessory.self, selector) {
+                class_addMethod(made, selector, method_getImplementation(method), method_getTypeEncoding(method))
+            }
+            objc_registerClassPair(made)
+            subclass = made
+        }
+        if let subclass { object_setClass(content, subclass) }
     }
 }
