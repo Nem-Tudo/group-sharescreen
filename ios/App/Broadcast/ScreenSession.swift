@@ -475,8 +475,14 @@ final class ScreenSession: NSObject {
             if let from = msg["from"] as? String, let data = msg["data"] as? [String: Any] {
                 handleSignal(from: from, data: data)
             }
-        case "room-permission-denied", "screen-share-ban":
-            fail(Strings.notAllowed)
+        case "room-permission-denied":
+            // Also sent for the mic, the camera and the rest; only a refusal
+            // of the screen is about this broadcast.
+            if (msg["permission"] as? String) == "screen" { fail(Strings.notAllowed) }
+        case "screen-share-ban":
+            // Sent to every connection right after "registered", with
+            // banned: false when there is no ban — the state, not a verdict.
+            if (msg["banned"] as? Bool) == true { fail(Strings.notAllowed) }
         case "broadcast-ad-gate":
             adPaused = true
             var gate = msg
