@@ -3542,7 +3542,18 @@ export function DirectMessagesModal({
         />
         {/* On a phone, out of the way while something is being typed: the box
             gets its width back (WhatsApp's camera does the same). */}
-        {!editingHere && !(isCoarsePointer() && boxText.trim()) && (
+        {!editingHere && (
+        <span
+          // Folds away rather than vanishing: width, fade and a slight shrink
+          // over 200 ms, the gap beside it taken back too, inert while gone.
+          // Not overflow-hidden: the picker is mounted inside this span (an
+          // interactive Tippy goes next to its button), and clipping would
+          // cut it off. Invisible and inert is enough while folded.
+          inert={Boolean(isCoarsePointer() && boxText.trim()) ? true : undefined}
+          className={`inline-flex shrink-0 transition-[max-width,opacity,transform,margin] duration-200 ease-out ${
+            Boolean(isCoarsePointer() && boxText.trim()) ? "pointer-events-none -ml-1 max-w-0 scale-75 opacity-0" : "max-w-12 scale-100 opacity-100"
+          }`}
+        >
         <Popover
           open={gifOpen}
           onClose={() => setGifOpen(false)}
@@ -3572,6 +3583,7 @@ export function DirectMessagesModal({
             <MdGif className="h-5 w-5" />
           </button>
         </Popover>
+        </span>
         )}
         <EmojiPickerButton
           onPick={emoji.insert}
