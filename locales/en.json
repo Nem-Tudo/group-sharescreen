@@ -6193,5 +6193,9 @@
   "videoTile.iosScreenStop": "Stop sharing",
   "participantRow.nameIsUsingTheGoliveWindows": "{name} is using the Go Live app on Windows",
   "participantRow.nameIsUsingTheGoliveMac": "{name} is using the Go Live app on Mac",
-  "participantRow.nameIsUsingTheGoliveLinux": "{name} is using the Go Live app on Linux"
+  "participantRow.nameIsUsingTheGoliveLinux": "{name} is using the Go Live app on Linux",
+  "videoTile.iosScreenConfirmHint": "Tap “Start Broadcast” in the iPhone’s window.",
+  "videoTile.iosScreenJoiningHint": "Bringing your screen into the room…",
+  "videoTile.iosScreenStopping": "Ending the broadcast…",
+  "videoTile.iosScreenStoppingHint": "The iPhone takes a few seconds to let go of the screen."
 }

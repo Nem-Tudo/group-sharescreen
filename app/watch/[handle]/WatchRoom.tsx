@@ -2076,7 +2076,12 @@ function WatchRoomView({
   const iosScreen = useIOSScreenBroadcast();
   const iosScreenActive = iosScreenOn && isIOSScreenActive(iosScreen.state);
   const toggleIOSScreen = () => {
-    if (iosScreenActive) void stopIOSScreenBroadcast();
+    // Being taken down: iOS has not let go of the capture yet, and a sheet
+    // opened now would still show the old broadcast.
+    if (iosScreen.state === "stopping") return;
+    // Waiting on the sheet: a press opens it again (it may have been closed
+    // without starting), rather than stopping what never started.
+    if (iosScreen.state !== "pending" && iosScreenActive) void stopIOSScreenBroadcast();
     else
       void startIOSScreenBroadcast(handle, {
         // The rooms list's hover picture, which the extension sends itself
@@ -2348,6 +2353,8 @@ function WatchRoomView({
     micOn: isMicOn,
     toggleMic,
     hangUp: onDisconnect,
+    deafened: micsMuted,
+    toggleDeafen: toggleMicsMuted,
   });
   // Which shell this is, read once — see lib/desktop's isAppShell.
   const [appShell] = useState(() => isAppShell());
@@ -6408,9 +6415,12 @@ function WatchRoomView({
   // old value is still read as the starting point for either until it is set.
   // This iPhone sharing its screen through the broadcast extension: its own
   // tile, where a computer would show its own preview (see IOSScreenSelfTile).
-  if (localScreenVisible && iosScreenActive) {
+  if (localScreenVisible && iosScreenOn && (iosScreenActive || iosScreen.state === "stopping")) {
     const id = tileId("screen", SELF_TILE_OWNER);
-    const iosState = iosScreen.state === "paused" ? "paused" : iosScreen.state === "live" ? "live" : "connecting";
+    const iosState =
+      iosScreen.state === "paused" || iosScreen.state === "live" || iosScreen.state === "pending" || iosScreen.state === "stopping"
+        ? iosScreen.state
+        : "connecting";
     tiles.push({
       id,
       render: (fill) => (

@@ -56,7 +56,18 @@ export const IOS_SCREEN_EVENTS = {
  * exactly as it does a computer's share. The popup comes up in this page —
  * see the apply() below — and the broadcast resumes when it is answered.
  */
-export type IOSScreenState = "idle" | "connecting" | "live" | "paused" | "error";
+export type IOSScreenState =
+  | "idle"
+  // This page's own two, between a press and the extension's answer: the
+  // system sheet is up (or the extension is still starting), and the
+  // broadcast is being taken down — iOS needs a few seconds after the
+  // extension ends before it can start another, so the button waits too.
+  | "pending"
+  | "stopping"
+  | "connecting"
+  | "live"
+  | "paused"
+  | "error";
 
 interface StateEvent {
   state: IOSScreenState;
@@ -115,12 +126,41 @@ function setSnapshot(next: Snapshot) {
   listeners.forEach((listener) => listener());
 }
 
+// How long "pending" may last with no word from the extension — the sheet
+// was closed without starting, most likely.
+const PENDING_TIMEOUT_MS = 15_000;
+// How long "stopping" lasts at the least, and at the most. The extension says
+// "idle" at once; iOS takes a little longer to let go of the capture, and a
+// sheet opened in between still shows the old broadcast running.
+const STOPPING_MIN_MS = 2_500;
+const STOPPING_MAX_MS = 8_000;
+let localTimer: ReturnType<typeof setTimeout> | null = null;
+let stoppingSince = 0;
+
+function clearLocalTimer() {
+  if (localTimer) clearTimeout(localTimer);
+  localTimer = null;
+}
+
 function wire() {
   if (wired || !isIOSScreenBroadcastAvailable()) return;
   wired = true;
   const apply = (event: StateEvent) => {
-    setSnapshot({ state: event.state ?? "idle", message: event.message ? String(event.message) : null });
+    const state = event.state ?? "idle";
     relayAdGate(event);
+    // While waiting on the sheet, "idle" is only the extension not having
+    // started yet; the timeout settles it if it never does.
+    if (snapshot.state === "pending" && state === "idle") return;
+    // Being taken down: the end is kept on screen until iOS is done too.
+    if (snapshot.state === "stopping" && (state === "idle" || state === "error")) {
+      clearLocalTimer();
+      const wait = Math.max(0, stoppingSince + STOPPING_MIN_MS - Date.now());
+      localTimer = setTimeout(() => setSnapshot({ state: "idle", message: null }), wait);
+      return;
+    }
+    if (snapshot.state === "stopping") return;
+    clearLocalTimer();
+    setSnapshot({ state, message: event.message ? String(event.message) : null });
   };
   void ScreenBroadcast.addListener("stateChange", apply).catch(() => {});
   // A broadcast can already be running when this page loads (the app was
@@ -166,7 +206,12 @@ export function useIOSScreenBroadcast(): Snapshot {
 
 /** True while a broadcast is starting or running — what the share button shows as "on". */
 export function isIOSScreenActive(state: IOSScreenState): boolean {
-  return state === "connecting" || state === "live" || state === "paused";
+  return state === "pending" || state === "connecting" || state === "live" || state === "paused";
+}
+
+/** Between a press and the answer — the button takes no second press. */
+export function isIOSScreenBusy(state: IOSScreenState): boolean {
+  return state === "pending" || state === "stopping";
 }
 
 // --- actions -----------------------------------------------------------------
@@ -225,9 +270,14 @@ export async function startIOSScreenBroadcast(
   };
   try {
     await ScreenBroadcast.start({ config: JSON.stringify(config) });
-    // Cleared here rather than set to "connecting": nothing is running until
-    // the person confirms the sheet, and they may well close it instead.
-    setSnapshot({ state: snapshot.state === "error" ? "idle" : snapshot.state, message: null });
+    // The sheet is up. "pending" rather than "connecting": nothing runs until
+    // the person confirms it, and they may close it instead — which nothing
+    // reports, so the timeout puts the button back.
+    clearLocalTimer();
+    setSnapshot({ state: "pending", message: null });
+    localTimer = setTimeout(() => {
+      if (snapshot.state === "pending") setSnapshot({ state: "idle", message: null });
+    }, PENDING_TIMEOUT_MS);
   } catch {
     setSnapshot({ state: "error", message: translate("iosScreen.couldNotStart") });
   }
@@ -235,13 +285,26 @@ export async function startIOSScreenBroadcast(
 
 /** Ends a running broadcast. iOS shows its own "transmissão encerrada" note. */
 export async function stopIOSScreenBroadcast(): Promise<void> {
+  if (snapshot.state === "stopping") return;
+  // Still at the sheet: nothing is running to take down. Back to idle at
+  // once — and the stop still sent, in case the extension started just now.
+  if (snapshot.state === "pending") {
+    clearLocalTimer();
+    setSnapshot({ state: "idle", message: null });
+    void ScreenBroadcast.stop().catch(() => {});
+    return;
+  }
   trackFeatureEvent(IOS_SCREEN_EVENTS.stop, { feature: IOS_SCREEN_FEATURE });
+  clearLocalTimer();
+  stoppingSince = Date.now();
+  setSnapshot({ state: "stopping", message: null });
+  // If the extension never answers (already gone), the end still comes.
+  localTimer = setTimeout(() => setSnapshot({ state: "idle", message: null }), STOPPING_MAX_MS);
   try {
     await ScreenBroadcast.stop();
   } catch {
-    // Nothing running, or the extension already gone: either way it is off.
+    // Nothing running, or the extension already gone: the timeout ends it.
   }
-  setSnapshot({ state: "idle", message: null });
 }
 
 /** Forgets an error once it has been read (the ✕ on the notice). */

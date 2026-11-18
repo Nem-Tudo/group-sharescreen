@@ -6193,5 +6193,9 @@
   "videoTile.iosScreenStop": "Parar de compartilhar",
   "participantRow.nameIsUsingTheGoliveWindows": "{name} está usando o app do Go Live no Windows",
   "participantRow.nameIsUsingTheGoliveMac": "{name} está usando o app do Go Live no Mac",
-  "participantRow.nameIsUsingTheGoliveLinux": "{name} está usando o app do Go Live no Linux"
+  "participantRow.nameIsUsingTheGoliveLinux": "{name} está usando o app do Go Live no Linux",
+  "videoTile.iosScreenConfirmHint": "Toque em “Começar a Compartilhar” na janela do iPhone.",
+  "videoTile.iosScreenJoiningHint": "Entrando na sala com a sua tela…",
+  "videoTile.iosScreenStopping": "Encerrando a transmissão…",
+  "videoTile.iosScreenStoppingHint": "O iPhone leva alguns segundos para liberar a tela."
 }

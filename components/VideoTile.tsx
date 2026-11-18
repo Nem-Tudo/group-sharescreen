@@ -41,6 +41,7 @@ import {
   ResetIcon,
 } from "@/components/icons";
 import { MdOutlineChat, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
+import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { markFeatureUsed } from "@/components/NewBadge";
 import { ClipBuffer, TileRecorder, clipSupported, CLIP_MS } from "@/lib/clipBuffer";
@@ -1922,7 +1923,7 @@ export function IOSScreenSelfTile({
   fill = false,
   onStop,
 }: {
-  state: "connecting" | "live" | "paused";
+  state: "pending" | "connecting" | "live" | "paused" | "stopping";
   /** The extension's own words, for "paused" (the ad pause). */
   message?: string | null;
   fill?: boolean;
@@ -1931,22 +1932,43 @@ export function IOSScreenSelfTile({
   const t = useT();
   return (
     <PlaceholderTile fill={fill}>
-      <MdOutlineScreenShare className={`h-8 w-8 ${state === "live" ? "text-emerald-400" : "text-zinc-400"}`} />
+      {state === "pending" || state === "connecting" || state === "stopping" ? (
+        // Something is on its way — the sheet, the extension joining, iOS
+        // letting go of the capture — and it takes a few seconds; a spinner
+        // says so rather than a still tile that looks stuck.
+        <ButtonSpinner className="h-7 w-7 text-zinc-300" />
+      ) : (
+        <MdOutlineScreenShare className={`h-8 w-8 ${state === "live" ? "text-emerald-400" : "text-zinc-400"}`} />
+      )}
       <div className="flex flex-col items-center justify-center px-4 text-center text-sm">
         <p className="font-medium text-zinc-100">
-          {state === "connecting" ? t("videoTile.iosScreenConnecting") : t("videoTile.iosScreenSharing")}
+          {state === "stopping"
+            ? t("videoTile.iosScreenStopping")
+            : state === "pending" || state === "connecting"
+              ? t("videoTile.iosScreenConnecting")
+              : t("videoTile.iosScreenSharing")}
         </p>
         <p className="mt-0.5 text-zinc-400">
-          {state === "paused" && message ? message : t("videoTile.iosScreenSharingHint")}
+          {state === "pending"
+            ? t("videoTile.iosScreenConfirmHint")
+            : state === "connecting"
+              ? t("videoTile.iosScreenJoiningHint")
+              : state === "stopping"
+                ? t("videoTile.iosScreenStoppingHint")
+                : state === "paused" && message
+                  ? message
+                  : t("videoTile.iosScreenSharingHint")}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onStop}
-        className="flex items-center gap-1.5 rounded-lg bg-red-500/90 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-500"
-      >
-        {t("videoTile.iosScreenStop")}
-      </button>
+      {state !== "stopping" && (
+        <button
+          type="button"
+          onClick={onStop}
+          className="flex items-center gap-1.5 rounded-lg bg-red-500/90 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-500"
+        >
+          {state === "pending" ? t("common.cancel") : t("videoTile.iosScreenStop")}
+        </button>
+      )}
     </PlaceholderTile>
   );
 }

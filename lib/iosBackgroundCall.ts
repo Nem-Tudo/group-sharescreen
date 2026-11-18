@@ -68,6 +68,8 @@ export function useIOSBackgroundCall({
   micOn,
   toggleMic,
   hangUp,
+  deafened,
+  toggleDeafen,
 }: {
   inRoom: boolean;
   title: string;
@@ -76,6 +78,9 @@ export function useIOSBackgroundCall({
   toggleMic: () => void;
   /** The room's own "Sair". */
   hangUp: () => void;
+  /** The room's headphones button: everybody silenced for this person. */
+  deafened: boolean;
+  toggleDeafen: () => void;
 }): { error: string | null; dismissError: () => void } {
   const available = useSyncExternalStore(noopSubscribe, isAvailable, () => false);
   const iosApp = useSyncExternalStore(noopSubscribe, isIOSApp, () => false);
@@ -104,6 +109,65 @@ export function useIOSBackgroundCall({
       }
     };
   }, [iosApp, inRoom]);
+
+  // What iOS shows for the room's sound — the Dynamic Island, the lock
+  // screen, Control Center. WebKit files it as media playing and, told
+  // nothing, shows a music player titled with the site's domain, with ±10 s
+  // and a pause that silences the call. Told what it is: the room and Go Live,
+  // no seeking or tracks, and play/pause as the headphones button.
+  const deafenedRef = useRef(deafened);
+  const toggleDeafenRef = useRef(toggleDeafen);
+  useEffect(() => {
+    deafenedRef.current = deafened;
+    toggleDeafenRef.current = toggleDeafen;
+  });
+  useEffect(() => {
+    if (!iosApp || !inRoom || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const session = navigator.mediaSession;
+    try {
+      session.metadata = new MediaMetadata({
+        title,
+        artist: "Go Live",
+        artwork: [{ src: "/icon.png", sizes: "500x500", type: "image/png" }],
+      });
+    } catch {
+      // MediaMetadata missing: the player keeps the defaults.
+    }
+    const set = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try {
+        session.setActionHandler(action, handler);
+      } catch {
+        // An action this WebKit does not know.
+      }
+    };
+    for (const action of ["seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack"] as MediaSessionAction[]) {
+      set(action, null);
+    }
+    set("pause", () => {
+      if (!deafenedRef.current) toggleDeafenRef.current();
+    });
+    set("play", () => {
+      if (deafenedRef.current) toggleDeafenRef.current();
+    });
+    return () => {
+      set("pause", null);
+      set("play", null);
+      try {
+        session.metadata = null;
+        session.playbackState = "none";
+      } catch {
+        // Nothing to undo.
+      }
+    };
+  }, [iosApp, inRoom, title]);
+  useEffect(() => {
+    if (!iosApp || !inRoom || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = deafened ? "paused" : "playing";
+    } catch {
+      // Older WebKit: the player guesses on its own.
+    }
+  }, [iosApp, inRoom, deafened]);
   const enabled = useFeature(IOS_BACKGROUND_CALL_FEATURE, { track: available }).enabled && available;
   const active = enabled && inRoom;
   // Why the system call did not start, said in the room rather than
