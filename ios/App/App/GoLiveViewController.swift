@@ -70,7 +70,37 @@ class GoLiveViewController: CAPBridgeViewController {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        center.addObserver(self, selector: #selector(willResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(didEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.addObserver(self, selector: #selector(willEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         if let web = webView { InputAccessoryRemover.remove(from: web) }
+    }
+
+    // A call in the room keeps going behind other apps: the "audio" background
+    // mode keeps the app running while WebKit is recording or playing (iOS
+    // 17.5+). What WebKit may still do is mark the page's microphone muted as
+    // the page stops being visible; a mic that was open when the app left the
+    // screen is opened again, a moment later and once more after that.
+    private var micOpenWhenLeaving = false
+
+    @objc private func willResignActive() {
+        micOpenWhenLeaving = webView?.microphoneCaptureState == .active
+    }
+
+    @objc private func didEnterBackground() {
+        guard micOpenWhenLeaving else { return }
+        for delay in [0.5, 2.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.reopenMicIfMuted() }
+        }
+    }
+
+    @objc private func willEnterForeground() {
+        if micOpenWhenLeaving { reopenMicIfMuted() }
+    }
+
+    private func reopenMicIfMuted() {
+        guard let web = webView, web.microphoneCaptureState == .muted else { return }
+        web.setMicrophoneCaptureState(.active, completionHandler: nil)
     }
 
     @objc private func keyboardWillChange(_ note: Notification) {

@@ -78,6 +78,32 @@ export function useIOSBackgroundCall({
   hangUp: () => void;
 }): { error: string | null; dismissError: () => void } {
   const available = useSyncExternalStore(noopSubscribe, isAvailable, () => false);
+  const iosApp = useSyncExternalStore(noopSubscribe, isIOSApp, () => false);
+
+  // Whatever the call does, the room's audio is a call's audio while you are
+  // in it. Left on "auto", WebKit picks the category from what the page is
+  // doing at the moment — and with the mic closed it picks one that obeys the
+  // silent switch, so the room went quiet on a phone set to silent, and the
+  // mic reopening flipped it back. "play-and-record" keeps it one voice-call
+  // session for the whole stay (Audio Session API, WebKit on iOS 17+).
+  useEffect(() => {
+    if (!iosApp || !inRoom) return;
+    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (!session) return;
+    const previous = session.type;
+    try {
+      session.type = "play-and-record";
+    } catch {
+      return;
+    }
+    return () => {
+      try {
+        session.type = previous === "play-and-record" ? "auto" : previous;
+      } catch {
+        // Nothing to undo.
+      }
+    };
+  }, [iosApp, inRoom]);
   const enabled = useFeature(IOS_BACKGROUND_CALL_FEATURE, { track: available }).enabled && available;
   const active = enabled && inRoom;
   // Why the system call did not start, said in the room rather than
