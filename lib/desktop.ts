@@ -603,6 +603,20 @@ export function mobileAppOS(): "ios" | "android" | null {
   return Capacitor.getPlatform() === "ios" ? "ios" : "android";
 }
 
+/**
+ * The system this computer runs, for the desktop app's own badge in the
+ * participant list (the server reads everybody else's the same way, off the
+ * User-Agent the shell leaves untouched). Null on anything else.
+ */
+export function selfDesktopOS(): "windows" | "macos" | "linux" | null {
+  if (typeof navigator === "undefined") return null;
+  const ua = navigator.userAgent;
+  if (/Windows/.test(ua)) return "windows";
+  if (/Macintosh|Mac OS X/.test(ua)) return "macos";
+  if (/Linux|X11|CrOS/.test(ua)) return "linux";
+  return null;
+}
+
 export function isAppShell(): boolean {
   return isDesktopApp() || isMobileApp();
 }

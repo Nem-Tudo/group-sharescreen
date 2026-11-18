@@ -182,6 +182,8 @@ export type PeerInfo = {
   mobileApp?: boolean;
   /** Which phone app, when `mobileApp` — null/absent from an older server. */
   mobileAppOS?: "ios" | "android" | null;
+  /** Which system the desktop app runs on, when `app` — null/absent from an older server. */
+  desktopAppOS?: "windows" | "macos" | "linux" | null;
   // This peer's own presence — in front of them, in a tab they are not
   // looking at, or an installed app left running behind something (see the
   // server's connectionPresence and the "peer-presence" message). Drives the

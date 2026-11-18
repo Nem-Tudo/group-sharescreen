@@ -3654,6 +3654,9 @@
   "watch.watchRoom.chooseANameToJoinThis": "Escolha um nome para entrar nesta sala.",
   "watch.watchRoom.chooseAnotherName": "Escolha outro nome",
   "watch.watchRoom.chooseAudioOutput": "Escolher saída de áudio",
+  "watch.watchRoom.muteSources": "Silenciar fontes (vídeos e músicas)",
+  "watch.watchRoom.unmuteSources": "Voltar a ouvir vídeos e músicas",
+  "watch.watchRoom.muteSourcesHint": "Só para você. As vozes continuam.",
   "watch.watchRoom.chooseMicrophone": "Escolher microfone",
   "watch.watchRoom.chooseWhereThisRoomSitsOn": "Escolha onde esta sala fica no mapa do mundo",
   "watch.watchRoom.codeHiddenByStreamerMode": "Código oculto pelo Modo Streamer",
@@ -6185,5 +6188,8 @@
   "videoTile.iosScreenSharing": "Você está compartilhando a tela do iPhone",
   "videoTile.iosScreenConnecting": "Começando a compartilhar a tela…",
   "videoTile.iosScreenSharingHint": "Quem está na sala vê tudo o que aparece na sua tela, inclusive em outros apps.",
-  "videoTile.iosScreenStop": "Parar de compartilhar"
+  "videoTile.iosScreenStop": "Parar de compartilhar",
+  "participantRow.nameIsUsingTheGoliveWindows": "{name} está usando o app do Go Live no Windows",
+  "participantRow.nameIsUsingTheGoliveMac": "{name} está usando o app do Go Live no Mac",
+  "participantRow.nameIsUsingTheGoliveLinux": "{name} está usando o app do Go Live no Linux"
 }

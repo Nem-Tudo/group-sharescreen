@@ -9,6 +9,7 @@ import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMedia
 import { localMediaSources, type LocalMediaSlot } from "@/lib/localMediaSource";
 import type { SharedFile } from "@/lib/signalingClient";
 import { getStoredMusicVolume, setStoredMusicVolume } from "@/lib/mediaPreferences";
+import { useMediaSourcesMuted } from "@/lib/mediaSourcesMute";
 import { useT } from "@/lib/useI18n";
 
 // A local file put on as the room's *music* rather than as something to watch
@@ -83,6 +84,7 @@ export function RemoteMusicBar({
 }) {
   const t = useT();
   const [volume, setVolume] = useState(() => getStoredMusicVolume());
+  const mediaMuted = useMediaSourcesMuted();
 
   return (
     <MusicStrip
@@ -110,7 +112,7 @@ export function RemoteMusicBar({
         />
       }
     >
-      <RemoteAudio stream={stream} volume={volume} />
+      <RemoteAudio stream={stream} volume={volume} muted={mediaMuted} />
     </MusicStrip>
   );
 }

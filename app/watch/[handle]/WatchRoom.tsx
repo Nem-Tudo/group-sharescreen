@@ -148,7 +148,7 @@ import type { MusicControlMode } from "@/lib/musicSource";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
-import { isDesktopApp, isMobileApp, mobileAppOS, armSavedShareSource, getDesktopBridge } from "@/lib/desktop";
+import { isDesktopApp, isMobileApp, mobileAppOS, selfDesktopOS, armSavedShareSource, getDesktopBridge } from "@/lib/desktop";
 import {
   offerRemoteControl,
   onRemoteControlDriving,
@@ -243,6 +243,12 @@ import { Tooltip, Popover } from "@/components/Tooltip";
 import { ThemeSegmented } from "@/components/ThemeToggle";
 import { MenuToggleRow } from "@/components/MenuToggleRow";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import {
+  MEDIA_MUTE_FEATURE,
+  setMediaSourcesMuteAvailable,
+  setMediaSourcesMuted,
+  useMediaSourcesMuted,
+} from "@/lib/mediaSourcesMute";
 import { CameraEffectsPanel } from "@/components/CameraEffectsPanel";
 import { CameraEffectsSheet } from "@/components/CameraEffectsSheet";
 import { CameraCustomEffectHost } from "@/components/CameraCustomEffectEditor";
@@ -377,6 +383,8 @@ import {
   MdTranslate,
   MdPhoneIphone,
   MdMouse,
+  MdMusicOff,
+  MdMusicVideo,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -2026,6 +2034,18 @@ function WatchRoomView({
   // The "Configurações" dialog: from here on the room's menu keeps the room's
   // own things, and the switches about a running call go to the dialog's spot.
   const settingsHub = useFeature(SETTINGS_HUB_FEATURE, { track: visible }).enabled;
+  // "Silenciar fontes": the headphones split in two - voices, and the room's
+  // videos and music (see lib/mediaSourcesMute). Exposure wherever the room
+  // is on screen, since its switch under the headphones' arrow always is.
+  const mediaMuteOn = useFeature(MEDIA_MUTE_FEATURE, { track: visible }).enabled;
+  useEffect(() => {
+    setMediaSourcesMuteAvailable(mediaMuteOn);
+  }, [mediaMuteOn]);
+  const mediaSourcesMuted = useMediaSourcesMuted();
+  const toggleMediaSourcesMuted = (from: "button" | "menu") => {
+    markFeatureUsed(MEDIA_MUTE_FEATURE);
+    setMediaSourcesMuted(!mediaSourcesMuted, from);
+  };
   const settingsCallSlot = useSettingsCallSlot();
   // Whether "Impedir conexões diretas" has a TURN server to force through —
   // the build's own, or Cloudflare's once lib/iceServers.ts has them.
@@ -3533,10 +3553,11 @@ function WatchRoomView({
           (p.sharing && (!camera || p.screen === true || (p.files?.length ?? 0) > 0)) ||
           Boolean(p.userId && sharingFromIPhone.has(p.userId)),
         micStream: p.mic ? remoteMicStreams[p.id] ?? null : null,
-        // Read exactly as the participant row reads them: deafening yourself
-        // shows everybody as muted, and a volume is keyed by the person.
+        // Read exactly as the participant row reads them: a person muted by
+        // you (deafening yourself is shown on your own button, not as a red
+        // speaker on everybody), and a volume keyed by the person.
         audio: {
-          muted: micsMuted || mutedPeerIds.has(p.id) || isPeerSilenced(p),
+          muted: mutedPeerIds.has(p.id) || isPeerSilenced(p),
           volume: peerVolumes[p.userId ?? p.id] ?? 1,
         },
       });
@@ -5384,6 +5405,11 @@ function WatchRoomView({
   const localFileSlots = liveLocalSlots.filter(
     (slot) => localMediaSnapshots[slot].mode !== "music"
   );
+  // Anything in the room with a sound of its own that is not a voice: a
+  // video, music, a file somebody is playing. What decides whether the dock
+  // shows "Silenciar fontes" as a button of its own.
+  const hasMediaSources =
+    hasVideoSources || hasMusic || allRemoteFileEntries.length > 0 || liveLocalSlots.length > 0;
   // Music is a soundtrack: a room has one, not a pile. So the music picker
   // aims at the slot already playing mine when there is one — "trocar música"
   // means the next track replaces this one, not that the two play over each
@@ -5591,7 +5617,7 @@ function WatchRoomView({
           ? { userId: peer.userId, name: peer.name ?? null }
           : undefined,
       volume: peerVolumes[volumeKey] ?? 1,
-      muted: micsMuted || mutedPeerIds.has(peer.id) || isPeerSilenced(peer),
+      muted: mutedPeerIds.has(peer.id) || isPeerSilenced(peer),
       onVolumeChange: (v) => setPeerVolume(volumeKey, v),
       onToggleMute: () => toggleParticipantMute(peer.id),
     };
@@ -6216,6 +6242,7 @@ function WatchRoomView({
               : undefined
           }
           muted
+          forceMuted={mediaSourcesMuted}
           volume={transmissionVolumes[volumeKey] ?? 1}
           onVolumeChange={(volume) => setTransmissionVolume(volumeKey, volume)}
           fill={fill}
@@ -7490,6 +7517,20 @@ function WatchRoomView({
     />
   );
 
+  // Defined once and drawn under the headphones' arrow and, on a phone (no
+  // arrow there), in the "..." menu - so the two can never disagree.
+  const mediaSourcesToggle = mediaMuteOn ? (
+    <MenuToggleRow
+      label={translate("watch.watchRoom.muteSources")}
+      active={mediaSourcesMuted}
+      onToggle={() => toggleMediaSourcesMuted("menu")}
+      hint={translate("watch.watchRoom.muteSourcesHint")}
+      badge={<NewBadge id={MEDIA_MUTE_FEATURE} />}
+      activeIcon={<MdMusicOff className="h-4 w-4" />}
+      inactiveIcon={<MdMusicVideo className="h-4 w-4" />}
+    />
+  ) : null;
+
   const autoJoinToggle = (
     <MenuToggleRow
       label={translate("watch.watchRoom.joinBroadcastsAutomatically")}
@@ -8003,6 +8044,7 @@ function WatchRoomView({
       {(!settingsHub || !isDesktopLayout) && (
         <div data-tour="noise" className="contents">{noiseSuppressionToggle}</div>
       )}
+      {!isDesktopLayout && mediaSourcesToggle}
       {!settingsHub && (
         <>
           {autoJoinToggle}
@@ -8135,6 +8177,20 @@ function WatchRoomView({
     : dockPhase === "collapsing"
       ? "call-dock-conceal"
       : "call-dock-reveal";
+  // The headphones button's corners: square on whichever side has a neighbour
+  // (the arrow on the left, "Silenciar fontes" on the right), so the group
+  // reads as one control.
+  const showSourcesButton = mediaMuteOn && hasMediaSources;
+  const headphonesArrow = (canSelectSpeaker || mediaMuteOn) && !dockCompact;
+  const headphonesNeighbourRight = showSourcesButton && !dockCompact;
+  const headphonesCorners = headphonesArrow
+    ? headphonesNeighbourRight
+      ? ""
+      : "rounded-r-lg"
+    : headphonesNeighbourRight
+      ? "rounded-l-lg"
+      : "rounded-lg";
+
   function dockExtra(node: ReactNode, innerClassName = "flex items-stretch", outerClassName = ""): ReactNode {
     if (dockCompact || !node) return null;
     if (!dockMotion) return node;
@@ -8323,8 +8379,9 @@ function WatchRoomView({
           onRequestAccount={() => setAccountModal("create")}
           onOpenAllShortcuts={() => setShortcutsModalOpen(true)}
           extra={
-            canSelectSpeaker ? (
+            canSelectSpeaker || mediaSourcesToggle ? (
               <div className="w-64 max-w-[calc(100vw-2rem)]">
+                {canSelectSpeaker && (
                 <DeviceSubmenuRow
                   label={translate("watch.watchRoom.chooseAudioOutput")}
                   current={
@@ -8346,12 +8403,17 @@ function WatchRoomView({
                     />
                   ))}
                 </DeviceSubmenuRow>
+                )}
+                {/* Always here while the experiment is on, sources or not -
+                    the dock's own button below only shows up when there is
+                    something to silence. */}
+                {mediaSourcesToggle}
               </div>
             ) : undefined
           }
         >
           <div className="flex items-stretch">
-          {canSelectSpeaker && dockExtra(
+          {(canSelectSpeaker || mediaMuteOn) && dockExtra(
             <Tooltip content={translate("watch.watchRoom.audioSettings")}>
               <button
                 type="button"
@@ -8377,7 +8439,7 @@ function WatchRoomView({
               }}
               data-tour="deafen"
               aria-label={micsMuted ? translate("common.unmuteMicrophones") : translate("common.muteMicrophones")}
-              className={`p-2 text-white transition ${canSelectSpeaker && !dockCompact ? "rounded-r-lg" : "rounded-lg"} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+              className={`p-2 text-white transition ${headphonesCorners} ${micsMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
             >
               {micsMuted ? (
@@ -8387,6 +8449,41 @@ function WatchRoomView({
               )}
             </button>
           </Tooltip>
+          {/* The other half: the room's videos and music, apart from the
+              voices. Only while there is any - otherwise it is a button for
+              nothing, and the switch under the arrow is enough. */}
+          {showSourcesButton && dockExtra(
+            <Tooltip
+              content={
+                mediaSourcesMuted
+                  ? translate("watch.watchRoom.unmuteSources")
+                  : translate("watch.watchRoom.muteSources")
+              }
+            >
+              <button
+                type="button"
+                onClick={() => toggleMediaSourcesMuted("button")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setQuickShortcutAction("toggleDeafen");
+                }}
+                aria-pressed={mediaSourcesMuted}
+                aria-label={
+                  mediaSourcesMuted
+                    ? translate("watch.watchRoom.unmuteSources")
+                    : translate("watch.watchRoom.muteSources")
+                }
+                className={`h-full rounded-r-lg border-l border-black/15 p-2 text-white transition ${mediaSourcesMuted ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
+              >
+                {mediaSourcesMuted ? (
+                  <MdMusicOff className="h-5 w-5" />
+                ) : (
+                  <MdMusicVideo className="h-5 w-5" />
+                )}
+              </button>
+            </Tooltip>
+          )}
           </div>
         </ShortcutQuickPopover>
       </div>
@@ -8757,6 +8854,7 @@ function WatchRoomView({
         isOwner={isRoomOwner}
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp() && !isMobileApp()}
+        desktopAppOS={mounted && isDesktopApp() ? selfDesktopOS() : null}
         isMobileApp={mounted && isMobileApp()}
         mobileAppOS={mounted ? mobileAppOS() : null}
         handRaised={micsLockedForMembers && selfHandRaised}
@@ -8811,6 +8909,7 @@ function WatchRoomView({
             isOwner={Boolean(p.userId) && p.userId === state.roomOwnerId}
             isAdmin={p.userId ? adminIds.has(p.userId) : false}
             isApp={p.app}
+            desktopAppOS={p.desktopAppOS ?? null}
             isMobileApp={p.mobileApp}
             mobileAppOS={p.mobileAppOS ?? null}
             handRaised={micsLockedForMembers && Boolean(p.userId && raisedHandIds.has(p.userId))}
@@ -8827,7 +8926,7 @@ function WatchRoomView({
             phoneCamera={p.phoneCamera}
             sharingVideo={peerSharesVideo(p.userId)}
             micStream={remoteMicStreams[p.id]}
-            muted={micsMuted || mutedPeerIds.has(p.id) || isPeerSilenced(p)}
+            muted={mutedPeerIds.has(p.id) || isPeerSilenced(p)}
             onToggleMute={toggleParticipantMute}
             volume={peerVolumes[volumeKey] ?? 1}
             connectionLost={micConnectionStates[p.id] === "disconnected"}

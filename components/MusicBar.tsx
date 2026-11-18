@@ -28,6 +28,7 @@ import {
   useTileExperimentTip,
 } from "@/lib/clipsMode";
 import { VolumeSlider } from "@/components/VolumeSlider";
+import { getMediaSourcesMuted, useMediaSourcesMuted } from "@/lib/mediaSourcesMute";
 import { signalingClient } from "@/lib/signalingClient";
 import { isPageHidden, onPageHiddenChange } from "@/lib/pageHidden";
 import {
@@ -455,7 +456,7 @@ export function MusicBar({
           events: {
             onReady: () => {
               if (cancelled) return;
-              applyPlayerVolume(playerRef.current, volumeRef.current, false);
+              applyPlayerVolume(playerRef.current, volumeRef.current, getMediaSourcesMuted());
               setReady(true);
             },
             onError: (event: { data: number }) => {
@@ -544,10 +545,12 @@ export function MusicBar({
     };
   }, [sourceKey, markApplyingRemote, markFailed, schedulePush, keepPlayerInPlace]);
 
-  // This listener's own volume.
+  // This listener's own volume, and "Silenciar fontes" (see
+  // lib/mediaSourcesMute) on top of it without touching the dial.
+  const mediaMuted = useMediaSourcesMuted();
   useEffect(() => {
-    applyPlayerVolume(playerRef.current, volume, false);
-  }, [volume, ready]);
+    applyPlayerVolume(playerRef.current, volume, mediaMuted);
+  }, [volume, ready, mediaMuted]);
 
   // Follows the room: play/pause, the playlist's current item, and the
   // position everyone extrapolates from. Runs on every change to the record
@@ -886,7 +889,7 @@ export function MusicBar({
     const player = playerRef.current;
     if (!player) return;
     player.unMute?.();
-    applyPlayerVolume(player, volume || 0.5, false);
+    applyPlayerVolume(player, volume || 0.5, getMediaSourcesMuted());
     if (volume === 0) changeVolume(0.5);
     player.playVideo();
     setNeedsGesture(false);

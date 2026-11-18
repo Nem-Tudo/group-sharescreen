@@ -121,6 +121,7 @@ const VideoTileView = memo(function VideoTileView({
   accessibleLabel,
   badge,
   muted = false,
+  forceMuted = false,
   allowUnmute = true,
   volume,
   onVolumeChange,
@@ -175,6 +176,10 @@ const VideoTileView = memo(function VideoTileView({
   className?: string;
   muted?: boolean;
   allowUnmute?: boolean;
+  // Silenced from outside, on top of the tile's own mute and without moving
+  // its dial — "Silenciar fontes" for a file somebody plays for the room (see
+  // lib/mediaSourcesMute).
+  forceMuted?: boolean;
   // Up to audioGain.ts's MAX_GAIN (300%) — see useGainedAudio below.
   volume?: number;
   onVolumeChange?: (volume: number) => void;
@@ -648,7 +653,7 @@ const VideoTileView = memo(function VideoTileView({
     []
   );
 
-  useGainedAudio(videoRef, stream, volume ?? internalVolume, isMuted);
+  useGainedAudio(videoRef, stream, volume ?? internalVolume, isMuted || forceMuted);
 
   useEffect(() => {
     const video = videoRef.current;

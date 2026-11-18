@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore, useState, useEffect, type ReactNode } from "react";
+import { useMediaSourcesMuted } from "@/lib/mediaSourcesMute";
 import {
   MdPlayArrow,
   MdPause,
@@ -82,6 +83,12 @@ export function LocalMediaControls({
   const [volume, setVolume] = useState(1);
   const [scrubbing, setScrubbing] = useState<number | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  // "Silenciar fontes" (see lib/mediaSourcesMute) reaches your own file too,
+  // in your ears only: the monitor branch, never the copy the room hears.
+  const mediaMuted = useMediaSourcesMuted();
+  useEffect(() => {
+    source.setLocalVolume(mediaMuted ? 0 : volume);
+  }, [source, mediaMuted, volume]);
 
   const current = state.queue[state.index] ?? null;
   if (!current) return null;
@@ -132,8 +139,9 @@ export function LocalMediaControls({
       onControlModeChange={(next) => source.setControlMode(next)}
       volume={volume}
       onVolumeChange={(next) => {
+        // Applied by the effect above, which also knows about "Silenciar
+        // fontes".
         setVolume(next);
-        source.setLocalVolume(next);
       }}
       // The room default, which is also what this person hears. Each viewer
       // can pick another for themselves (see RemoteMediaControls).

@@ -166,7 +166,23 @@ public class BackgroundCallPlugin: CAPPlugin, CAPBridgedPlugin, CXProviderDelega
 
     public func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         ownActions.remove(action.uuid)
+        // CallKit activates the app's audio session for the call, and the
+        // page's WebRTC audio (played and captured by WebKit) lives in that
+        // same session. Left to CallKit's defaults, the first test went
+        // silent both ways and the mic would not come back. Set up as a voice
+        // call before CallKit activates it: play and record, the voice-chat
+        // processing WebRTC expects, the loudspeaker and Bluetooth headsets.
+        Self.configureAudioSession()
         action.fulfill()
+    }
+
+    static func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(
+            .playAndRecord,
+            mode: .voiceChat,
+            options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+        )
     }
 
     public func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
@@ -191,8 +207,14 @@ public class BackgroundCallPlugin: CAPPlugin, CAPBridgedPlugin, CXProviderDelega
 
     public func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         // CallKit has taken the audio session over; the page's capture can
-        // read that as an interruption. Put it back if the mic is meant on.
+        // read that as an interruption. The category again (CallKit may have
+        // reset it), then the mic, if it is meant on.
+        Self.configureAudioSession()
         keepMicrophoneLive()
+        // And once more a moment later: WebKit restarts its own audio units
+        // after an interruption on its own schedule, and muting the capture
+        // can come after this callback.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.keepMicrophoneLive() }
     }
 
     public func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {}

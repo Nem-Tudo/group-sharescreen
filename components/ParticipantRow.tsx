@@ -20,7 +20,7 @@ import {
   MdBackHand,
   MdHandyman,
 } from "react-icons/md";
-import { FaAndroid, FaApple, FaCrown } from "react-icons/fa";
+import { FaAndroid, FaApple, FaCrown, FaLinux, FaWindows } from "react-icons/fa";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { UserAvatar } from "./UserAvatar";
@@ -61,6 +61,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   isApp = false,
   isMobileApp = false,
   mobileAppOS = null,
+  desktopAppOS = null,
   handRaised = false,
   tools,
   presence = { state: "online" },
@@ -147,6 +148,8 @@ export const ParticipantRow = memo(function ParticipantRow({
   isMobileApp?: boolean;
   /** Which phone app, for the icon and the words; null draws the plain phone (an older server). */
   mobileAppOS?: "ios" | "android" | null;
+  /** Which system the desktop app runs on; null draws the plain computer. */
+  desktopAppOS?: "windows" | "macos" | "linux" | null;
   // A raised hand (see components/roomTools/HandRaise) — shown by the name.
   handRaised?: boolean;
   // The room tools this person opened that are still open (see
@@ -322,9 +325,20 @@ export const ParticipantRow = memo(function ParticipantRow({
           </Tooltip>
         )}
         {isApp ? (
-          <Tooltip content={t("participantRow.nameIsUsingTheGoliveApp", { name })}>
+          <Tooltip
+            content={t(
+              desktopAppOS === "windows"
+                ? "participantRow.nameIsUsingTheGoliveWindows"
+                : desktopAppOS === "macos"
+                  ? "participantRow.nameIsUsingTheGoliveMac"
+                  : desktopAppOS === "linux"
+                    ? "participantRow.nameIsUsingTheGoliveLinux"
+                    : "participantRow.nameIsUsingTheGoliveApp",
+              { name }
+            )}
+          >
             <span className="flex shrink-0 items-center self-center">
-              <MdOutlineDesktopWindows className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+              <AppDeviceIcon device="pc" os={desktopAppOS} />
             </span>
           </Tooltip>
         ) : (
@@ -340,16 +354,7 @@ export const ParticipantRow = memo(function ParticipantRow({
               )}
             >
               <span className="flex shrink-0 items-center self-center">
-                {/* Same size and colour as the desktop one on purpose: they
-                    are the same fact about a person, and a different colour
-                    would read as a different kind of thing. */}
-                {mobileAppOS === "ios" ? (
-                  <FaApple className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                ) : mobileAppOS === "android" ? (
-                  <FaAndroid className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                ) : (
-                  <MdOutlineSmartphone className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                )}
+                <AppDeviceIcon device="phone" os={mobileAppOS} />
               </span>
             </Tooltip>
           )
@@ -467,3 +472,33 @@ export const ParticipantRow = memo(function ParticipantRow({
   }
   return true;
 });
+
+/**
+ * The app badge: the device (a phone or a computer) with the logo of its
+ * system drawn inside its screen. The phone and the computer are the same fact
+ * about a person, so they share the size and colour; the logo only says which.
+ * Without a known system it is the bare device, as before.
+ */
+function AppDeviceIcon({
+  device,
+  os,
+}: {
+  device: "phone" | "pc";
+  os: "ios" | "android" | "windows" | "macos" | "linux" | null;
+}) {
+  const Device = device === "phone" ? MdOutlineSmartphone : MdOutlineDesktopWindows;
+  const Logo =
+    os === "ios" || os === "macos" ? FaApple : os === "android" ? FaAndroid : os === "windows" ? FaWindows : os === "linux" ? FaLinux : null;
+  return (
+    <span className="relative flex h-4 w-4 shrink-0 items-center justify-center text-indigo-500 dark:text-indigo-400">
+      <Device className="h-4 w-4" />
+      {Logo && (
+        // Centred on the screen of each outline: the phone's sits a hair
+        // above its middle, the monitor's well above (its stand is below).
+        <Logo
+          className={`absolute left-1/2 -translate-x-1/2 ${device === "phone" ? "top-[4px] h-[7px] w-[7px]" : "top-[3px] h-[6px] w-[6px]"}`}
+        />
+      )}
+    </span>
+  );
+}

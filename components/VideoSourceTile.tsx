@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { FocusIcon, HyperfocusIcon, FullscreenIcon, FullscreenExitIcon, EyeOffIcon, ObsSourceIcon } from "@/components/icons";
 import { Tooltip } from "@/components/Tooltip";
 import { VolumeSlider } from "@/components/VolumeSlider";
+import { useMediaSourcesMuted } from "@/lib/mediaSourcesMute";
 import { MdClose, MdSettings, MdLock, MdLockOpen } from "react-icons/md";
 import { isYouTubeVideoId, videoSourcePosition, type VideoSource } from "@/lib/videoSource";
 import {
@@ -416,6 +417,10 @@ export function VideoSourceTile({
   const [internalVolume, setInternalVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const effectiveVolume = volume ?? internalVolume;
+  // "Silenciar fontes" (see lib/mediaSourcesMute): folded into the player's
+  // mute rather than into the dial, so the dial comes back where it was.
+  const mediaMuted = useMediaSourcesMuted();
+  const playerMuted = isMuted || mediaMuted;
   // Read by the player's onReady callback, which is created once. Asking for
   // YouTube's controls (or the video changing) rebuilds the player, and a
   // fresh player starts at YouTube's default volume — so the desired one has
@@ -429,7 +434,7 @@ export function VideoSourceTile({
     canControlRef.current = canControl;
     nativeControlsRef.current = showNativeControls;
     volumeRef.current = effectiveVolume;
-    mutedRef.current = isMuted;
+    mutedRef.current = playerMuted;
   });
 
   function handleVolumeChange(nextVolume: number) {
@@ -730,8 +735,8 @@ export function VideoSourceTile({
   // these deps changed.
   useEffect(() => {
     if (!ready) return;
-    applyPlayerVolume(playerRef.current, effectiveVolume, isMuted);
-  }, [ready, effectiveVolume, isMuted]);
+    applyPlayerVolume(playerRef.current, effectiveVolume, playerMuted);
+  }, [ready, effectiveVolume, playerMuted]);
 
   // True only for the classic single-controller case: the adder, on a
   // source nobody else was handed the wheel on. That, and only that, is when
