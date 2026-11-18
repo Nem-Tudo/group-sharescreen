@@ -6178,5 +6178,7 @@
   "announcement.appAndroid": "Android app",
   "announcement.appIos": "iOS app (iPhone)",
   "admin.features.platform.mobile-app": "Phone apps (Android and iOS)",
-  "announcement.appMobile": "Phone apps (Android and iOS)"
+  "announcement.appMobile": "Phone apps (Android and iOS)",
+  "participantRow.nameIsUsingTheGoliveIos": "{name} is using the Go Live app on iPhone",
+  "participantRow.nameIsUsingTheGoliveAndroid": "{name} is using the Go Live app on Android"
 }

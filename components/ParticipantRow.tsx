@@ -20,7 +20,7 @@ import {
   MdBackHand,
   MdHandyman,
 } from "react-icons/md";
-import { FaCrown } from "react-icons/fa";
+import { FaAndroid, FaApple, FaCrown } from "react-icons/fa";
 import { DisplayUserName } from "./DisplayUserName";
 import type { VerifiedTone } from "@/lib/entitlements";
 import { UserAvatar } from "./UserAvatar";
@@ -60,6 +60,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   isAdmin = false,
   isApp = false,
   isMobileApp = false,
+  mobileAppOS = null,
   handRaised = false,
   tools,
   presence = { state: "online" },
@@ -144,6 +145,8 @@ export const ParticipantRow = memo(function ParticipantRow({
   // derives both from one platform value), but written as one branch so a
   // client that somehow received both shows one icon rather than two.
   isMobileApp?: boolean;
+  /** Which phone app, for the icon and the words; null draws the plain phone (an older server). */
+  mobileAppOS?: "ios" | "android" | null;
   // A raised hand (see components/roomTools/HandRaise) — shown by the name.
   handRaised?: boolean;
   // The room tools this person opened that are still open (see
@@ -326,12 +329,27 @@ export const ParticipantRow = memo(function ParticipantRow({
           </Tooltip>
         ) : (
           isMobileApp && (
-            <Tooltip content={t("participantRow.nameIsUsingTheGoliveApp2", { name })}>
+            <Tooltip
+              content={t(
+                mobileAppOS === "ios"
+                  ? "participantRow.nameIsUsingTheGoliveIos"
+                  : mobileAppOS === "android"
+                    ? "participantRow.nameIsUsingTheGoliveAndroid"
+                    : "participantRow.nameIsUsingTheGoliveApp2",
+                { name }
+              )}
+            >
               <span className="flex shrink-0 items-center self-center">
                 {/* Same size and colour as the desktop one on purpose: they
                     are the same fact about a person, and a different colour
                     would read as a different kind of thing. */}
-                <MdOutlineSmartphone className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                {mobileAppOS === "ios" ? (
+                  <FaApple className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                ) : mobileAppOS === "android" ? (
+                  <FaAndroid className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                ) : (
+                  <MdOutlineSmartphone className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                )}
               </span>
             </Tooltip>
           )

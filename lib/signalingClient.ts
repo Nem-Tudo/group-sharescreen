@@ -180,6 +180,8 @@ export type PeerInfo = {
   // ParticipantRow shows a phone icon for these and a monitor for those.
   // Undefined from a server that predates it, read the same as `false`.
   mobileApp?: boolean;
+  /** Which phone app, when `mobileApp` — null/absent from an older server. */
+  mobileAppOS?: "ios" | "android" | null;
   // This peer's own presence — in front of them, in a tab they are not
   // looking at, or an installed app left running behind something (see the
   // server's connectionPresence and the "peer-presence" message). Drives the

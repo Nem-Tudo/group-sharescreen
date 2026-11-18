@@ -148,7 +148,7 @@ import type { MusicControlMode } from "@/lib/musicSource";
 import { LocalMediaControls, RemoteMediaControls } from "@/components/LocalMediaControls";
 import { LocalMusicBar, RemoteMusicBar } from "@/components/LocalMusicBar";
 import { MemberActionsMenu, type MemberActions } from "@/components/MemberActionsModal";
-import { isDesktopApp, isMobileApp, armSavedShareSource, getDesktopBridge } from "@/lib/desktop";
+import { isDesktopApp, isMobileApp, mobileAppOS, armSavedShareSource, getDesktopBridge } from "@/lib/desktop";
 import {
   offerRemoteControl,
   onRemoteControlDriving,
@@ -274,7 +274,7 @@ import {
   stopIOSScreenBroadcast,
   useIOSScreenBroadcast,
   useIOSScreenBroadcastAvailable,
-} from "@/lib/iosScreenBroadcast";
+} from "@/lib/iosScreenBroadcast";
 import { useIOSBackgroundCall } from "@/lib/iosBackgroundCall";
 import { STREAM_PREVIEW_FEATURE, useStreamPreviewUploader } from "@/lib/streamPreview";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
@@ -8740,6 +8740,7 @@ function WatchRoomView({
         isAdmin={isRoomAdmin}
         isApp={mounted && isDesktopApp() && !isMobileApp()}
         isMobileApp={mounted && isMobileApp()}
+        mobileAppOS={mounted ? mobileAppOS() : null}
         handRaised={micsLockedForMembers && selfHandRaised}
         tools={state.selfUserId ? toolsByUser.get(state.selfUserId) : undefined}
         // Your own row is you, looking at it — the only question left is which
@@ -8793,6 +8794,7 @@ function WatchRoomView({
             isAdmin={p.userId ? adminIds.has(p.userId) : false}
             isApp={p.app}
             isMobileApp={p.mobileApp}
+            mobileAppOS={p.mobileAppOS ?? null}
             handRaised={micsLockedForMembers && Boolean(p.userId && raisedHandIds.has(p.userId))}
             tools={p.userId ? toolsByUser.get(p.userId) : undefined}
             presence={peerPresence(p)}
