@@ -1793,21 +1793,38 @@ function middleFinger(hand) {
 }
 
 // Thumb and index tips touching in a ring, the other three held out.
+//
+// Strict on purpose: the first version (tips within 0.35 of the hand, the
+// other three out) fired all the time on a relaxed open hand, where the thumb
+// rests against the side of a straight index. So the index must be curled
+// round into the ring (not straight), the tips must really touch, the ring
+// must stand off the palm (not a pinch against the knuckles), and the three
+// others must point up. It is also held longer than the other poses (see
+// HAND_POSES' `hold`).
 function okSign(hand) {
   const size = handSize(hand);
-  if (dist(hand[4], hand[8]) > 0.35 * size) return false;
-  return extended(hand, 12, 10) && extended(hand, 16, 14) && extended(hand, 20, 18);
+  if (dist(hand[4], hand[8]) > 0.2 * size) return false;
+  // The index bent into the ring: its tip clearly short of a straight finger.
+  if (dist(hand[8], hand[0]) > dist(hand[6], hand[0]) * 1.05) return false;
+  if (dist(hand[8], hand[5]) > 0.9 * size) return false;
+  // A ring, not a fist: the touching tips away from the middle of the palm.
+  if (dist(mid(hand[4], hand[8]), hand[9]) < 0.35 * size) return false;
+  if (!(extended(hand, 12, 10) && extended(hand, 16, 14) && extended(hand, 20, 18))) return false;
+  // The three held out point up, above the ring.
+  const ringY = (hand[4].y + hand[8].y) / 2;
+  return hand[12].y < ringY && hand[16].y < ringY && hand[20].y < ringY;
 }
 
 // The poses a hand holds to say something. Each one fires its emoji once it
 // has been seen for two looks in a row — a hand passing through the shape
-// does not count — and then rests for `cooldown` ms. `from` is the landmark
+// does not count (`hold` looks, for a pose easy to fall into by accident) —
+// and then rests for POSE_COOLDOWN_MS. `from` is the landmark
 // the emoji comes out of; `fall` sends it downwards (a thumbs down sinks).
 const HAND_POSES = [
   { name: "thumbs", test: thumbsUp, char: "👍", from: 4 },
   { name: "thumbs_down", test: thumbsDown, char: "👎", from: 4, fall: true },
   { name: "middle_finger", test: middleFinger, char: "🖕", from: 12 },
-  { name: "ok", test: okSign, char: "👌", from: 8 },
+  { name: "ok", test: okSign, char: "👌", from: 8, hold: 5 },
 ];
 const POSE_COOLDOWN_MS = 1200;
 
@@ -1821,7 +1838,7 @@ function poseReactions(p, now) {
       continue;
     }
     seen.frames += 1;
-    if (seen.frames !== 2 || now - seen.last <= POSE_COOLDOWN_MS) continue;
+    if (seen.frames !== (pose.hold || 2) || now - seen.last <= POSE_COOLDOWN_MS) continue;
     seen.last = now;
     const size = handSize(hand);
     const at = hand[pose.from];
