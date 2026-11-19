@@ -617,15 +617,25 @@ const VideoTileView = memo(function VideoTileView({
     const video = videoRef.current;
     if (!video) return;
     // Releasing the stream stops this tile decoding and compositing while it
-    // is off screen — but only when the element is not the thing carrying the
-    // sound. useGainedAudio runs the audio through a Web Audio graph built
-    // from the *stream* (immune to this) and mutes the element; when that
-    // graph cannot be built yet, because the context has not been unblocked
-    // by a gesture, it leaves the element unmuted and audible instead. In
-    // that state releasing the stream would silence a share that somebody is
-    // listening to, so the video stays attached and we simply do without the
-    // saving. A muted element has no audio to lose either way.
-    const carriesAudio = !video.muted && stream !== null && stream.getAudioTracks().length > 0;
+    // is off screen — but never for a stream with sound in it, whichever path
+    // is playing that sound.
+    //
+    // useGainedAudio runs the audio through a Web Audio graph built from the
+    // stream and mutes the element. That graph is *not* immune to the element
+    // going away: Chromium only pulls a remote WebRTC audio track while some
+    // media element is attached to it (crbug 933677 — a MediaStreamSource fed
+    // by a peer connection and nothing else is silent). So releasing a muted
+    // element took the share's sound with it the moment the page was hidden:
+    // the Android app sent to the background ("quando a tela fica em segundo
+    // plano não sai mais som da transmissão", ticket 1435), the desktop app
+    // minimised. The voices were never affected — they play through <audio>
+    // elements that nothing detaches — which is why only the share went quiet.
+    //
+    // Keeping it attached costs next to nothing: a hidden tile reports itself
+    // hidden (onVisibilityChange below), the sender stops sending it video,
+    // and there is nothing left to decode. Muted or not, the element is what
+    // keeps the audio flowing.
+    const carriesAudio = stream !== null && stream.getAudioTracks().length > 0;
     const release = detachWhenHidden && !visible && !carriesAudio;
     video.srcObject = release ? null : stream;
     return () => {
