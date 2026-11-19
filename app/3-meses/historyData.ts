@@ -102,9 +102,10 @@ export const HARD_FIGURES = {
  * "/aniversario/equipe/nemtudo.jpg"); null shows the initials instead.
  */
 export const TEAM: { id: string; name: string; handle: string; role: "ceo" | "dev" | "support"; place: string; color: string; photo: string | null }[] = [
-  { id: "nemtudo", name: "Gustavo Felipe", handle: "NemTudo", role: "ceo", place: "Santa Rita do Sapucaí, Minas Gerais", color: "#ff3b2f", photo: null },
-  { id: "commandbat", name: "Tiago", handle: "Commandbat", role: "dev", place: "Guapiaçu, São Paulo", color: "#4c86ff", photo: null },
-  { id: "g4buh", name: "Gabriela", handle: "G4buh", role: "support", place: "Porto, Portugal", color: "#2fbf71", photo: null },
+  { id: "nemtudo", name: "Gustavo Felipe", handle: "NemTudo", role: "ceo", place: "Santa Rita do Sapucaí, Minas Gerais", color: "#ff3b2f", photo: "/aniversario/equipe/nemtudo.jpg" },
+  { id: "commandbat", name: "Tiago", handle: "Commandbat", role: "dev", place: "São José do Rio Preto, São Paulo", color: "#4c86ff", photo: "/aniversario/equipe/commandbat.jpg" },
+  { id: "g4buh", name: "Gabriela", handle: "G4buh", role: "support", place: "Porto, Portugal", color: "#2fbf71", photo: "/aniversario/equipe/g4buh.jpg" },
+  { id: "aeeryin", name: "Izzabella", handle: "Aeeryin", role: "support", place: "Içara, Santa Catarina", color: "#a855f7", photo: null },
 ];
 
 /** The bug wall. `date` is shown as written. */

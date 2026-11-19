@@ -40,7 +40,7 @@ export function TeamSection() {
     <section ref={ref} data-scene="team" className="relative px-4 py-28 sm:px-8 sm:py-36">
       <SceneTitle kicker={t("anniversary.team.kicker")} title={t("anniversary.team.title")} sub={t("anniversary.team.sub")} color="var(--a-amber)" />
 
-      <ul className="tm-wall mx-auto mt-14 grid max-w-6xl gap-x-6 gap-y-10 sm:grid-cols-3">
+      <ul className="tm-wall mx-auto mt-14 grid max-w-6xl gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
         {TEAM.map((person, i) => {
           const initials = person.name
             .split(" ")
@@ -62,7 +62,7 @@ export function TeamSection() {
               >
                 {person.photo ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={person.photo} alt={person.name} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                  <img src={person.photo} alt={person.name} className="absolute inset-0 h-full w-full object-cover object-[50%_30%] transition-transform duration-500 group-hover:scale-[1.03]" />
                 ) : (
                   <span className="anniv-display absolute inset-0 flex items-center justify-center pb-16 text-[7rem] leading-none text-white/90" aria-hidden="true">
                     {initials}
@@ -74,7 +74,7 @@ export function TeamSection() {
                   {t("anniversary.team.from", { place: person.place })}
                 </p>
                 <div className="tm-lower absolute inset-x-0 bottom-4 flex flex-col items-start pr-4">
-                  <p className="anniv-display bg-[var(--a-ink)] px-3 py-1.5 text-2xl text-[var(--a-bg)] sm:text-[1.7rem]">{person.name}</p>
+                  <p className="anniv-display bg-[var(--a-ink)] px-3 py-1.5 text-2xl text-[var(--a-bg)]">{person.name}</p>
                   <p className="anniv-mono px-3 py-1 text-[11px] font-semibold uppercase text-white" style={{ background: person.color }}>
                     @{person.handle} · {t(`anniversary.team.role.${person.role}`)}
                   </p>
