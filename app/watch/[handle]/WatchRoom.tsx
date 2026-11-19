@@ -2121,6 +2121,7 @@ function WatchRoomView({
     shareError,
     setShareSystemAudio,
     shareSystemAudioUnavailable,
+    shareNoFrames,
     shareSource,
     fileChannels,
     localMediaSnapshots,
@@ -10160,6 +10161,15 @@ function WatchRoomView({
               {translate("watch.watchRoom.openAppSettings")}
             </button>
           )}
+        </p>
+      )}
+      {/* The share's capture never produced a frame (see
+          lib/shareFrameWatch.ts): without this the tile is just black, for
+          the person sharing and the room alike, with no reason given. Red,
+          because the share is not working at all. */}
+      {shareNoFrames && localStream && (
+        <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          {translate("watch.watchRoom.shareNoFrames")}
         </p>
       )}
       {/* Firefox never offers screen/tab audio in its picker and drops the

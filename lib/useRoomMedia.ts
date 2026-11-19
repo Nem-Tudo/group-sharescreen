@@ -196,6 +196,12 @@ import {
   type NativeVideoMethod,
   type NativeVideoOptions,
 } from "./nativeVideoCapture";
+import {
+  FIRST_FRAME_WAIT_MS,
+  SHARE_NO_FRAMES_EVENTS,
+  SHARE_NO_FRAMES_FEATURE,
+  waitForFirstFrame,
+} from "./shareFrameWatch";
 
 // "file1".."file3" are local video or audio files played into the room (see
 // lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
@@ -867,6 +873,9 @@ export const SCREEN_SHARE_STATS = {
 
 const RESTART_WINDOW_MS = 60_000;
 const SHARE_SAMPLE_MS = 5_000;
+// How long a share that started black is watched for frames that come late
+// (see guardFirstFrame) — long enough for a minimized window to be restored.
+const LATE_FRAME_WAIT_MS = 5 * 60_000;
 let lastScreenShareEndedAt = 0;
 
 interface ScreenStartConfig {
@@ -3114,6 +3123,9 @@ export function useRoomMedia(room: string) {
   // Null while there is nothing to say; otherwise why, so the notice can
   // point somebody whose permission is blocked at the settings screen.
   const [systemAudioUnavailable, setSystemAudioUnavailable] = useState<SystemAudioUnavailableReason | null>(null);
+  // The share is running but its capture has never produced a picture (see
+  // lib/shareFrameWatch.ts) — the room says so instead of a silent black tile.
+  const [shareNoFrames, setShareNoFrames] = useState(false);
   const shareBitrateRef = useRef(shareBitrate);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
 
@@ -3294,6 +3306,18 @@ export function useRoomMedia(room: string) {
   });
   const gpuSurveyOn = nativeVideoBridge && gpuSurveyFeature.enabled;
 
+  // "Tela preta": a capture that never produces a frame (see
+  // lib/shareFrameWatch.ts). Exposure is counted from the first share
+  // attempted on this page — that is where the check runs, and counting
+  // everybody who merely opened a room would drown the few it is about.
+  // Control measures only; "on" also tries the GPU helper and warns.
+  const [shareAttempted, setShareAttempted] = useState(false);
+  const noFramesFeature = useFeature(SHARE_NO_FRAMES_FEATURE, { track: shareAttempted });
+  const noFramesRef = useRef({ group: noFramesFeature.group, on: noFramesFeature.enabled });
+  useEffect(() => {
+    noFramesRef.current = { group: noFramesFeature.group, on: noFramesFeature.enabled };
+  }, [noFramesFeature.group, noFramesFeature.enabled]);
+
   const nativeVideoWantedRef = useRef(false);
   useEffect(() => {
     nativeVideoWantedRef.current = nativeVideoWanted;
@@ -3312,7 +3336,11 @@ export function useRoomMedia(room: string) {
   // What the running share was started with, as far as settings that only a
   // restart applies are concerned — compared below to offer one.
   const [screenStartConfig, setScreenStartConfig] = useState<ScreenStartConfig | null>(null);
-  const withNativeVideo = useCallback(async (stream: MediaStream): Promise<MediaStream> => {
+  //
+  // `rescueMethod` is the no-frames rescue (see guardFirstFrame below): the
+  // helper is tried with that method whether or not this person is in the GPU
+  // experiment, and it does not count as the experiment's start or fallback.
+  const withNativeVideo = useCallback(async (stream: MediaStream, rescueMethod?: NativeVideoMethod): Promise<MediaStream> => {
     const config: ScreenStartConfig = {
       native: nativeVideoWantedRef.current,
       method: nativeVideoMethodRef.current,
@@ -3320,8 +3348,8 @@ export function useRoomMedia(room: string) {
       resolution: shareResolutionRef.current,
       fps: shareFpsRef.current,
     };
-    if (nativeVideoBridge) setScreenStartConfig(config);
-    if (!nativeVideoWantedRef.current) return stream;
+    if (nativeVideoBridge && !rescueMethod) setScreenStartConfig(config);
+    if (!nativeVideoWantedRef.current && !rescueMethod) return stream;
     const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
     const options: NativeVideoOptions = {
       maxWidth: dims.width,
@@ -3330,10 +3358,11 @@ export function useRoomMedia(room: string) {
       // captureConstraints): the helper encodes every frame it captures.
       fps: Math.min(shareFpsRef.current, MAX_TIER_FPS),
       bitrateKbps: bitrateCeilingKbps(shareBitrateRef.current, isClassicSend()),
-      captureMethod: nativeVideoMethodRef.current,
+      captureMethod: rescueMethod ?? nativeVideoMethodRef.current,
     };
-    const { source: native, failure, hidden } = await startNativeVideo(options);
+    const { source: native, failure, hidden } = await startNativeVideo(options, { rescue: Boolean(rescueMethod) });
     if (!native) {
+      if (rescueMethod) return stream;
       // Null failure: not tried at all (turned off for this session after an
       // earlier failure), which is not a new fallback to count.
       if (failure !== null) {
@@ -3347,6 +3376,12 @@ export function useRoomMedia(room: string) {
       track.stop();
     }
     stream.addTrack(native.track);
+    if (rescueMethod) {
+      // The share is on the helper now, so the settings only it reads at
+      // start (resolution, fps) need a restart to change, as usual.
+      setScreenStartConfig((current) => ({ ...(current ?? config), usedNative: true }));
+      return stream;
+    }
     setScreenStartConfig({ ...config, usedNative: true });
     // Armed here rather than in the survey module's own timer: this is the
     // one place that knows the share is on the GPU *and* what it was set to,
@@ -3370,6 +3405,70 @@ export function useRoomMedia(room: string) {
     trackEvent("screen_share_native_video", { encoder: native.encoder.slice(0, 60) });
     return stream;
   }, [nativeVideoBridge, gpuSurveyOn]);
+
+  // The last step of every desktop share: makes sure the capture is producing
+  // a picture at all (see lib/shareFrameWatch.ts). The ordinary share is
+  // returned untouched the moment its first frame arrives — tens of
+  // milliseconds — so this only ever waits on a capture that is broken.
+  //
+  // When it is: the GPU helper gets one try with the method that was *not*
+  // just used (Chromium's capture of a screen is DXGI, so Windows Graphics
+  // Capture; or the other one of the helper's, when the helper was already
+  // tried and fell back). If that does not produce frames either, the share
+  // goes on as it is and the room says why the picture is black.
+  const guardFirstFrame = useCallback(
+    async (stream: MediaStream): Promise<MediaStream> => {
+      setShareNoFrames(false);
+      setShareAttempted(true);
+      const track = stream.getVideoTracks()[0];
+      // The helper watches its own first frame and falls back without one.
+      if (!track || nativeVideoSourceFor(track)) return stream;
+      const { group, on } = noFramesRef.current;
+      if (group === null) return stream;
+      const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+      const report = () => {
+        trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.noFrames);
+        trackFeatureEvent(
+          surface === "window" ? SHARE_NO_FRAMES_EVENTS.noFramesWindow : SHARE_NO_FRAMES_EVENTS.noFramesScreen
+        );
+      };
+      // Frames that turn up after all — a minimized window restored, a driver
+      // that took its time — take the warning away and count as a false alarm.
+      const watchLate = () => {
+        void waitForFirstFrame(track, LATE_FRAME_WAIT_MS).then((got) => {
+          if (!got) return;
+          trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.late);
+          setShareNoFrames(false);
+        });
+      };
+      if (!on) {
+        // Control: the same measurement, off the share's critical path, and
+        // nothing else.
+        void waitForFirstFrame(track, FIRST_FRAME_WAIT_MS).then((got) => {
+          if (got !== false || track.readyState === "ended") return;
+          report();
+          watchLate();
+        });
+        return stream;
+      }
+      const got = await waitForFirstFrame(track, FIRST_FRAME_WAIT_MS);
+      if (got !== false || track.readyState === "ended") return stream;
+      report();
+      if (nativeVideoBridge) {
+        const triedMethod = nativeVideoWantedRef.current ? nativeVideoMethodRef.current : null;
+        const rescued = await withNativeVideo(stream, triedMethod === "wgc" ? "duplication" : "wgc");
+        if (nativeVideoSourceFor(rescued.getVideoTracks()[0])) {
+          trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.rescued);
+          return rescued;
+        }
+      }
+      trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.failed);
+      setShareNoFrames(true);
+      watchLate();
+      return stream;
+    },
+    [nativeVideoBridge, withNativeVideo]
+  );
 
   const screen = useBroadcastChannel(
     "screen",
@@ -3494,7 +3593,7 @@ export function useRoomMedia(room: string) {
           throw err;
         });
 
-      if (!excluded) return withNativeVideo(await capture);
+      if (!excluded) return guardFirstFrame(await withNativeVideo(await capture));
 
       // The picker is still open at this point, and it is the one place the
       // share can still be called off. A cancelled picker rejects here, and
@@ -3512,7 +3611,7 @@ export function useRoomMedia(room: string) {
       // they came from, and this one's stop() takes the helper with it (see
       // desktopSystemAudio.ts).
       stream.addTrack(excluded.track);
-      return withNativeVideo(stream);
+      return guardFirstFrame(await withNativeVideo(stream));
     },
     () => hasDisplayCapture() || isAndroidScreenCaptureAvailable() || hasCameraCapture(),
     t("useRoomMedia.yourBrowserSupportsNeitherScreenSharing"),
@@ -4949,6 +5048,9 @@ export function useRoomMedia(room: string) {
     // shareSystemAudioRef for why this one is never remembered.
     setShareSystemAudio,
     shareSystemAudioUnavailable: systemAudioUnavailable,
+    // The share's capture has produced no picture at all (see
+    // lib/shareFrameWatch.ts); only while the share is still on.
+    shareNoFrames: shareNoFrames && screen.active,
     // The local-file slots (see useLocalFileChannel). A record rather than a
     // flat set of fields, because there are three of them and every consumer
     // wants to walk them.

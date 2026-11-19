@@ -4348,6 +4348,7 @@
   "mobileQualitySheet.quality": "Qualidade",
   "mobileQualitySheet.startSharing": "Transmitir tela",
   "watch.watchRoom.systemAudioCouldNotBeCaptured": "Não foi possível capturar o áudio do sistema. A transmissão continua, mas sem som.",
+  "watch.watchRoom.shareNoFrames": "Sua tela não está sendo capturada: quem assiste vê só preto. Se você escolheu uma janela minimizada, abra ela. Se não, feche programas de anti-cheat ou de gravação de tela e, se o computador tiver duas placas de vídeo, escolha para o GoLive (ou o navegador) a placa ligada ao monitor em Configurações do Windows > Sistema > Tela > Elementos gráficos. Depois, pare e comece a transmissão de novo.",
   "watch.watchRoom.systemAudioPermissionBlocked": "O som não está sendo enviado: o microfone do Go Live está bloqueado no Android. Libere em Permissões → Microfone e transmita de novo.",
   "watch.watchRoom.systemAudioPermissionDenied": "O som não está sendo enviado porque a permissão de áudio foi negada. Na próxima transmissão o Go Live pede de novo.",
   "watch.watchRoom.firefoxNoScreenAudio": "O Firefox não permite transmitir o som da tela: sua transmissão está indo sem áudio. Para transmitir a tela com som, use o app do Go Live ou outro navegador.",
