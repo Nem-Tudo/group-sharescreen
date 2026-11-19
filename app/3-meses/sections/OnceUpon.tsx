@@ -93,7 +93,11 @@ export function OnceUponSection() {
         </div>
 
         {/* Browser window */}
-        <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-white/10 bg-[#202330] shadow-[0_40px_100px_rgba(0,0,0,0.6)] sm:rounded-2xl">
+        {/* As wide as the screen allows, and never so tall that the pinned scene spills below it. */}
+        <div
+          className="w-full overflow-hidden rounded-xl border border-white/10 bg-[#202330] shadow-[0_40px_100px_rgba(0,0,0,0.6)] sm:rounded-2xl"
+          style={{ maxWidth: "min(56rem, calc((100svh - 300px) * 1.6 + 2px))" }}
+        >
           <div className="flex items-end gap-2 px-3 pt-2.5">
             <span className="mb-2 hidden gap-1.5 sm:flex">
               <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
@@ -131,8 +135,8 @@ export function OnceUponSection() {
                   ⇆
                 </span>
               </div>
-              <span className="absolute left-4 top-[74px] rounded-full bg-zinc-900 px-3 py-1 text-sm font-bold text-white">17/08</span>
-              <span className="absolute right-[266px] top-[60px] rounded-full bg-white px-3 py-1 text-sm font-bold text-zinc-900">
+              <span className="absolute bottom-5 left-5 rounded-full bg-zinc-900 px-4 py-1.5 text-lg font-black text-white shadow-lg">17/08</span>
+              <span className="absolute bottom-5 right-5 rounded-full bg-white px-4 py-1.5 text-lg font-black text-zinc-900 shadow-lg">
                 {t("anniversary.day1.today")}
               </span>
               <input

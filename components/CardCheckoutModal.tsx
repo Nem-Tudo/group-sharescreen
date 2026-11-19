@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MdClose, MdLock } from "react-icons/md";
 import { PurchasePaidScreen, type PurchaseConfirmation } from "@/components/PixChargeModal";
 import { useUnlockGuideHost } from "@/lib/planUnlockGuide";
+import { cardErrorBucket } from "@/lib/declineBucket";
 import { trackFeatureEvent } from "@/lib/features";
 import type { InlineCheckout } from "@/lib/premiumApi";
 import {
@@ -34,7 +35,8 @@ import { useResolvedTheme } from "@/lib/useTheme";
 //
 // Events (all counted in the admin's "site events" for checkout-inline):
 //   pro_checkout_inline_open / _complete / _close / _load_error
-//   pro_checkout_card_submit, pro_checkout_card_error(.<code>)  — custom only
+//   pro_checkout_card_submit, pro_checkout_card_error(.<bucket>)  — custom only
+//     (bucket: lib/declineBucket's CARD_ERROR_BUCKETS)
 //
 // Also pays an upgrade's top-up (the `pro-upgrade-card` experiment), always as
 // "embedded". Counted apart, as pro_upgrade_card_open / _complete / _close /
@@ -378,9 +380,10 @@ function CardForm({
         payment_method: { card, ...(name.trim() ? { billing_details: { name: name.trim() } } : {}) },
       });
       if (result.error) {
-        const code = result.error.decline_code || result.error.code || result.error.type || "unknown";
+        // A fixed list (lib/declineBucket), so every refusal lands in a
+        // registered site event instead of the raw code being dropped.
         trackFeatureEvent("pro_checkout_card_error");
-        trackFeatureEvent(`pro_checkout_card_error.${code}`);
+        trackFeatureEvent(`pro_checkout_card_error.${cardErrorBucket(result.error)}`);
         // Stripe's own message, already in the locale the client was started
         // with — it is the one that knows what the bank said.
         await fail(result.error.message ?? t("cardCheckoutModal.genericError"));
@@ -394,7 +397,7 @@ function CardForm({
     } catch (err) {
       console.error("[checkout] Card confirmation failed:", (err as Error).message);
       trackFeatureEvent("pro_checkout_card_error");
-      trackFeatureEvent("pro_checkout_card_error.network");
+      trackFeatureEvent("pro_checkout_card_error.issuer_error");
       await fail(t("cardCheckoutModal.genericError"));
     }
   };

@@ -47,7 +47,8 @@ export function DayZeroSection() {
                 el.textContent = text.slice(0, Math.round(state.n));
               },
             });
-            tl.fromTo(row.querySelectorAll(".d0-at"), { autoAlpha: 0, x: -8 }, { autoAlpha: 1, x: 0, duration: 0.2 });
+            const at = row.querySelector(".d0-at");
+            if (at) tl.fromTo(at, { autoAlpha: 0, x: -8 }, { autoAlpha: 1, x: 0, duration: 0.2 });
           } else {
             tl.fromTo(row, { x: -10 }, { x: 0, duration: 0.25 }, "+=0.15");
           }

@@ -1967,7 +1967,22 @@ export interface SalesAnalytics {
   salesSince: number | null;
   rows: SalesRow[];
   buyers: { username: string | null; createdAt: number | null }[];
-  events: { at: number; type: "ended" | "refused"; tier: string; cents: number; renewal: boolean }[];
+  /**
+   * From the ledger: mandates that ended, card charges refused, and money
+   * handed back ("refund": `reason` is "refund" or "dispute"). `reason` on an
+   * ended row is "user" / "refused" / "external", on a refused one the decline
+   * bucket (the API's paymentStatsReasons.ts); null on rows from before it.
+   */
+  events: {
+    at: number;
+    type: "ended" | "refused" | "refund";
+    tier: string;
+    cents: number;
+    renewal: boolean;
+    method?: "pix" | "subscription";
+    provider?: string | null;
+    reason?: string | null;
+  }[];
   snapshot: {
     accounts: number;
     active: number;

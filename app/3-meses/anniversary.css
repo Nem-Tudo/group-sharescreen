@@ -18,7 +18,7 @@
   --a-violet: #a78bfa;
   background: var(--a-bg);
   color: var(--a-ink);
-  font-family: var(--font-jakarta), var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-jakarta), var(--font-geist-sans), system-ui, "Twemoji", sans-serif;
   overflow-x: clip;
   color-scheme: dark;
 }

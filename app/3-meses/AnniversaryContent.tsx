@@ -22,13 +22,14 @@ import { OnceUponSection } from "./sections/OnceUpon";
 import { First72Section } from "./sections/First72";
 import { OutageSection } from "./sections/Outage";
 import { NumbersSection } from "./sections/Numbers";
+import { RecapSection } from "./sections/Recap";
 import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
 import { BugsSection } from "./sections/Bugs";
 import { FinaleSection } from "./sections/Finale";
 import "./anniversary.css";
 
-type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "timeline" | "night" | "bugs" | "finale";
+type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "timeline" | "night" | "bugs" | "finale";
 
 const SCENES: Record<Scene, { mood: MascotMood; music: MusicMood }> = {
   intro: { mood: "wave", music: "calm" },
@@ -37,6 +38,7 @@ const SCENES: Record<Scene, { mood: MascotMood; music: MusicMood }> = {
   first72: { mood: "happy", music: "calm" },
   outage: { mood: "sweat", music: "tense" },
   numbers: { mood: "party", music: "party" },
+  recap: { mood: "love", music: "party" },
   timeline: { mood: "wave", music: "calm" },
   night: { mood: "sleep", music: "night" },
   bugs: { mood: "shock", music: "tense" },
@@ -65,6 +67,7 @@ export function AnniversaryContent() {
   const t = useT();
   const root = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLButtonElement>(null);
+  const progress = useRef<HTMLDivElement>(null);
   const music = useRef<Chiptune | null>(null);
   const [scene, setScene] = useState<Scene>("intro");
   const [playing, setPlaying] = useState(false);
@@ -95,7 +98,12 @@ export function AnniversaryContent() {
   // Charts and counters change height when the numbers land; the pinned
   // scenes below have to measure again.
   useEffect(() => {
-    if (stats || failed) requestAnimationFrame(() => ScrollTrigger.refresh());
+    if (stats || failed) {
+      requestAnimationFrame(() => {
+        ScrollTrigger.sort();
+        ScrollTrigger.refresh();
+      });
+    }
   }, [stats, failed]);
 
   // Music: off until asked for. Somebody who turned it on before gets it back
@@ -154,7 +162,7 @@ export function AnniversaryContent() {
         start: 0,
         end: "max",
         onUpdate: (self) => {
-          gsap.set(".anniv-progress", { scaleX: self.progress });
+          if (progress.current) progress.current.style.scale = `${self.progress} 1`;
           if (!half && self.progress >= 0.5) {
             half = true;
             trackAnniversary(ANNIVERSARY_EVENTS.scrollHalf);
@@ -211,7 +219,7 @@ export function AnniversaryContent() {
     <div ref={root} className="anniv relative min-h-screen">
       {/* Top bar */}
       <div className="fixed inset-x-0 top-0 z-40">
-        <div className="anniv-progress h-1 origin-left scale-x-0 bg-[linear-gradient(90deg,#fbbf24,#fb7185,#c026d3,#818cf8)]" />
+        <div ref={progress} style={{ scale: "0 1" }} className="anniv-progress h-1 origin-left bg-[linear-gradient(90deg,#fbbf24,#fb7185,#c026d3,#818cf8)]" />
         <div className="flex items-center justify-between px-4 py-3">
           <Link
             href="/"
@@ -247,6 +255,7 @@ export function AnniversaryContent() {
         <First72Section />
         <OutageSection />
         <NumbersSection stats={stats} failed={failed} />
+        <RecapSection />
         <TimelineSection />
         <BackstageSection />
         <BugsSection

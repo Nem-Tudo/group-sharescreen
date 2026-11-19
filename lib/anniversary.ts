@@ -19,6 +19,9 @@ export const ANNIVERSARY_EVENTS = {
   musicOn: "anniv_music_on",
   mascotClick: "anniv_mascot_click",
   share: "anniv_share",
+  recapView: "anniv_recap_view",
+  recapLogin: "anniv_recap_login",
+  recapShare: "anniv_recap_share",
 } as const;
 
 export function trackAnniversary(name: (typeof ANNIVERSARY_EVENTS)[keyof typeof ANNIVERSARY_EVENTS]) {
@@ -51,4 +54,44 @@ export async function fetchAnniversaryStats(signal?: AbortSignal): Promise<Anniv
     throw new Error("anniversary stats: bad shape");
   }
   return data;
+}
+
+/** The API's GET /me/anniversary: the signed-in person's own recap. */
+export interface AnniversaryRecap {
+  at: number;
+  displayName: string;
+  username: string;
+  avatarUrl: string | null;
+  joinedAt: number;
+  accountNumber: number;
+  accountsTotal: number;
+  daysWithUs: number;
+  callHours: number;
+  shareHours: number;
+  micHours: number;
+  callPercent: number;
+  sharePercent: number;
+  micPercent: number;
+  points: number;
+  tier: string;
+  devices: string[];
+  friends: number;
+  groups: number;
+  ownedGroups: number;
+  lastRoom: { handle: string | null; private: boolean } | null;
+  groupMessages: number | null;
+  topGroup: { name: string; iconUrl: string | null; messages: number } | null;
+  directMessages: number | null;
+  topFriend: { displayName: string; avatarUrl: string | null; messages: number } | null;
+  calls: number | null;
+  callMinutes: number | null;
+}
+
+export async function fetchMyAnniversary(token: string, signal?: AbortSignal): Promise<AnniversaryRecap> {
+  const res = await fetch(`${getSignalingHttpBase()}/me/anniversary`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  });
+  if (!res.ok) throw new Error(`anniversary recap: ${res.status}`);
+  return (await res.json()) as AnniversaryRecap;
 }
