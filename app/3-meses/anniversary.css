@@ -1,76 +1,114 @@
-/* The "3 meses" page. Its own look on purpose — like a year-in-review, it is a
-   show rather than a screen of the app — so it is always dark and sets its own
-   colours instead of the zinc palette globals.css redefines per theme.
-   Everything here is scoped under .anniv. */
+/* The "3 meses" page. Its own look on purpose: it reads like a broadcast
+   control room's run of show for the first three months, so it borrows that
+   world's pieces (colour bars, timecode, the on-air tally, lower thirds, the
+   news crawl) instead of generic page decoration. Always dark, with its own
+   colours rather than the zinc palette globals.css redefines per theme.
+   Everything here is scoped under .anniv.
+
+   Layout: left-aligned scenes on a control-room charcoal, one display face
+   (condensed, uppercase) for headlines, a mono for every timecode and label. */
 
 .anniv {
-  --a-bg: #0a0c14;
-  --a-bg-2: #11152a;
-  --a-card: #161b30;
-  --a-line: rgba(255, 255, 255, 0.09);
-  --a-ink: #f5f6fc;
-  --a-mute: #a3abc2;
-  --a-rose: #f43f5e;
-  --a-sky: #38bdf8;
-  --a-indigo: #6366f1;
-  --a-amber: #fbbf24;
-  --a-green: #34d399;
-  --a-violet: #a78bfa;
+  /* Control room */
+  --a-bg: #111215;
+  --a-bg-2: #17191d;
+  --a-card: #1c1f24;
+  --a-line: rgba(236, 233, 226, 0.13);
+  /* Monitor white, and the grey of a muted channel */
+  --a-ink: #ece9e2;
+  --a-mute: #9b9ea6;
+  /* The tally light: only for what is live or on air */
+  --a-tally: #ff3b2f;
+  /* Go Live's own blue, for data */
+  --a-blue: #4c86ff;
+  /* Preview / warning amber */
+  --a-amber: #f2b705;
+  --a-green: #3ccf6e;
+  /* Older names the scenes still use, mapped onto the palette above */
+  --a-rose: var(--a-tally);
+  --a-sky: var(--a-blue);
+  --a-indigo: var(--a-blue);
+  --a-violet: var(--a-mute);
   background: var(--a-bg);
   color: var(--a-ink);
-  font-family: var(--font-jakarta), var(--font-geist-sans), system-ui, "Twemoji", sans-serif;
+  font-family: var(--font-geist-sans), system-ui, "Twemoji", sans-serif;
   overflow-x: clip;
   color-scheme: dark;
 }
 
 .anniv ::selection {
-  background: var(--a-rose);
+  background: var(--a-tally);
   color: white;
 }
 
-.anniv-pixel {
-  font-family: var(--font-anniv-pixel), ui-monospace, monospace;
-  letter-spacing: 0.02em;
+/* Headlines: condensed, heavy, uppercase — broadcast graphics, not a blog. */
+.anniv-display {
+  font-family: var(--font-anniv-display), var(--font-geist-sans), sans-serif;
+  font-stretch: 70%;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: -0.005em;
+  line-height: 0.92;
+  text-wrap: balance;
 }
 
-.anniv-grad-text {
-  background: linear-gradient(100deg, #fbbf24 0%, #fb7185 35%, #c026d3 65%, #818cf8 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* Timecodes, labels, data. */
+.anniv-mono {
+  font-family: var(--font-anniv-mono), ui-monospace, monospace;
+  letter-spacing: 0.06em;
 }
 
-/* ── Background blobs (hero, finale) ───────────────────────────────────── */
-.anniv-blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(70px);
-  opacity: 0.55;
-  animation: anniv-blob 16s ease-in-out infinite alternate;
-  pointer-events: none;
-}
-@keyframes anniv-blob {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(8vw, -6vh) scale(1.15); }
-  100% { transform: translate(-6vw, 5vh) scale(0.92); }
+.anniv-accent {
+  color: var(--a-blue);
 }
 
-.anniv-grid-floor {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 45%;
-  background-image:
-    linear-gradient(rgba(129, 140, 248, 0.25) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(129, 140, 248, 0.25) 1px, transparent 1px);
-  background-size: 48px 48px;
-  transform: perspective(420px) rotateX(62deg);
-  transform-origin: bottom;
-  mask-image: linear-gradient(to top, black, transparent);
-  animation: anniv-floor 2.5s linear infinite;
-  pointer-events: none;
+/* SMPTE-style colour bars: the test card before the countdown, then a strip. */
+.anniv-bars {
+  background: linear-gradient(
+    90deg,
+    #c0c0c0 0 14.28%,
+    #c0c000 0 28.57%,
+    #00c0c0 0 42.85%,
+    #00c000 0 57.14%,
+    #c000c0 0 71.42%,
+    #c00000 0 85.71%,
+    #0000c0 0
+  );
 }
-@keyframes anniv-floor {
-  to { background-position: 0 48px, 0 0; }
+.anniv-bars-low {
+  background: linear-gradient(
+    90deg,
+    #0000c0 0 14.28%,
+    #111215 0 28.57%,
+    #c000c0 0 42.85%,
+    #111215 0 57.14%,
+    #00c0c0 0 71.42%,
+    #111215 0 85.71%,
+    #c0c0c0 0
+  );
+}
+
+/* The news crawl in the finale. */
+.anniv-crawl {
+  animation: anniv-crawl 38s linear infinite;
+}
+@keyframes anniv-crawl {
+  to { transform: translateX(-50%); }
+}
+
+/* An "on air" box: the red square of a lower third. */
+.anniv-onair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  background: var(--a-tally);
+  color: #fff;
+  font-family: var(--font-anniv-mono), ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.3em 0.6em;
+  border-radius: 2px;
 }
 
 /* ── Mascot idle motion ─────────────────────────────────────────────────── */
@@ -118,25 +156,34 @@
 /* Speech bubble */
 .anniv-bubble {
   position: relative;
-  background: white;
-  color: #0f172a;
-  border-radius: 16px;
-  padding: 8px 12px;
+  background: var(--a-ink, #ece9e2);
+  color: #111215;
+  border-radius: 3px;
+  padding: 7px 11px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.3;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 .anniv-bubble::after {
   content: "";
   position: absolute;
-  left: 22px;
-  bottom: -7px;
-  width: 14px;
-  height: 14px;
-  background: white;
+  right: -5px;
+  top: 12px;
+  width: 10px;
+  height: 10px;
+  background: var(--a-ink, #ece9e2);
   transform: rotate(45deg);
-  border-radius: 2px;
+}
+
+/* Says its line when the scene changes, then gets out of the way. */
+.anniv-bubble-brief {
+  animation: anniv-bubble-brief 5s ease-out both;
+}
+@keyframes anniv-bubble-brief {
+  0% { opacity: 0; transform: translateX(8px); }
+  6%, 82% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; visibility: hidden; }
 }
 
 /* ── Glitch (outage, bug wall) ──────────────────────────────────────────── */
@@ -280,5 +327,12 @@
   .anniv *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* With less motion asked for, the mascot's line just stays. */
+@media (prefers-reduced-motion: reduce) {
+  .anniv .anniv-bubble-brief {
+    animation: none !important;
   }
 }

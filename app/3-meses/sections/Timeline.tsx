@@ -1,127 +1,99 @@
 "use client";
 
 import { useRef } from "react";
-import { useLocale, useT } from "@/lib/useI18n";
+import { useLocale, useT, useTCount } from "@/lib/useI18n";
 import { LOCALE_TAGS } from "@/lib/i18n";
-import { gsap, useGSAP, MOTION_OK } from "../gsap";
+import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "../gsap";
 import { SceneTitle } from "../shared";
 import { TIMELINE } from "../historyData";
 
-const MONTH_COLOR: Record<string, string> = {
-  "08": "#fbbf24",
-  "09": "#f472b6",
-  "10": "#38bdf8",
-  "11": "#34d399",
-};
+const MONTHS = ["08", "09", "10", "11"];
 
-// Pinned: vertical scrolling slides the months sideways, like a train.
-// With reduced motion it is a plain sideways-scrolling row.
+// The run of show: every launch in order, grouped by month, read top to
+// bottom like a broadcast rundown. A tally line runs down the left as the
+// page scrolls, and each entry lights up as it reaches the middle of the
+// screen — the line is complete when the last entry is there.
 export function TimelineSection() {
   const t = useT();
+  const tc = useTCount();
   const locale = useLocale();
   const ref = useRef<HTMLElement>(null);
-  const dateFmt = new Intl.DateTimeFormat(LOCALE_TAGS[locale], { day: "2-digit", month: "short", timeZone: "UTC" });
-  const monthFmt = new Intl.DateTimeFormat(LOCALE_TAGS[locale], { month: "long", timeZone: "UTC" });
+  const monthFmt = new Intl.DateTimeFormat(LOCALE_TAGS[locale], { month: "long", year: "numeric", timeZone: "UTC" });
 
   useGSAP(
     () => {
       const mm = gsap.matchMedia();
       mm.add(MOTION_OK, () => {
-        const track = ref.current?.querySelector<HTMLElement>(".tl-track");
-        if (!track) return;
-        const distance = () => Math.max(0, track.scrollWidth - window.innerWidth);
-        const slide = gsap.to(track, {
-          x: () => -distance(),
-          ease: "none",
-          scrollTrigger: {
-            trigger: ref.current,
-            pin: ".tl-pin",
-            start: "top top",
-            end: () => `+=${distance()}`,
-            scrub: 0.7,
-            invalidateOnRefresh: true,
-            anticipatePin: 1,
-          },
-        });
-        gsap.to(".tl-months", {
-          x: () => -distance() * 0.35,
-          ease: "none",
-          scrollTrigger: { trigger: ref.current, start: "top top", end: () => `+=${distance()}`, scrub: 0.7, invalidateOnRefresh: true },
-        });
-        gsap.to(".tl-progress", {
-          scaleX: 1,
-          ease: "none",
-          scrollTrigger: { trigger: ref.current, start: "top top", end: () => `+=${distance()}`, scrub: true, invalidateOnRefresh: true },
-        });
-        for (const card of gsap.utils.toArray<HTMLElement>(".tl-card")) {
-          gsap.fromTo(
-            card,
-            { y: 80, rotate: 8, scale: 0.85, autoAlpha: 0.2 },
-            {
-              y: 0,
-              rotate: 0,
-              scale: 1,
-              autoAlpha: 1,
-              ease: "back.out(1.4)",
-              scrollTrigger: { trigger: card, containerAnimation: slide, start: "left 92%", end: "left 62%", scrub: true },
-            }
-          );
+        gsap.fromTo(
+          ".tl-fill",
+          { scaleY: 0 },
+          { scaleY: 1, ease: "none", scrollTrigger: { trigger: ".tl-list", start: "top center", end: "bottom center", scrub: true } }
+        );
+        for (const item of gsap.utils.toArray<HTMLElement>(".tl-item")) {
+          ScrollTrigger.create({ trigger: item, start: "top center", toggleClass: { targets: item, className: "is-on" } });
         }
+        gsap.set(".tl-item", { autoAlpha: 0, x: -16 });
+        ScrollTrigger.batch(".tl-item", {
+          start: "top 88%",
+          once: true,
+          onEnter: (batch) => gsap.to(batch, { autoAlpha: 1, x: 0, duration: 0.45, ease: "power3.out", stagger: 0.05 }),
+        });
       });
     },
     { scope: ref }
   );
 
   return (
-    <section ref={ref} data-scene="timeline" className="relative">
-      <div className="tl-pin relative flex min-h-[100svh] flex-col justify-center overflow-hidden py-16">
-        <div className="tl-months pointer-events-none absolute left-0 top-1/2 flex -translate-y-1/2 gap-[18vw] whitespace-nowrap pl-[60vw] text-[22vw] font-black uppercase leading-none text-white/[0.035] sm:text-[16vw]" aria-hidden="true">
-          {["08", "09", "10", "11"].map((m) => (
-            <span key={m}>{monthFmt.format(new Date(`2026-${m}-15T12:00:00Z`))}</span>
-          ))}
-        </div>
+    <section ref={ref} data-scene="timeline" className="relative px-4 py-24 sm:px-8 sm:py-32">
+      <div className="mx-auto max-w-6xl">
+        <SceneTitle kicker={t("anniversary.timeline.kicker")} title={t("anniversary.timeline.title")} color="var(--a-blue)" />
 
-        <div className="px-4">
-          <SceneTitle kicker={t("anniversary.timeline.kicker")} title={t("anniversary.timeline.title")} color="var(--a-violet)" />
-        </div>
+        <div className="tl-list relative mt-14">
+          {/* The rail, and the tally that fills it */}
+          <div className="absolute bottom-0 left-[4.75rem] top-0 w-px bg-[var(--a-line)] sm:left-[7.25rem]" aria-hidden="true">
+            <div className="tl-fill h-full w-full origin-top bg-[var(--a-tally)] motion-reduce:scale-y-100" />
+          </div>
 
-        <div className="relative mx-4 mt-10 h-1.5 overflow-hidden rounded-full bg-white/10 sm:mx-auto sm:w-[min(640px,80vw)]">
-          <div className="tl-progress h-full origin-left scale-x-0 rounded-full bg-[linear-gradient(90deg,#fbbf24,#f472b6,#38bdf8,#34d399)] motion-reduce:scale-x-100" />
-        </div>
+          {MONTHS.map((month) => {
+            const items = TIMELINE.filter((m) => m.date.startsWith(month));
+            if (items.length === 0) return null;
+            return (
+              <div key={month} className="mb-10">
+                <h3 className="anniv-mono relative mb-2 flex items-baseline gap-3 bg-[var(--a-bg)] py-2 text-xs uppercase text-[var(--a-mute)]">
+                  <span className="font-semibold text-[var(--a-ink)]">{monthFmt.format(new Date(`2026-${month}-15T12:00:00Z`))}</span>
+                  <span>· {tc("anniversary.timeline.entries", items.length)}</span>
+                </h3>
+                <ol>
+                  {items.map((m) => (
+                    <li
+                      key={m.key}
+                      className="tl-item group grid grid-cols-[4.75rem_1fr] items-baseline gap-x-6 border-b border-[var(--a-line)] py-5 sm:grid-cols-[7.25rem_1fr] sm:gap-x-10"
+                    >
+                      <span className="anniv-mono relative pr-4 text-sm tabular-nums text-[var(--a-mute)] transition-colors group-[.is-on]:text-[var(--a-ink)]">
+                        {m.date.slice(3)}.{m.date.slice(0, 2)}
+                        <span
+                          className="absolute -right-[5px] top-1.5 h-[9px] w-[9px] border border-[var(--a-mute)] bg-[var(--a-bg)] transition-colors group-[.is-on]:border-[var(--a-tally)] group-[.is-on]:bg-[var(--a-tally)]"
+                          aria-hidden="true"
+                        />
+                      </span>
+                      <div className="min-w-0 pl-2">
+                        <h4 className="text-lg font-semibold leading-snug sm:text-xl">{t(`anniversary.tl.${m.key}.title`)}</h4>
+                        <p className="mt-1 max-w-2xl text-[15px] leading-relaxed text-[var(--a-mute)]">{t(`anniversary.tl.${m.key}.text`)}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            );
+          })}
 
-        <div className="tl-scroller mt-10 overflow-x-auto motion-safe:overflow-visible [scrollbar-width:none]">
-          <ol className="tl-track flex w-max gap-5 px-[8vw] pb-4 sm:gap-6">
-            {TIMELINE.map((m) => {
-              const color = MONTH_COLOR[m.date.slice(0, 2)];
-              return (
-                <li
-                  key={m.key}
-                  className="tl-card relative flex h-[330px] w-[260px] shrink-0 flex-col rounded-[28px] border border-white/10 bg-[var(--a-card)] p-6 sm:w-[300px]"
-                >
-                  <span
-                    className="absolute inset-x-0 top-0 h-1.5 rounded-t-[28px]"
-                    style={{ background: color }}
-                    aria-hidden="true"
-                  />
-                  <span className="anniv-pixel text-[10px]" style={{ color }}>
-                    {dateFmt.format(new Date(`2026-${m.date}T12:00:00Z`)).replace(".", "")}
-                  </span>
-                  <span className="mt-5 text-6xl" aria-hidden="true">
-                    {m.emoji}
-                  </span>
-                  <h3 className="mt-5 text-xl font-extrabold leading-tight">{t(`anniversary.tl.${m.key}.title`)}</h3>
-                  <p className="mt-2 text-[14.5px] leading-snug text-[var(--a-mute)]">{t(`anniversary.tl.${m.key}.text`)}</p>
-                </li>
-              );
-            })}
-            <li className="tl-card flex h-[330px] w-[260px] shrink-0 flex-col items-center justify-center rounded-[28px] border-2 border-dashed border-white/20 p-6 text-center sm:w-[300px]">
-              <span className="text-6xl" aria-hidden="true">
-                🔮
-              </span>
-              <h3 className="mt-5 text-xl font-extrabold">{t("anniversary.timeline.nextTitle")}</h3>
-              <p className="mt-2 text-sm text-[var(--a-mute)]">{t("anniversary.timeline.nextText")}</p>
-            </li>
-          </ol>
+          <div className="grid grid-cols-[4.75rem_1fr] items-baseline gap-x-6 py-5 sm:grid-cols-[7.25rem_1fr] sm:gap-x-10">
+            <span className="anniv-mono text-sm text-[var(--a-tally)]">→</span>
+            <div className="pl-2">
+              <h4 className="text-lg font-semibold sm:text-xl">{t("anniversary.timeline.nextTitle")}</h4>
+              <p className="mt-1 text-[15px] text-[var(--a-mute)]">{t("anniversary.timeline.nextText")}</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>

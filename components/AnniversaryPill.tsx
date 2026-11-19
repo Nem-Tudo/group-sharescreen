@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useT } from "@/lib/useI18n";
 import { useFeature } from "@/lib/features";
-import { ANNIVERSARY_EVENTS, ANNIVERSARY_FEATURE, ANNIVERSARY_PATH, trackAnniversary } from "@/lib/anniversary";
+import { ANNIVERSARY_EVENTS, ANNIVERSARY_FEATURE, anniversaryPath, trackAnniversary } from "@/lib/anniversary";
 import { NewBadge } from "@/components/NewBadge";
 
 // The way into the "3 meses" page from the home page, behind the
@@ -14,13 +14,11 @@ export function AnniversaryPill() {
   if (!enabled) return null;
   return (
     <Link
-      href={ANNIVERSARY_PATH}
+      href={anniversaryPath("pill")}
       onClick={() => trackAnniversary(ANNIVERSARY_EVENTS.promoClick)}
-      className="content-in group flex items-center gap-2 rounded-full bg-[linear-gradient(100deg,#f59e0b,#ec4899,#8b5cf6)] px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:brightness-110"
+      className="content-in flex items-center gap-2 rounded-full bg-zinc-950 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm ring-1 ring-white/10 transition hover:bg-zinc-800"
     >
-      <span aria-hidden="true" className="inline-block transition-transform group-hover:rotate-12 group-hover:scale-125">
-        🎉
-      </span>
+      <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[#ff3b2f]" />
       {t("anniversary.pill")}
       <NewBadge id={ANNIVERSARY_FEATURE} className="bg-white/25" />
     </Link>

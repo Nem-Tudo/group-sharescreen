@@ -16,7 +16,7 @@ export function DayZeroSection() {
     { kind: "out", text: "✔ Success! Created sharescreen", color: "#34d399" },
     { kind: "cmd", text: 'git commit -m "Initial commit from Create Next App"', at: "21:30" },
     { kind: "cmd", text: 'git commit -m "first"', at: "21:49" },
-    { kind: "out", text: `🖥️  ${t("anniversary.day0.firstWorks")}`, color: "#fbbf24" },
+    { kind: "out", text: `→ ${t("anniversary.day0.firstWorks")}`, color: "#fbbf24" },
     { kind: "cmd", text: 'git commit -m "add turn server"', at: "22:25" },
     { kind: "cmd", text: 'git commit -m "feat: open mic"', at: "22:54" },
     { kind: "cmd", text: 'git commit -m "feat: mobile responsive"', at: "23:13" },
@@ -54,25 +54,17 @@ export function DayZeroSection() {
           }
           tl.to({}, { duration: 0.12 });
         });
-        gsap.fromTo(
-          ".d0-clock",
-          { rotate: -90 },
-          { rotate: 360 * 2, ease: "none", scrollTrigger: { trigger: ref.current, start: "top bottom", end: "bottom top", scrub: true } }
-        );
       });
     },
     { scope: ref }
   );
 
   return (
-    <section ref={ref} data-scene="day0" className="relative px-4 py-28 sm:py-36">
-      <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1fr_1.15fr]">
+    <section ref={ref} data-scene="day0" className="relative px-4 py-24 sm:px-8 sm:py-32">
+      <SceneTitle kicker={t("anniversary.day0.kicker")} title={t("anniversary.day0.title")} />
+      <div className="mx-auto mt-12 grid max-w-6xl items-start gap-12 lg:grid-cols-[1fr_1.3fr]">
         <div className="relative">
-          <span className="d0-clock pointer-events-none absolute -left-4 -top-16 text-7xl opacity-20 sm:-left-10" aria-hidden="true">
-            🕘
-          </span>
-          <SceneTitle center={false} kicker={t("anniversary.day0.kicker")} title={t("anniversary.day0.title")} />
-          <p data-reveal className="mt-5 text-lg leading-relaxed text-[var(--a-mute)]">
+          <p data-reveal className="text-lg leading-relaxed text-[var(--a-mute)]">
             {t("anniversary.day0.p1")}
           </p>
           <p data-reveal className="mt-4 text-lg leading-relaxed text-[var(--a-mute)]">
@@ -80,7 +72,7 @@ export function DayZeroSection() {
           </p>
         </div>
 
-        <div data-reveal className="d0-term overflow-hidden rounded-2xl border border-[var(--a-line)] bg-[#05070d] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+        <div data-reveal className="d0-term overflow-hidden rounded-lg border border-[var(--a-line)] bg-[#05070d] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
           <div className="flex items-center gap-2 border-b border-[var(--a-line)] bg-white/5 px-4 py-3">
             <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
             <span className="h-3 w-3 rounded-full bg-[#febc2e]" />

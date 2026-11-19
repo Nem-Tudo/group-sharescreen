@@ -6,7 +6,7 @@ import { useLocale, useT, useTCount } from "@/lib/useI18n";
 import { LOCALE_TAGS } from "@/lib/i18n";
 import { useAuth } from "@/lib/AuthContext";
 import { useAccountToken } from "@/lib/accountApi";
-import { ANNIVERSARY_EVENTS, fetchMyAnniversary, trackAnniversary, type AnniversaryRecap } from "@/lib/anniversary";
+import { ANNIVERSARY_EVENTS, anniversaryShareUrl, fetchMyAnniversary, trackAnniversary, type AnniversaryRecap } from "@/lib/anniversary";
 import {
   compareCall,
   compareMic,
@@ -15,7 +15,6 @@ import {
   recapStyle,
   typingHours,
   type Comparison,
-  type RecapStyle,
 } from "@/lib/anniversaryRecap";
 import { gsap, ScrollTrigger, useGSAP } from "../gsap";
 import { Mascot } from "../Mascot";
@@ -27,26 +26,18 @@ import { SceneTitle, useNumberFormat } from "../shared";
 
 export const RECAP_ANCHOR = "seu-recap";
 
-const STYLE_EMOJI: Record<RecapStyle, string> = {
-  streamer: "🎥",
-  talker: "🎙️",
-  listener: "🎧",
-  typist: "⌨️",
-  starter: "🌱",
-};
-
 const DEVICE_LABEL: Record<string, string> = {
-  windows: "🪟 Windows",
-  macos: "🍏 macOS",
-  linux: "🐧 Linux",
-  android: "🤖 Android",
-  ios: "📱 iPhone",
+  windows: "Windows",
+  macos: "macOS",
+  linux: "Linux",
+  android: "Android",
+  ios: "iPhone",
 };
 
 const TIER_LABEL: Record<string, string> = {
-  premium: "💎 Go Live Pro",
-  premium_max: "👑 Go Live Pro Max",
-  pro_ultra: "🚀 Go Live Pro Ultra",
+  premium: "Go Live Pro",
+  premium_max: "Go Live Pro Max",
+  pro_ultra: "Go Live Pro Ultra",
 };
 
 export function RecapSection() {
@@ -78,7 +69,7 @@ export function RecapSection() {
       ) : (
         <div className="px-4 py-28 sm:py-36">
           <SceneTitle kicker={t("anniversary.recap.kicker")} title={t("anniversary.recap.title")} color="var(--a-green)" />
-          <div className="mx-auto mt-12 flex max-w-md flex-col items-center rounded-[32px] border border-[var(--a-line)] bg-[var(--a-card)] p-8 text-center">
+          <div className="mx-auto mt-12 flex max-w-md flex-col items-center rounded-lg border border-[var(--a-line)] bg-[var(--a-card)] p-8 text-center">
             <div className="w-28">
               <Mascot mood={failed ? "sweat" : signedIn || loading ? "think" : "wave"} />
             </div>
@@ -98,7 +89,7 @@ export function RecapSection() {
                 <Link
                   href={`/login?next=${encodeURIComponent(`/3-meses#${RECAP_ANCHOR}`)}`}
                   onClick={() => trackAnniversary(ANNIVERSARY_EVENTS.recapLogin)}
-                  className="mt-6 rounded-2xl bg-[var(--a-green)] px-7 py-3.5 font-extrabold text-zinc-900 transition hover:scale-[1.04] active:scale-95"
+                  className="anniv-mono mt-6 rounded-sm bg-[var(--a-green)] px-6 py-3.5 text-sm font-semibold uppercase text-zinc-900 transition hover:brightness-110"
                 >
                   {t("anniversary.recap.guestCta")}
                 </Link>
@@ -125,7 +116,7 @@ function Count({ value, digits = 0 }: { value: number; digits?: number }) {
 
 function Chip({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1.5 text-sm font-extrabold">{children}</span>
+    <span className="anniv-mono inline-flex items-center gap-1.5 rounded-sm bg-black/15 px-2.5 py-1.5 text-xs font-semibold uppercase">{children}</span>
   );
 }
 
@@ -161,14 +152,13 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
   const earlier = earlierThanPercent(recap.accountNumber, recap.accountsTotal);
 
   const cmp = (c: Comparison | null) => (c ? tc(`anniversary.recap.cmp.${c.key}`, c.n, { n: fmt(c.n) }) : null);
-  const beat = (pct: number) => (pct > 0 ? <Chip>🏆 {t("anniversary.recap.moreThan", { pct })}</Chip> : null);
+  const beat = (pct: number) => (pct > 0 ? <Chip>{t("anniversary.recap.moreThan", { pct })}</Chip> : null);
 
   const timeSlide = (
     id: string,
     hours: number,
     pct: number,
     comparison: string | null,
-    emoji: string,
     bg: string,
     ink: string
   ): Slide => ({
@@ -178,9 +168,9 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
     body: (
       <>
         <p className="text-lg font-extrabold opacity-80">{t(`anniversary.recap.${id}.lead`)}</p>
-        <p className="mt-2 text-[5.5rem] font-black leading-none tracking-tighter sm:text-[6.5rem]">
+        <p className="anniv-display mt-3 text-[6.5rem] leading-none sm:text-[7.5rem]">
           <Count value={hours} digits={hoursDigits(hours)} />
-          <span className="text-5xl">h</span>
+          <span className="text-5xl opacity-60">h</span>
         </p>
         <p className="mt-2 text-xl font-extrabold">{t(`anniversary.recap.${id}.label`)}</p>
         {hours > 0 ? (
@@ -191,9 +181,6 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
         ) : (
           <p className="mt-6 text-xl font-bold leading-snug">{t(`anniversary.recap.${id}.zero`)}</p>
         )}
-        <span className="rc-emoji pointer-events-none absolute -bottom-6 -right-4 text-[9rem] opacity-30" aria-hidden="true">
-          {emoji}
-        </span>
       </>
     ),
   });
@@ -201,7 +188,7 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
   const slides: Slide[] = [
     {
       id: "hello",
-      bg: "linear-gradient(160deg,#6366f1 0%,#a21caf 70%,#f43f5e 100%)",
+      bg: "#4c86ff",
       ink: "#ffffff",
       body: (
         <>
@@ -213,33 +200,33 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
             </div>
           </div>
           <p className="mt-8 text-lg font-bold opacity-90">{t("anniversary.recap.hello.joined", { date: joined })}</p>
-          <p className="mt-2 text-[4.5rem] font-black leading-none tracking-tighter sm:text-[5.5rem]">#{fmt(recap.accountNumber)}</p>
+          <p className="anniv-display mt-3 text-[5rem] leading-none sm:text-[6rem]">#{fmt(recap.accountNumber)}</p>
           <p className="mt-2 text-lg font-bold opacity-90">{t("anniversary.recap.hello.number")}</p>
           <div className="mt-6 flex flex-wrap gap-2">
-            {earlier > 0 && <Chip>🐣 {t("anniversary.recap.hello.earlier", { pct: earlier })}</Chip>}
-            <Chip>📅 {tc("anniversary.recap.hello.days", recap.daysWithUs, { n: fmt(recap.daysWithUs) })}</Chip>
+            {earlier > 0 && <Chip>{t("anniversary.recap.hello.earlier", { pct: earlier })}</Chip>}
+            <Chip>{tc("anniversary.recap.hello.days", recap.daysWithUs, { n: fmt(recap.daysWithUs) })}</Chip>
           </div>
         </>
       ),
     },
-    timeSlide("call", recap.callHours, recap.callPercent, cmp(compareCall(recap.callHours)), "📞", "#fbbf24", "#1c1400"),
-    timeSlide("share", recap.shareHours, recap.sharePercent, cmp(compareShare(recap.shareHours)), "🖥️", "#38bdf8", "#04223a"),
-    timeSlide("mic", recap.micHours, recap.micPercent, cmp(compareMic(recap.micHours)), "🎙️", "#fb7185", "#3b0712"),
+    timeSlide("call", recap.callHours, recap.callPercent, cmp(compareCall(recap.callHours)), "#ece9e2", "#111215"),
+    timeSlide("share", recap.shareHours, recap.sharePercent, cmp(compareShare(recap.shareHours)), "#f2b705", "#111215"),
+    timeSlide("mic", recap.micHours, recap.micPercent, cmp(compareMic(recap.micHours)), "#ff3b2f", "#ffffff"),
     {
       id: "social",
-      bg: "#34d399",
-      ink: "#032b1d",
+      bg: "#1f2a44",
+      ink: "#ffffff",
       body: (
         <>
           <p className="text-lg font-extrabold opacity-80">{t("anniversary.recap.social.lead")}</p>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-3xl bg-black/10 p-4">
+            <div className="rounded-md bg-black/10 p-4">
               <p className="text-5xl font-black">
                 <Count value={recap.friends} />
               </p>
               <p className="mt-1 font-extrabold">{tc("anniversary.recap.social.friends", recap.friends)}</p>
             </div>
-            <div className="rounded-3xl bg-black/10 p-4">
+            <div className="rounded-md bg-black/10 p-4">
               <p className="text-5xl font-black">
                 <Count value={recap.groups} />
               </p>
@@ -248,16 +235,16 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
           </div>
           {recap.ownedGroups > 0 && (
             <div className="mt-3">
-              <Chip>🏰 {tc("anniversary.recap.social.owned", recap.ownedGroups, { n: recap.ownedGroups })}</Chip>
+              <Chip>{tc("anniversary.recap.social.owned", recap.ownedGroups, { n: recap.ownedGroups })}</Chip>
             </div>
           )}
           {recap.topGroup ? (
-            <div className="mt-6 flex items-center gap-3 rounded-3xl bg-white/40 p-4">
+            <div className="mt-6 flex items-center gap-3 rounded-md bg-white/40 p-4">
               {recap.topGroup.iconUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={recap.topGroup.iconUrl} alt="" className="h-14 w-14 shrink-0 rounded-2xl object-cover" />
+                <img src={recap.topGroup.iconUrl} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
               ) : (
-                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-black/15 text-2xl">🏰</span>
+                <span className="anniv-display flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-black/15 text-3xl">{recap.topGroup.name.slice(0, 1)}</span>
               )}
               <div className="min-w-0">
                 <p className="text-xs font-extrabold uppercase opacity-70">{t("anniversary.recap.social.topGroup")}</p>
@@ -270,9 +257,6 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
           ) : (
             recap.groups === 0 && <p className="mt-6 text-lg font-bold">{t("anniversary.recap.social.noGroups")}</p>
           )}
-          <span className="pointer-events-none absolute -bottom-6 -right-4 text-[9rem] opacity-25" aria-hidden="true">
-            🤝
-          </span>
         </>
       ),
     },
@@ -282,22 +266,22 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
     const typing = typingHours(messages);
     slides.push({
       id: "messages",
-      bg: "#818cf8",
-      ink: "#10123d",
+      bg: "#ece9e2",
+      ink: "#111215",
       body: (
         <>
           <p className="text-lg font-extrabold opacity-80">{t("anniversary.recap.messages.lead")}</p>
-          <p className="mt-2 text-[5rem] font-black leading-none tracking-tighter sm:text-[6rem]">
+          <p className="anniv-display mt-3 text-[5.5rem] leading-none sm:text-[6.5rem]">
             <Count value={messages} />
           </p>
           <p className="mt-2 text-xl font-extrabold">{tc("anniversary.recap.messages.label", messages)}</p>
           {typing && <p className="mt-5 text-2xl font-black leading-tight">{tc("anniversary.recap.messages.typing", typing, { n: fmt(typing) })}</p>}
           {messages === 0 && <p className="mt-5 text-xl font-bold">{t("anniversary.recap.messages.zero")}</p>}
           {recap.topFriend && (
-            <div className="mt-6 flex items-center gap-3 rounded-3xl bg-white/40 p-4">
+            <div className="mt-6 flex items-center gap-3 rounded-md bg-white/40 p-4">
               <Avatar src={recap.topFriend.avatarUrl} name={recap.topFriend.displayName} size={52} />
               <div className="min-w-0">
-                <p className="text-xs font-extrabold uppercase opacity-70">💌 {t("anniversary.recap.messages.topFriend")}</p>
+                <p className="text-xs font-extrabold uppercase opacity-70">{t("anniversary.recap.messages.topFriend")}</p>
                 <p className="truncate text-xl font-black">{recap.topFriend.displayName}</p>
                 <p className="text-sm font-bold opacity-80">
                   {tc("anniversary.recap.messages.topFriendMsgs", recap.topFriend.messages, { n: fmt(recap.topFriend.messages) })}
@@ -305,9 +289,6 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
               </div>
             </div>
           )}
-          <span className="pointer-events-none absolute -bottom-6 -right-4 text-[9rem] opacity-25" aria-hidden="true">
-            💬
-          </span>
         </>
       ),
     });
@@ -316,8 +297,8 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
   if (recap.lastRoom || (recap.calls ?? 0) > 0) {
     slides.push({
       id: "rooms",
-      bg: "#fdba74",
-      ink: "#3a1702",
+      bg: "#4c86ff",
+      ink: "#ffffff",
       body: (
         <>
           {recap.lastRoom && (
@@ -328,12 +309,12 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
                   (recap.lastRoom.handle?.length ?? 0) > 16 ? "text-2xl" : (recap.lastRoom.handle?.length ?? 0) > 10 ? "text-3xl" : "text-5xl"
                 }`}
               >
-                {recap.lastRoom.handle ? `#${recap.lastRoom.handle}` : `🤫 ${t("anniversary.recap.rooms.private")}`}
+                {recap.lastRoom.handle ? `#${recap.lastRoom.handle}` : t("anniversary.recap.rooms.private")}
               </p>
             </>
           )}
           {(recap.calls ?? 0) > 0 && (
-            <div className="mt-8 rounded-3xl bg-black/10 p-5">
+            <div className="mt-8 rounded-md bg-black/10 p-5">
               <p className="text-5xl font-black">
                 <Count value={recap.calls ?? 0} />
               </p>
@@ -343,9 +324,6 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
               )}
             </div>
           )}
-          <span className="pointer-events-none absolute -bottom-6 -right-4 text-[9rem] opacity-25" aria-hidden="true">
-            🚪
-          </span>
         </>
       ),
     });
@@ -353,7 +331,7 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
 
   const share = async () => {
     trackAnniversary(ANNIVERSARY_EVENTS.recapShare);
-    const url = `${window.location.origin}/3-meses`;
+    const url = anniversaryShareUrl("recap");
     const text = t("anniversary.recap.shareText", {
       call: fmt(recap.callHours, hoursDigits(recap.callHours)),
       share: fmt(recap.shareHours, hoursDigits(recap.shareHours)),
@@ -387,7 +365,7 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
 
   slides.push({
     id: "summary",
-    bg: "linear-gradient(165deg,#0f1226 0%,#1e1b4b 55%,#3b0a45 100%)",
+    bg: "#16181c",
     ink: "#ffffff",
     body: (
       <>
@@ -395,39 +373,39 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
           <Avatar src={recap.avatarUrl} name={recap.displayName} size={48} />
           <div className="min-w-0">
             <p className="truncate text-lg font-black">{recap.displayName}</p>
-            <p className="anniv-pixel text-[9px] text-[var(--a-amber)]">{t("anniversary.recap.summary.kicker")}</p>
+            <p className="anniv-mono text-[9px] text-[var(--a-amber)]">{t("anniversary.recap.summary.kicker")}</p>
           </div>
         </div>
-        <div className="mt-5 rounded-3xl bg-white/10 p-4 text-center">
+        <div className="mt-5 rounded-md bg-white/10 p-4 text-center">
           <p className="text-xs font-extrabold uppercase tracking-wider text-white/60">{t("anniversary.recap.summary.styleLead")}</p>
           <p className="mt-1 text-3xl font-black">
-            {STYLE_EMOJI[style]} <span className="anniv-grad-text">{t(`anniversary.recap.style.${style}`)}</span>
+            <span className="anniv-accent">{t(`anniversary.recap.style.${style}`)}</span>
           </p>
           <p className="mt-1 text-sm font-semibold text-white/70">{t(`anniversary.recap.styleText.${style}`)}</p>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2">
           {summary.map((s) => (
-            <div key={s.l} className="rounded-2xl bg-white/[0.07] px-2 py-3 text-center">
+            <div key={s.l} className="rounded-md bg-white/[0.07] px-2 py-3 text-center">
               <p className="text-xl font-black tabular-nums">{s.v}</p>
               <p className="text-[11px] font-bold leading-tight text-white/60">{s.l}</p>
             </div>
           ))}
         </div>
         <div className="mt-4 flex flex-wrap gap-1.5 text-xs font-bold">
-          {TIER_LABEL[recap.tier] && <span className="rounded-full bg-white/15 px-2.5 py-1">{TIER_LABEL[recap.tier]}</span>}
-          {recap.points > 0 && <span className="rounded-full bg-white/15 px-2.5 py-1">🪙 {tc("anniversary.recap.summary.points", recap.points, { n: fmt(recap.points) })}</span>}
-          {recap.devices.map((d) => DEVICE_LABEL[d] && <span key={d} className="rounded-full bg-white/15 px-2.5 py-1">{DEVICE_LABEL[d]}</span>)}
+          {TIER_LABEL[recap.tier] && <span className="anniv-mono rounded-sm bg-white/15 px-2 py-1 uppercase">{TIER_LABEL[recap.tier]}</span>}
+          {recap.points > 0 && <span className="anniv-mono rounded-sm bg-white/15 px-2 py-1 uppercase">{tc("anniversary.recap.summary.points", recap.points, { n: fmt(recap.points) })}</span>}
+          {recap.devices.map((d) => DEVICE_LABEL[d] && <span key={d} className="anniv-mono rounded-sm bg-white/15 px-2 py-1 uppercase">{DEVICE_LABEL[d]}</span>)}
         </div>
         <div className="mt-5 flex gap-2">
           <button
             type="button"
             onClick={share}
-            className="flex-1 rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-zinc-900 transition hover:scale-[1.03] active:scale-95"
+            className="anniv-mono flex-1 rounded-sm bg-white px-4 py-3 text-xs font-semibold uppercase text-zinc-900 transition hover:brightness-95"
           >
-            {copied ? `✔ ${t("anniversary.finale.copied")}` : `📣 ${t("anniversary.recap.summary.share")}`}
+            {copied ? t("anniversary.finale.copied") : t("anniversary.recap.summary.share")}
           </button>
         </div>
-        <p className="mt-3 text-center text-xs font-semibold text-white/50">📸 {t("anniversary.recap.summary.screenshot")}</p>
+        <p className="mt-3 text-center text-xs font-semibold text-white/50">{t("anniversary.recap.summary.screenshot")}</p>
       </>
     ),
   });
@@ -439,52 +417,69 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
       const bars = gsap.utils.toArray<HTMLElement>(".rc-bar");
       gsap.set(els.slice(1), { autoAlpha: 0 });
 
+      // Counts climb on their own clock as their slide comes in, never with
+      // the scroll: a number caught halfway by a pause reads as the real one.
+      const playCounts = (slide: HTMLElement) => {
+        for (const el of slide.querySelectorAll<HTMLElement>(".rc-count")) {
+          const to = Number(el.dataset.to) || 0;
+          const digits = Number(el.dataset.digits) || 0;
+          const state = { v: 0 };
+          gsap.to(state, {
+            v: to,
+            duration: 1.1,
+            ease: "power3.out",
+            onUpdate: () => {
+              el.textContent = state.v.toLocaleString(LOCALE_TAGS[locale], { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+            },
+          });
+        }
+      };
+      if (move) {
+        for (const slide of els.slice(1)) {
+          for (const el of slide.querySelectorAll<HTMLElement>(".rc-count")) el.textContent = "0";
+        }
+      }
+
       const tl = gsap.timeline({
         defaults: { ease: "power2.out" },
         scrollTrigger: {
           trigger: ref.current,
           pin: ".rc-pin",
           start: "top top",
-          end: () => `+=${els.length * 85}%`,
-          scrub: 0.6,
+          end: () => `+=${els.length * 55}%`,
+          scrub: 0.3,
           anticipatePin: 1,
+          // One slide per stop, like tapping through stories.
+          snap: { snapTo: "labelsDirectional", duration: { min: 0.2, max: 0.5 }, delay: 0.05, ease: "power1.inOut" },
         },
       });
+      const forward = () => (tl.scrollTrigger?.direction ?? 1) > 0;
+      let ended = false;
 
       els.forEach((slide, i) => {
         if (i > 0) {
           const prev = els[i - 1];
-          tl.to(prev, { autoAlpha: 0, scale: move ? 0.88 : 1, rotate: move ? (i % 2 ? -4 : 4) : 0, duration: 0.4 }, `s${i}`);
+          tl.call(() => {
+            if (forward() && move) playCounts(slide);
+          });
+          tl.to(prev, { autoAlpha: 0, scale: move ? 0.94 : 1, duration: 0.35 });
           tl.fromTo(
             slide,
-            { autoAlpha: 0, y: move ? "60%" : 0, rotate: move ? (i % 2 ? 6 : -6) : 0, scale: move ? 0.9 : 1 },
-            { autoAlpha: 1, y: 0, rotate: 0, scale: 1, duration: 0.5, ease: "back.out(1.4)" },
-            `s${i}`
+            { autoAlpha: 0, y: move ? "18%" : 0 },
+            { autoAlpha: 1, y: 0, duration: 0.4, ease: "power3.out" },
+            "<0.05"
           );
-          for (const el of slide.querySelectorAll<HTMLElement>(".rc-count")) {
-            const to = Number(el.dataset.to) || 0;
-            const digits = Number(el.dataset.digits) || 0;
-            const state = { v: 0 };
-            tl.fromTo(
-              state,
-              { v: 0 },
-              {
-                v: to,
-                duration: 0.5,
-                ease: "power2.out",
-                onUpdate: () => {
-                  el.textContent = state.v.toLocaleString(LOCALE_TAGS[locale], { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-                },
-              },
-              `s${i}+=0.1`
-            );
-          }
-          if (move) {
-            const emoji = slide.querySelector(".rc-emoji");
-            if (emoji) tl.fromTo(emoji, { rotate: -30, scale: 0.4 }, { rotate: 0, scale: 1, duration: 0.6, ease: "back.out(2)" }, `s${i}`);
-          }
         }
-        tl.fromTo(bars[i], { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "none" });
+        tl.addLabel(`s${i}`);
+        if (i === els.length - 1) {
+          tl.call(() => {
+            if (forward() && !ended) {
+              ended = true;
+              trackAnniversary(ANNIVERSARY_EVENTS.recapEnd);
+            }
+          });
+        }
+        tl.fromTo(bars[i], { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "none" });
       });
 
       // Made after the pins above it (it waits for the API), so it is put back
@@ -517,21 +512,24 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
     <div ref={ref}>
       <div className="rc-pin flex min-h-[100svh] flex-col items-center justify-center gap-5 px-4 py-16">
         <div className="text-center">
-          <p className="anniv-pixel text-[10px] text-[var(--a-green)] sm:text-xs">{t("anniversary.recap.kicker")}</p>
-          <h2 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">{t("anniversary.recap.storyTitle")}</h2>
+          <p className="anniv-mono flex items-center justify-center gap-2.5 text-xs uppercase text-[var(--a-green)]">
+            <span className="h-2 w-2 bg-[var(--a-green)]" aria-hidden="true" />
+            {t("anniversary.recap.kicker")}
+          </p>
+          <h2 className="anniv-display mt-3 text-5xl sm:text-6xl">{t("anniversary.recap.storyTitle")}</h2>
         </div>
         <div className="relative h-[min(74svh,600px)] w-full max-w-[400px]">
           <div className="absolute inset-x-4 top-3 z-20 flex gap-1.5">
             {slides.map((s) => (
-              <span key={s.id} className="h-1 flex-1 overflow-hidden rounded-full bg-white/30">
-                <span className="rc-bar block h-full origin-left scale-x-0 rounded-full bg-white" />
+              <span key={s.id} className="h-[3px] flex-1 overflow-hidden bg-white/35">
+                <span className="rc-bar block h-full origin-left scale-x-0 bg-white" />
               </span>
             ))}
           </div>
           {slides.map((s) => (
             <article
               key={s.id}
-              className="rc-slide absolute inset-0 flex flex-col overflow-hidden rounded-[32px] px-6 pb-6 pt-10 shadow-[0_30px_80px_rgba(0,0,0,0.5)]"
+              className="rc-slide absolute inset-0 flex flex-col overflow-hidden rounded-xl px-6 pb-6 pt-10 shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
               style={{ background: s.bg, color: s.ink }}
             >
               {s.body}

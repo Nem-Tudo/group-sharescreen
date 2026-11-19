@@ -41,7 +41,8 @@ export function First72Section() {
         color="var(--a-green)"
       />
 
-      <div data-reveal className="mx-auto mt-12 max-w-2xl overflow-hidden rounded-3xl border border-[var(--a-line)] bg-[#0d1117] shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
+      <div className="mx-auto mt-12 max-w-6xl">
+      <div data-reveal className="max-w-2xl overflow-hidden rounded-lg border border-[var(--a-line)] bg-[#0d1117] shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
         <div className="flex items-center gap-3 border-b border-white/5 px-5 py-4">
           <span className="text-white/40">#</span>
           <span className="font-bold">{t("anniversary.first72.channel")}</span>
@@ -58,7 +59,7 @@ export function First72Section() {
               return (
                 <div key={item.key} className="f72-msg flex justify-center">
                   <span className="rounded-full bg-[var(--a-rose)] px-4 py-1.5 text-center text-xs font-bold text-white shadow-[0_0_30px_rgba(244,63,94,0.45)] sm:text-sm">
-                    🔴 {text} <span className="font-medium opacity-80">· {item.at}</span>
+                    <span className="mr-2 inline-block h-2 w-2 bg-white align-middle" aria-hidden="true" />{text} <span className="font-medium opacity-80">· {item.at}</span>
                   </span>
                 </div>
               );
@@ -67,7 +68,7 @@ export function First72Section() {
             return (
               <div key={item.key} className="f72-msg flex gap-3">
                 {community ? (
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#238636] text-lg">🧑‍💻</span>
+                  <span className="anniv-mono flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#238636] text-xs font-semibold text-white">PR</span>
                 ) : (
                   <img src="/icon.png" alt="" className="h-10 w-10 shrink-0 rounded-full" />
                 )}
@@ -85,6 +86,7 @@ export function First72Section() {
           })}
           <p className="f72-typing pl-1 text-xs italic text-white/40">{t("anniversary.first72.typing")}</p>
         </div>
+      </div>
       </div>
     </section>
   );

@@ -1,142 +1,149 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useT } from "@/lib/useI18n";
 import { gsap, useGSAP, MOTION_OK, MOTION_REDUCED } from "../gsap";
 import { Mascot } from "../Mascot";
+import { FIRST_COMMIT_AT } from "../historyData";
 
-const STICKERS: { emoji: string; x: string; y: string; size: number; speed: number; rot: number }[] = [
-  { emoji: "🎥", x: "8%", y: "18%", size: 46, speed: 1.4, rot: -12 },
-  { emoji: "💬", x: "84%", y: "14%", size: 40, speed: 0.8, rot: 10 },
-  { emoji: "🎮", x: "12%", y: "72%", size: 44, speed: 1.1, rot: 8 },
-  { emoji: "🎧", x: "88%", y: "64%", size: 42, speed: 1.6, rot: -8 },
-  { emoji: "🖥️", x: "70%", y: "84%", size: 36, speed: 0.6, rot: 6 },
-  { emoji: "🍿", x: "26%", y: "88%", size: 34, speed: 1.9, rot: -4 },
-  { emoji: "⭐", x: "62%", y: "8%", size: 28, speed: 1.2, rot: 0 },
-  { emoji: "📱", x: "4%", y: "44%", size: 34, speed: 0.9, rot: 14 },
-  { emoji: "🎉", x: "93%", y: "38%", size: 36, speed: 1.3, rot: -16 },
-];
+const FIRST_COMMIT_MS = Date.parse(FIRST_COMMIT_AT);
+const FPS = 30;
 
+/** Time since the first commit as a broadcast timecode, HHHH:MM:SS:FF. */
+function timecode(ms: number): string {
+  const totalFrames = Math.max(0, Math.floor((ms / 1000) * FPS));
+  const frames = totalFrames % FPS;
+  const totalSeconds = Math.floor(totalFrames / FPS);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${Math.floor(totalSeconds / 3600)}:${pad(Math.floor(totalSeconds / 60) % 60)}:${pad(totalSeconds % 60)}:${pad(frames)}`;
+}
+
+// The opener: a test card (colour bars) counts down 3-2-1, cuts to air, and
+// the page's title comes up as a lower third, with the station clock running
+// since the first commit.
 export function IntroSection() {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
-  const title = "Go Live";
+  const clock = useRef<HTMLSpanElement>(null);
+
+  // The running timecode. Filled on the client only (it is "now").
+  useEffect(() => {
+    let frame = 0;
+    const tick = () => {
+      if (clock.current) clock.current.textContent = timecode(Date.now() - FIRST_COMMIT_MS);
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useGSAP(
     () => {
       const mm = gsap.matchMedia();
       mm.add(MOTION_OK, () => {
-        const tl = gsap.timeline({ delay: 0.25 });
         gsap.set(".i-show", { autoAlpha: 1 });
-        gsap.set([".i-live", ".i-kicker", ".i-char", ".i-sub", ".i-mascot", ".i-hint"], { autoAlpha: 0 });
+        gsap.set([".i-tag", ".i-line", ".i-sub", ".i-mascot", ".i-meta", ".i-hint"], { autoAlpha: 0 });
+        const tl = gsap.timeline({ delay: 0.2 });
+        tl.set(".i-card", { autoAlpha: 1 });
         for (const el of gsap.utils.toArray<HTMLElement>(".i-count")) {
-          tl.fromTo(el, { scale: 2.6, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 0.32, ease: "back.out(2.4)" }).to(
-            el,
-            { scale: 0.3, autoAlpha: 0, duration: 0.22, ease: "power2.in" },
-            "+=0.28"
-          );
+          tl.set(el, { autoAlpha: 1 }).to({}, { duration: 0.5 }).set(el, { autoAlpha: 0 });
         }
-        tl.fromTo(".i-live", { scale: 0, rotate: -20 }, { scale: 1, rotate: 0, autoAlpha: 1, duration: 0.5, ease: "elastic.out(1, 0.5)" })
-          .to(".i-live", { scale: 0.62, y: -150, autoAlpha: 0, duration: 0.45, ease: "power3.in" }, "+=0.35")
-          .fromTo(".i-kicker", { y: 20 }, { y: 0, autoAlpha: 1, duration: 0.4 }, "-=0.1")
+        // Cut to air: the test card collapses to a line, like an old set switching channel.
+        tl.to(".i-card", { scaleY: 0.004, duration: 0.18, ease: "power4.in" })
+          .to(".i-card", { scaleX: 0, duration: 0.14, ease: "power2.in" })
+          .set(".i-card", { display: "none" })
+          .fromTo(".i-strip", { scaleX: 0 }, { scaleX: 1, duration: 0.5, ease: "power3.out" })
+          .fromTo(".i-tag", { x: -30 }, { x: 0, autoAlpha: 1, duration: 0.35, ease: "power3.out" }, "-=0.2")
           .fromTo(
-            ".i-char",
-            { y: 120, rotate: (i) => (i % 2 ? 14 : -14), autoAlpha: 0 },
-            { y: 0, rotate: 0, autoAlpha: 1, duration: 0.7, ease: "back.out(1.8)", stagger: 0.06 },
-            "-=0.2"
+            ".i-line",
+            { yPercent: 100, autoAlpha: 0 },
+            { yPercent: 0, autoAlpha: 1, duration: 0.6, ease: "power4.out", stagger: 0.09 },
+            "-=0.1"
           )
-          .fromTo(".i-mascot", { y: 140, scale: 0.4 }, { y: 0, scale: 1, autoAlpha: 1, duration: 0.9, ease: "elastic.out(1, 0.55)" }, "-=0.45")
-          .fromTo(".i-sub", { y: 16 }, { y: 0, autoAlpha: 1, duration: 0.45 }, "-=0.55")
-          .fromTo(".i-sticker", { scale: 0, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 0.5, ease: "back.out(2)", stagger: 0.05 }, "-=0.5")
-          .to(".i-hint", { autoAlpha: 1, duration: 0.4 });
+          .fromTo(".i-mascot", { y: 60, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.8, ease: "back.out(1.6)" }, "-=0.4")
+          .fromTo([".i-sub", ".i-meta", ".i-hint"], { y: 12 }, { y: 0, autoAlpha: 1, duration: 0.4, stagger: 0.08 }, "-=0.5");
 
-        // On the way out: stickers drift at their own speed, the title sinks back.
-        for (const el of gsap.utils.toArray<HTMLElement>(".i-sticker")) {
-          gsap.to(el, {
-            y: -Number(el.dataset.speed) * 260,
-            rotate: `+=${Number(el.dataset.speed) * 40}`,
-            ease: "none",
-            scrollTrigger: { trigger: ref.current, start: "top top", end: "bottom top", scrub: true },
-          });
-        }
-        gsap.to(".i-center", {
-          scale: 0.86,
-          y: 80,
-          autoAlpha: 0.15,
+        gsap.to(".i-content", {
+          y: 60,
+          autoAlpha: 0.2,
           ease: "none",
           scrollTrigger: { trigger: ref.current, start: "top top", end: "bottom top", scrub: true },
         });
       });
       mm.add(MOTION_REDUCED, () => {
         gsap.set(".i-show", { autoAlpha: 1 });
-        gsap.set([".i-count", ".i-live"], { display: "none" });
+        gsap.set(".i-card", { display: "none" });
       });
     },
     { scope: ref }
   );
 
+  const lines = [t("anniversary.intro.threeMonthsOf"), "Go Live"];
+
   return (
-    <section ref={ref} data-scene="intro" className="relative flex min-h-[100svh] items-center justify-center overflow-hidden px-4 pb-16 pt-20">
-      <div className="anniv-blob left-[-10%] top-[5%] h-[45vh] w-[45vh] bg-[#6366f1]" />
-      <div className="anniv-blob right-[-12%] top-[30%] h-[50vh] w-[50vh] bg-[#c026d3]" style={{ animationDelay: "-5s" }} />
-      <div className="anniv-blob bottom-[-15%] left-[30%] h-[40vh] w-[40vh] bg-[#f43f5e]" style={{ animationDelay: "-9s" }} />
-      <div className="anniv-grid-floor" />
-
-      {STICKERS.map((s) => (
-        <span
-          key={s.emoji}
-          className="i-sticker i-show invisible absolute select-none drop-shadow-[0_8px_20px_rgba(0,0,0,0.4)]"
-          data-speed={s.speed}
-          style={{ left: s.x, top: s.y, fontSize: s.size, rotate: `${s.rot}deg` }}
-          aria-hidden="true"
-        >
-          {s.emoji}
-        </span>
-      ))}
-
-      {/* Countdown — stacked, one at a time */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-        {["3", "2", "1"].map((n) => (
-          <span key={n} className="i-count anniv-pixel invisible absolute text-[110px] text-white sm:text-[160px]">
-            {n}
-          </span>
-        ))}
-        <span className="i-live invisible absolute flex items-center gap-3 rounded-2xl bg-[var(--a-rose)] px-6 py-3 text-3xl font-black tracking-wider text-white shadow-[0_0_80px_rgba(244,63,94,0.6)] sm:text-5xl">
-          <span className="anniv-live-dot h-4 w-4 rounded-full bg-white sm:h-5 sm:w-5" />
-          {t("anniversary.intro.live")}
-        </span>
+    <section ref={ref} data-scene="intro" className="relative flex min-h-[100svh] flex-col overflow-hidden px-4 pb-10 pt-20 sm:px-8">
+      {/* The test card, over everything until the cut */}
+      <div className="i-card invisible pointer-events-none absolute inset-0 z-20 flex flex-col" aria-hidden="true">
+        <div className="anniv-bars flex-[7]" />
+        <div className="anniv-bars-low flex-1" />
+        <div className="flex flex-[2] bg-[#111215]">
+          <div className="flex-[5] bg-[#00214c]" />
+          <div className="flex-[5] bg-white" />
+          <div className="flex-[5] bg-[#32006a]" />
+          <div className="flex-[10] bg-[#111215]" />
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="relative flex h-36 w-44 items-center justify-center bg-black sm:h-44 sm:w-56">
+            {["3", "2", "1"].map((n) => (
+              <span key={n} className="i-count anniv-mono invisible absolute text-8xl font-semibold text-white sm:text-9xl">
+                {n}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="i-center relative z-10 flex flex-col items-center text-center">
-        <p className="i-kicker i-show invisible anniv-pixel text-[10px] text-[var(--a-amber)] sm:text-sm">
-          {t("anniversary.intro.kicker")}
-        </p>
-        <h1 className="mt-4 flex flex-col items-center font-extrabold leading-[0.9] tracking-tight">
-          <span className="i-kicker i-show invisible text-3xl text-white/90 sm:text-5xl">
-            {t("anniversary.intro.threeMonthsOf")}
-          </span>
-          <span className="mt-1 flex text-[19vw] sm:text-[10rem]" aria-label={title}>
-            {title.split("").map((c, i) =>
-              c === " " ? (
-                <span key={i} className="inline-block w-[0.22em]" aria-hidden="true" />
-              ) : (
-                <span key={i} className="i-char i-show invisible anniv-grad-text inline-block" aria-hidden="true">
-                  {c}
+      {/* What stays of the card once on air */}
+      <div className="i-strip anniv-bars absolute inset-x-0 top-0 h-1.5 origin-left" aria-hidden="true" />
+
+      <div className="i-content relative z-10 mx-auto grid w-full max-w-6xl flex-1 items-center gap-10 lg:grid-cols-[1fr_auto]">
+        <div>
+          <p className="i-tag i-show invisible flex flex-wrap items-center gap-3">
+            <span className="anniv-onair text-xs">
+              <span className="anniv-live-dot h-1.5 w-1.5 rounded-full bg-white" />
+              {t("anniversary.intro.live")}
+            </span>
+            <span className="anniv-mono text-xs uppercase text-[var(--a-mute)]">{t("anniversary.intro.onAirSince")}</span>
+          </p>
+          <h1 className="anniv-display mt-6">
+            {lines.map((line, i) => (
+              <span key={i} className="block overflow-hidden">
+                <span
+                  className={`i-line i-show invisible block ${i === 0 ? "text-[13vw] text-[var(--a-mute)] sm:text-[6.5rem]" : "text-[25vw] sm:text-[12rem] lg:text-[14rem]"}`}
+                >
+                  {line}
                 </span>
-              )
-            )}
-          </span>
-        </h1>
-        <div className="i-mascot i-show invisible mt-2 w-36 sm:w-44">
+              </span>
+            ))}
+          </h1>
+          <p className="i-sub i-show invisible mt-6 max-w-xl text-lg leading-relaxed text-[var(--a-mute)] sm:text-xl">
+            {t("anniversary.intro.sub")}
+          </p>
+          <div className="i-meta i-show invisible mt-8 inline-flex items-center gap-4 border border-[var(--a-line)] px-4 py-3">
+            <span className="anniv-mono text-[11px] uppercase text-[var(--a-mute)]">{t("anniversary.intro.timecode")}</span>
+            <span ref={clock} className="anniv-mono text-xl font-medium tabular-nums text-[var(--a-ink)] sm:text-2xl">
+              0:00:00:00
+            </span>
+          </div>
+        </div>
+        <div className="i-mascot i-show invisible mx-auto w-40 sm:w-56 lg:w-64">
           <Mascot mood="wave" />
         </div>
-        <p className="i-sub i-show invisible mt-4 max-w-md text-lg font-semibold text-[var(--a-mute)] sm:text-xl">
-          {t("anniversary.intro.sub")}
-        </p>
-        <p className="i-hint i-show invisible anniv-bounce-y mt-10 text-sm font-bold text-white/70">
-          {t("anniversary.intro.scroll")} ↓
-        </p>
       </div>
+
+      <p className="i-hint i-show invisible anniv-mono relative z-10 mx-auto mt-8 w-full max-w-6xl text-xs uppercase text-[var(--a-mute)]">
+        {t("anniversary.intro.scroll")} ↓
+      </p>
     </section>
   );
 }

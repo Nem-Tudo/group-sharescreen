@@ -17,11 +17,12 @@ export function BackstageSection() {
     () => {
       const mm = gsap.matchMedia();
       mm.add(MOTION_OK, () => {
-        // The clock runs from midnight to 3 a.m. as the section scrolls by.
+        // The clock runs from midnight to 3 a.m. as the clock rises, and reads
+        // 03:00 by the time it reaches the middle of the screen.
         const digital = ref.current?.querySelector<HTMLElement>(".bs-digital");
         const time = { m: 0 };
         gsap
-          .timeline({ scrollTrigger: { trigger: ".bs-clock", start: "top 80%", end: "bottom 30%", scrub: 0.6 } })
+          .timeline({ scrollTrigger: { trigger: ".bs-clock", start: "top 85%", end: "center center", scrub: 0.3 } })
           .fromTo(".bs-hour", { rotation: 0, svgOrigin: "110 110" }, { rotation: 90, svgOrigin: "110 110", ease: "none", duration: 1 }, 0)
           .fromTo(".bs-minute", { rotation: 0, svgOrigin: "110 110" }, { rotation: 1080, svgOrigin: "110 110", ease: "none", duration: 1 }, 0)
           .to(
@@ -82,10 +83,10 @@ export function BackstageSection() {
   ];
 
   const facts = [
-    { emoji: "🕒", text: t("anniversary.night.f1", { n: fmt(DEV_STATS.peakHourCommits) }) },
-    { emoji: "☕", text: t("anniversary.night.f2", { n: DEV_STATS.morningCommits }) },
-    { emoji: "🎃", text: t("anniversary.night.f3", { day: DEV_STATS.busiestDay, n: DEV_STATS.busiestDayCommits }) },
-    { emoji: "🖥️", text: t("anniversary.night.f4", { from: DEV_STATS.desktopFrom, to: DEV_STATS.desktopTo }) },
+    { tag: "03:00", text: t("anniversary.night.f1", { n: fmt(DEV_STATS.peakHourCommits) }) },
+    { tag: "06–10h", text: t("anniversary.night.f2", { n: DEV_STATS.morningCommits }) },
+    { tag: "31.10", text: t("anniversary.night.f3", { day: DEV_STATS.busiestDay, n: DEV_STATS.busiestDayCommits }) },
+    { tag: "v1.1", text: t("anniversary.night.f4", { from: DEV_STATS.desktopFrom, to: DEV_STATS.desktopTo }) },
   ];
 
   return (
@@ -127,24 +128,24 @@ export function BackstageSection() {
             <line className="bs-minute" x1="110" y1="110" x2="110" y2="38" stroke="#f472b6" strokeWidth="5" strokeLinecap="round" />
             <circle cx="110" cy="110" r="8" fill="#fff" />
           </svg>
-          <p className="bs-digital anniv-pixel mt-5 text-2xl text-[#fbbf24] sm:text-3xl">03:00</p>
+          <p className="bs-digital anniv-mono mt-5 text-2xl text-[#fbbf24] sm:text-3xl">03:00</p>
           <p className="mt-2 text-sm font-semibold text-[#c7d2fe]/70">{t("anniversary.night.clockLabel")}</p>
         </div>
 
         <div>
-          <div className="bs-stats grid grid-cols-2 gap-3">
+          <div className="bs-stats grid grid-cols-2 gap-x-6">
             {stats.map((s) => (
-              <div key={s.label} className="bs-stat rounded-3xl border border-white/10 bg-white/[0.05] p-5 backdrop-blur">
-                <p className="text-4xl font-black tracking-tight text-white sm:text-5xl">{s.value}</p>
-                <p className="mt-1 text-sm font-semibold text-[#c7d2fe]/75">{s.label}</p>
+              <div key={s.label} className="bs-stat border-t border-white/15 py-4">
+                <p className="anniv-display text-5xl text-white sm:text-6xl">{s.value}</p>
+                <p className="anniv-mono mt-2 text-[11px] uppercase text-[#c7d2fe]/75">{s.label}</p>
               </div>
             ))}
           </div>
           <ul className="mt-6 space-y-3">
             {facts.map((f) => (
-              <li key={f.emoji} data-reveal className="flex gap-3 text-[15.5px] leading-snug text-white/85">
-                <span className="text-2xl" aria-hidden="true">
-                  {f.emoji}
+              <li key={f.tag} data-reveal className="flex items-baseline gap-4 border-t border-white/10 pt-3 text-[15.5px] leading-snug text-white/85">
+                <span className="anniv-mono w-16 shrink-0 text-xs text-[#c7d2fe]" aria-hidden="true">
+                  {f.tag}
                 </span>
                 <span>{f.text}</span>
               </li>
@@ -153,8 +154,8 @@ export function BackstageSection() {
         </div>
       </div>
 
-      <div data-reveal className="relative mx-auto mt-20 max-w-5xl rounded-[32px] border border-white/10 bg-white/[0.04] p-5 sm:p-8">
-        <h3 className="text-xl font-extrabold sm:text-2xl">{t("anniversary.night.barsTitle")}</h3>
+      <div data-reveal className="relative mx-auto mt-20 max-w-6xl border-t border-white/15 pt-6">
+        <h3 className="anniv-display text-3xl sm:text-4xl">{t("anniversary.night.barsTitle")}</h3>
         <div className="bs-bars mt-8 flex h-56 items-end gap-1.5 sm:gap-3">
           {COMMITS_PER_WEEK.map((w) => {
             const peak = w.commits === max;
@@ -165,7 +166,7 @@ export function BackstageSection() {
                   {w.commits}
                 </span>
                 <div
-                  className={`bs-bar w-full rounded-t-md ${peak ? "bg-[#fbbf24]" : low ? "bg-[#64748b]" : "bg-[linear-gradient(180deg,#f472b6,#818cf8)]"}`}
+                  className={`bs-bar w-full ${peak ? "bg-[var(--a-amber)]" : low ? "bg-[#4b4f5c]" : "bg-[#8d9bd6]"}`}
                   style={{ height: `${Math.max(2, (w.commits / max) * 100)}%` }}
                 />
                 <span className="mt-2 hidden text-[10px] text-white/40 sm:block">{w.week}</span>

@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { useT } from "@/lib/useI18n";
+import { ANNIVERSARY_EVENTS, trackAnniversary } from "@/lib/anniversary";
 import { gsap, useGSAP } from "../gsap";
 import { SceneTitle, ScaledStage } from "../shared";
 import { Day1Landing, LaunchLanding, NewRoom, OldRoom } from "../mocks";
@@ -14,6 +15,7 @@ export function OnceUponSection() {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const compare = useRef<HTMLDivElement>(null);
+  const dragged = useRef(false);
 
   const setSplit = (percent: number) => {
     compare.current?.style.setProperty("--split", `${percent}%`);
@@ -23,9 +25,42 @@ export function OnceUponSection() {
     () => {
       const move = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const counter = ref.current?.querySelector<HTMLElement>(".ou-count");
-      const count = { n: 0 };
-      const split = { v: 100 };
       gsap.set([".ou-cap-2", ".ou-cap-3", ".ou-cap-4", ".ou-tab-2", ".ou-tab-3", ".ou-url-2", ".ou-c", ".ou-d"], { autoAlpha: 0 });
+
+      // The two moving pictures inside the scene (the launch counter and the
+      // before/after sweep) play on their own clock once their step has
+      // settled, rather than following the scroll: a number stopped halfway
+      // by a pause in scrolling reads as the real one.
+      const count = { n: 0 };
+      let countTween: gsap.core.Tween | null = null;
+      const showCount = () => {
+        if (counter) counter.textContent = Math.round(count.n).toLocaleString();
+      };
+      const playCount = () => {
+        countTween?.kill();
+        count.n = 0;
+        countTween = gsap.to(count, { n: 2000, duration: move ? 1.4 : 0, ease: "power2.out", onUpdate: showCount });
+      };
+      const resetCount = () => {
+        countTween?.kill();
+        count.n = 0;
+        showCount();
+      };
+      const split = { v: 100 };
+      let sweep: gsap.core.Timeline | null = null;
+      const playSweep = () => {
+        sweep?.kill();
+        if (!move) return setSplit(50);
+        split.v = 100;
+        sweep = gsap
+          .timeline({ onUpdate: () => setSplit(split.v) })
+          .to(split, { v: 12, duration: 1, ease: "power2.inOut" })
+          .to(split, { v: 50, duration: 0.6, ease: "power2.inOut" });
+      };
+      const resetSweep = () => {
+        sweep?.kill();
+        setSplit(100);
+      };
 
       const tl = gsap.timeline({
         defaults: { ease: "power2.inOut", duration: 0.5 },
@@ -33,13 +68,17 @@ export function OnceUponSection() {
           trigger: ref.current,
           pin: ".ou-pin",
           start: "top top",
-          end: "+=340%",
-          scrub: 0.6,
+          end: "+=210%",
+          scrub: 0.3,
           anticipatePin: 1,
+          // Settles on a step instead of stopping between two pictures.
+          snap: { snapTo: "labelsDirectional", duration: { min: 0.2, max: 0.5 }, delay: 0.05, ease: "power1.inOut" },
         },
       });
+      const forward = () => (tl.scrollTrigger?.direction ?? 1) > 0;
 
-      tl.to({}, { duration: 0.4 })
+      tl.addLabel("s0")
+        .to({}, { duration: 0.25 })
         // 18/08 01:13 — the rename
         .to(".ou-cap-1", { autoAlpha: 0, y: move ? -16 : 0 })
         .fromTo(".ou-cap-2", { y: move ? 16 : 0 }, { autoAlpha: 1, y: 0 }, "<")
@@ -49,31 +88,26 @@ export function OnceUponSection() {
         .to(".ou-url-2", { autoAlpha: 1 }, "<")
         .to(".ou-old", { autoAlpha: 0, y: move ? -10 : 0 }, "<")
         .fromTo(".ou-new", { y: move ? 10 : 0 }, { autoAlpha: 1, y: 0 }, "<")
-        .to({}, { duration: 0.5 })
-        // 19/08 — launch landing and its counter
+        .addLabel("s1")
+        .to({}, { duration: 0.25 })
+        // 19/08 — the launch landing and its counter
         .to(".ou-cap-2", { autoAlpha: 0, y: move ? -16 : 0 })
         .fromTo(".ou-cap-3", { y: move ? 16 : 0 }, { autoAlpha: 1, y: 0 }, "<")
-        .to(".ou-a", { autoAlpha: 0, scale: move ? 0.94 : 1 }, "<")
-        .fromTo(".ou-c", { y: move ? 40 : 0 }, { autoAlpha: 1, y: 0 }, "<0.1")
-        .to(count, {
-          n: 2000,
-          duration: 1,
-          ease: "power1.in",
-          onUpdate: () => {
-            if (counter) counter.textContent = Math.round(count.n).toLocaleString();
-          },
-        })
-        .to({}, { duration: 0.3 })
+        .to(".ou-a", { autoAlpha: 0, scale: move ? 0.96 : 1 }, "<")
+        .fromTo(".ou-c", { y: move ? 30 : 0 }, { autoAlpha: 1, y: 0 }, "<0.1")
+        .addLabel("s2")
+        .call(() => (forward() ? playCount() : resetCount()))
+        .to({}, { duration: 0.25 })
         // today
         .to(".ou-cap-3", { autoAlpha: 0, y: move ? -16 : 0 })
         .fromTo(".ou-cap-4", { y: move ? 16 : 0 }, { autoAlpha: 1, y: 0 }, "<")
         .to(".ou-tab-2", { autoAlpha: 0 }, "<")
         .to(".ou-tab-3", { autoAlpha: 1 }, "<0.15")
-        .to(".ou-c", { autoAlpha: 0, scale: move ? 0.94 : 1 }, "<")
-        .fromTo(".ou-d", { y: move ? 40 : 0 }, { autoAlpha: 1, y: 0 }, "<0.1")
-        .to(split, { v: 12, duration: 1, ease: "power1.inOut", onUpdate: () => setSplit(split.v) })
-        .to(split, { v: 50, duration: 0.6, onUpdate: () => setSplit(split.v) })
-        .to({}, { duration: 0.4 });
+        .to(".ou-c", { autoAlpha: 0, scale: move ? 0.96 : 1 }, "<")
+        .fromTo(".ou-d", { y: move ? 30 : 0 }, { autoAlpha: 1, y: 0 }, "<0.1")
+        .addLabel("s3")
+        .call(() => (forward() ? playSweep() : resetSweep()))
+        .to({}, { duration: 0.25 });
     },
     { scope: ref }
   );
@@ -83,7 +117,7 @@ export function OnceUponSection() {
   return (
     <section ref={ref} data-scene="day1" className="relative">
       <div className="ou-pin flex min-h-[100svh] flex-col items-center justify-center gap-5 px-4 py-10">
-        <SceneTitle kicker={t("anniversary.day1.kicker")} title={t("anniversary.day1.title")} color="var(--a-sky)" />
+        <SceneTitle center compact kicker={t("anniversary.day1.kicker")} title={t("anniversary.day1.title")} color="var(--a-blue)" />
 
         <div className="relative h-14 w-full max-w-2xl text-center sm:h-12">
           <p className={`ou-cap-1 ${caption}`}>{t("anniversary.day1.c1")}</p>
@@ -95,8 +129,8 @@ export function OnceUponSection() {
         {/* Browser window */}
         {/* As wide as the screen allows, and never so tall that the pinned scene spills below it. */}
         <div
-          className="w-full overflow-hidden rounded-xl border border-white/10 bg-[#202330] shadow-[0_40px_100px_rgba(0,0,0,0.6)] sm:rounded-2xl"
-          style={{ maxWidth: "min(56rem, calc((100svh - 300px) * 1.6 + 2px))" }}
+          className="w-full overflow-hidden rounded-lg border border-white/10 bg-[#202330] shadow-[0_30px_80px_rgba(0,0,0,0.55)]"
+          style={{ maxWidth: "min(56rem, calc((100svh - 370px) * 1.6 + 2px))" }}
         >
           <div className="flex items-end gap-2 px-3 pt-2.5">
             <span className="mb-2 hidden gap-1.5 sm:flex">
@@ -145,7 +179,13 @@ export function OnceUponSection() {
                 max={100}
                 defaultValue={100}
                 aria-label={t("anniversary.day1.compare")}
-                onInput={(e) => setSplit(Number(e.currentTarget.value))}
+                onInput={(e) => {
+                  setSplit(Number(e.currentTarget.value));
+                  if (!dragged.current) {
+                    dragged.current = true;
+                    trackAnniversary(ANNIVERSARY_EVENTS.compareDrag);
+                  }
+                }}
                 className="anniv-range absolute inset-0 h-full w-full cursor-ew-resize opacity-0"
               />
             </div>

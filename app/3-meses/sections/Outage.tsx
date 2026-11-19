@@ -71,8 +71,8 @@ export function OutageSection({ peak }: { peak: number }) {
         glitch
       />
 
-      <div className="out-crt-wrap relative mx-auto mt-12 max-w-2xl">
-        <div className="out-crt relative rounded-[28px] border-[10px] border-[#1f2230] bg-[#0b0b0b] p-6 shadow-[0_0_120px_rgba(244,63,94,0.25)] sm:p-9">
+      <div className="out-crt-wrap relative mx-auto mt-12 max-w-6xl">
+        <div className="out-crt relative max-w-2xl rounded-[28px] border-[10px] border-[#1f2230] bg-[#0b0b0b] p-6 shadow-[0_0_120px_rgba(244,63,94,0.25)] sm:p-9">
           <div className="anniv-scanlines rounded-[18px]" />
           <div className="relative space-y-3 font-[family-name:var(--font-geist-sans)] text-lg font-bold leading-snug sm:text-2xl">
             <h3 className="out-line" style={{ color: "#ff2828", fontSize: "1.3em" }}>
@@ -88,12 +88,12 @@ export function OutageSection({ peak }: { peak: number }) {
               {t("page.itShouldBeBackInAbout")}
             </p>
           </div>
-          <p className="anniv-pixel relative mt-6 text-right text-[9px] text-white/30">golive.nemtudo.me · 20/08 00:03</p>
+          <p className="anniv-mono relative mt-6 text-right text-[9px] text-white/30">golive.nemtudo.me · 20/08 00:03</p>
         </div>
       </div>
 
-      <div className="out-logs relative mx-auto mt-14 max-w-2xl">
-        <p data-reveal className="mb-4 text-center text-sm font-bold uppercase tracking-widest text-white/50">
+      <div className="out-logs relative mx-auto mt-14 max-w-6xl [&>*]:max-w-2xl">
+        <p data-reveal className="anniv-mono mb-4 text-xs uppercase text-white/50">
           {t("anniversary.outage.logTitle")}
         </p>
         <div className="space-y-2.5">
@@ -107,7 +107,7 @@ export function OutageSection({ peak }: { peak: number }) {
             </div>
           ))}
         </div>
-        <p data-reveal className="mt-10 text-center text-lg leading-relaxed text-white/75">
+        <p data-reveal className="mt-10 text-lg leading-relaxed text-white/75">
           {t("anniversary.outage.moral", {
             people: fmt(HARD_FIGURES.reconnecting),
             sockets: fmt(peak),

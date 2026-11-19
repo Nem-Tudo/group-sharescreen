@@ -5,14 +5,20 @@ import { createPortal } from "react-dom";
 import { useLocale } from "@/lib/useI18n";
 import { LOCALE_TAGS } from "@/lib/i18n";
 
-/** The kicker / title / subtitle that opens every scene. */
+/**
+ * The slate that opens every scene: a timecode-style label (the colour is the
+ * scene's tally), a condensed uppercase headline, and an optional line under it.
+ * Left-aligned like a lower third; `center` only for the few scenes built
+ * around a centred object.
+ */
 export function SceneTitle({
   kicker,
   title,
   sub,
   color = "var(--a-amber)",
-  center = true,
+  center = false,
   glitch = false,
+  compact = false,
 }: {
   kicker: string;
   title: string;
@@ -20,13 +26,20 @@ export function SceneTitle({
   color?: string;
   center?: boolean;
   glitch?: boolean;
+  /** A smaller headline, for pinned scenes that must fit one screen. */
+  compact?: boolean;
 }) {
   return (
-    <header className={`relative z-10 ${center ? "mx-auto text-center" : ""} max-w-3xl`}>
-      <p data-reveal className="anniv-pixel text-[10px] uppercase sm:text-xs" style={{ color }}>
+    <header className={`relative z-10 mx-auto w-full max-w-6xl ${center ? "text-center" : ""}`}>
+      <p
+        data-reveal
+        className={`anniv-mono flex items-center gap-2.5 text-[11px] font-medium uppercase sm:text-xs ${center ? "justify-center" : ""}`}
+        style={{ color }}
+      >
+        <span className="h-2 w-2 shrink-0" style={{ background: color }} aria-hidden="true" />
         {kicker}
       </p>
-      <h2 data-reveal className="mt-3 text-[2.1rem] font-extrabold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
+      <h2 data-reveal className={`anniv-display mt-4 max-w-5xl ${compact ? "text-4xl sm:text-5xl" : "text-[2.9rem] sm:text-7xl lg:text-[5.5rem]"} ${center ? "mx-auto" : ""}`}>
         {glitch ? (
           <span className="anniv-glitch" data-text={title}>
             {title}
@@ -36,7 +49,7 @@ export function SceneTitle({
         )}
       </h2>
       {sub && (
-        <p data-reveal className="mt-4 text-base leading-relaxed text-[var(--a-mute)] sm:text-lg">
+        <p data-reveal className={`mt-5 max-w-2xl text-base leading-relaxed text-[var(--a-mute)] sm:text-lg ${center ? "mx-auto" : ""}`}>
           {sub}
         </p>
       )}

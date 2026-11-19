@@ -8,8 +8,12 @@ import { markFeatureUsed } from "@/components/NewBadge";
 import {
   ANNIVERSARY_EVENTS,
   ANNIVERSARY_FEATURE,
+  ANNIVERSARY_FROM_PARAM,
+  ANNIVERSARY_SOURCES,
+  ANNIVERSARY_STAY_MARKS,
   fetchAnniversaryStats,
   trackAnniversary,
+  type AnniversarySource,
   type AnniversaryStats,
 } from "@/lib/anniversary";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "./gsap";
@@ -83,9 +87,72 @@ export function AnniversaryContent() {
   const getMusic = () => (music.current ??= new Chiptune());
 
   // Opening the page is "using" the feature: the NOVO badge on the way in goes away.
+  // Also where the visit came from: the ?from= the site's own links add (then
+  // dropped from the address, so a copied link does not carry it on), else the referrer.
   useEffect(() => {
     trackAnniversary(ANNIVERSARY_EVENTS.view);
     markFeatureUsed(ANNIVERSARY_FEATURE);
+    const url = new URL(window.location.href);
+    const tagged = url.searchParams.get(ANNIVERSARY_FROM_PARAM);
+    let source: AnniversarySource;
+    if (tagged && (ANNIVERSARY_SOURCES as readonly string[]).includes(tagged)) source = tagged as AnniversarySource;
+    else if (!document.referrer) source = "direct";
+    else {
+      try {
+        source = new URL(document.referrer).origin === window.location.origin ? "site" : "external";
+      } catch {
+        source = "external";
+      }
+    }
+    trackAnniversary(`anniv_from.${source}`);
+    if (tagged !== null) {
+      url.searchParams.delete(ANNIVERSARY_FROM_PARAM);
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
+  // Time on the page, counted only while it is visible: milestones as they
+  // pass, and the total once when the page is left (or hidden for the first time).
+  useEffect(() => {
+    let visibleMs = 0;
+    let since = document.visibilityState === "visible" ? Date.now() : null;
+    let sent = false;
+    const marks = new Set<string>();
+    const elapsed = () => visibleMs + (since === null ? 0 : Date.now() - since);
+    const checkMarks = () => {
+      const seconds = elapsed() / 1000;
+      for (const { mark, seconds: at } of ANNIVERSARY_STAY_MARKS) {
+        if (seconds >= at && !marks.has(mark)) {
+          marks.add(mark);
+          trackAnniversary(`anniv_stay.${mark}`);
+        }
+      }
+    };
+    const sendTotal = () => {
+      if (sent) return;
+      sent = true;
+      trackAnniversary(ANNIVERSARY_EVENTS.time, Math.max(1, Math.round(elapsed() / 1000)));
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        since ??= Date.now();
+      } else {
+        if (since !== null) visibleMs += Date.now() - since;
+        since = null;
+        checkMarks();
+        sendTotal();
+      }
+    };
+    const timer = setInterval(checkMarks, 5000);
+    document.addEventListener("visibilitychange", onVisibility);
+    // Capture: ahead of lib/features' own pagehide flush, so the total goes out with it.
+    window.addEventListener("pagehide", sendTotal, { capture: true });
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", sendTotal, { capture: true });
+      sendTotal();
+    };
   }, []);
 
   // The numbers are live: asked for again every STATS_POLL_MS while the tab
@@ -171,14 +238,22 @@ export function AnniversaryContent() {
 
   useGSAP(
     () => {
-      // Which scene is in the middle of the screen drives the mascot and the music.
+      // Which scene is in the middle of the screen drives the mascot and the
+      // music, and each one reached is counted once (anniv_seen.<scene>).
+      const seen = new Set<string>();
       for (const el of gsap.utils.toArray<HTMLElement>("[data-scene]")) {
         ScrollTrigger.create({
           trigger: el,
           start: "top 55%",
           end: "bottom 55%",
           onToggle: (self) => {
-            if (self.isActive) setScene(el.dataset.scene as Scene);
+            if (!self.isActive) return;
+            const name = el.dataset.scene as Scene;
+            setScene(name);
+            if (!seen.has(name)) {
+              seen.add(name);
+              trackAnniversary(`anniv_seen.${name}`);
+            }
           },
         });
       }
@@ -224,7 +299,10 @@ export function AnniversaryContent() {
     const next = clicks + 1;
     setClicks(next);
     void getMusic().blip(next >= EASTER_EGG_CLICKS ? 96 : 76 + (next % 5) * 2);
-    if (next === EASTER_EGG_CLICKS) setBurst((b) => b + 1);
+    if (next === EASTER_EGG_CLICKS) {
+      setBurst((b) => b + 1);
+      trackAnniversary(ANNIVERSARY_EVENTS.easterEgg);
+    }
     if (dock.current && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       gsap
         .timeline()
@@ -247,26 +325,26 @@ export function AnniversaryContent() {
     <div ref={root} className="anniv relative min-h-screen">
       {/* Top bar */}
       <div className="fixed inset-x-0 top-0 z-40">
-        <div ref={progress} style={{ scale: "0 1" }} className="anniv-progress h-1 origin-left bg-[linear-gradient(90deg,#fbbf24,#fb7185,#c026d3,#818cf8)]" />
+        <div ref={progress} style={{ scale: "0 1" }} className="anniv-progress h-[3px] origin-left bg-[var(--a-tally)]" />
         <div className="flex items-center justify-between px-4 py-3">
           <Link
             href="/"
-            className="flex items-center gap-2 rounded-full bg-black/40 py-1.5 pl-1.5 pr-3.5 text-sm font-bold text-white backdrop-blur transition hover:bg-black/60"
+            className="flex items-center gap-2 rounded-md bg-black/50 py-1.5 pl-1.5 pr-3.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-black/70"
           >
-            <img src="/icon.png" alt="" className="h-7 w-7 rounded-full" />
+            <img src="/icon.png" alt="" className="h-7 w-7 rounded" />
             Go Live
           </Link>
           <button
             type="button"
             onClick={toggleMusic}
             aria-pressed={playing}
-            className={`flex items-center gap-2.5 rounded-full px-4 py-2 text-sm font-bold backdrop-blur transition ${playing ? "bg-white text-zinc-900" : "bg-black/40 text-white hover:bg-black/60"}`}
+            className={`anniv-mono flex items-center gap-2.5 rounded-md px-3.5 py-2 text-xs font-semibold uppercase backdrop-blur transition ${playing ? "bg-[var(--a-ink)] text-[var(--a-bg)]" : "bg-black/50 text-white hover:bg-black/70"}`}
           >
             <span className="flex h-4 items-end gap-[3px]" aria-hidden="true">
               {[0, 1, 2, 3].map((i) => (
                 <span
                   key={i}
-                  className={`w-[3px] rounded-full ${playing ? "golive-eq-bar bg-[var(--a-rose)]" : "bg-white/70"}`}
+                  className={`w-[3px] ${playing ? "golive-eq-bar bg-[var(--a-tally)]" : "bg-white/70"}`}
                   style={{ height: playing ? "100%" : `${35 + i * 15}%`, animationDelay: `${i * -0.25}s` }}
                 />
               ))}
@@ -289,7 +367,9 @@ export function AnniversaryContent() {
         <BugsSection
           onSquash={(all) => {
             void getMusic().blip(all ? 96 : 72);
+            trackAnniversary(ANNIVERSARY_EVENTS.bugFix);
             if (all) {
+              trackAnniversary(ANNIVERSARY_EVENTS.bugsAll);
               setAllSquashed(true);
               setBurst((b) => b + 1);
             }
@@ -300,18 +380,18 @@ export function AnniversaryContent() {
 
       {/* Livinho, following along */}
       <div
-        className={`fixed bottom-[calc(var(--app-tabbar-h,0px)+1rem)] left-3 z-30 flex items-end gap-1 transition-all duration-500 sm:left-5 ${dockVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-32 opacity-0"}`}
+        className={`fixed right-3 top-16 z-30 flex flex-row-reverse items-start gap-2 transition-all duration-500 sm:right-5 ${dockVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-6 opacity-0"}`}
       >
         <button
           ref={dock}
           type="button"
           onClick={poke}
           aria-label={t("anniversary.mascot.label")}
-          className="w-[76px] shrink-0 cursor-pointer sm:w-[96px]"
+          className="w-[50px] shrink-0 cursor-pointer sm:w-[84px]"
         >
           <Mascot mood={mood} />
         </button>
-        <p key={`${scene}-${egg}-${allSquashed}`} className="anniv-bubble mb-16 max-w-[190px] animate-[golive-appear_0.35s_ease-out] sm:mb-20 sm:max-w-[240px]" role="status">
+        <p key={`${scene}-${egg}-${allSquashed}`} className="anniv-bubble anniv-bubble-brief mt-3 max-w-[170px] sm:mt-7 sm:max-w-[240px]" role="status">
           {speech}
         </p>
       </div>

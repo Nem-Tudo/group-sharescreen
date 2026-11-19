@@ -11,6 +11,7 @@ import { ForkWatermark } from "@/components/ForkWatermark";
 import { LastScreenRestorer } from "@/components/LastScreenRestorer";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { EventPromoWidget } from "@/components/EventPromoWidget";
+import { AnniversaryPopup } from "@/components/AnniversaryPopup";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
@@ -434,6 +435,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {/* The "acontecendo agora" corner card, written from the
                     admin's Eventos tab — see components/EventPromoWidget. */}
                 <EventPromoWidget />
+                {/* "Go Live fez 3 meses", once, for people around for a few
+                    days who are in the experiment — see components/AnniversaryPopup. */}
+                <AnniversaryPopup />
               </NtPopups>
             </AuthProvider>
           </SupressErrors>

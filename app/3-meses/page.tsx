@@ -1,18 +1,25 @@
 import type { Metadata } from "next";
-import { Press_Start_2P } from "next/font/google";
+import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { pageMetadata } from "@/lib/seo";
 import { translate } from "@/lib/i18n";
 import { AnniversaryContent } from "./AnniversaryContent";
 
-// GoLive's third birthday-in-months (first commit: 17/08/2026): the story,
-// the numbers, a mascot and a chiptune. Everything moves; see
-// AnniversaryContent for how the scenes are put together.
+// Go Live's three months (first commit: 17/08/2026): the story, the numbers,
+// a mascot and a chiptune. See AnniversaryContent for how the scenes are put
+// together, and anniversary.css for the look.
 
-// The 8-bit labels only. Loaded on this route alone.
-const pixel = Press_Start_2P({
-  weight: "400",
+// Loaded on this route alone. Archivo's width axis gives the condensed
+// broadcast-graphics headlines; Plex Mono carries timecodes and labels.
+const display = Archivo({
   subsets: ["latin"],
-  variable: "--font-anniv-pixel",
+  axes: ["wdth"],
+  variable: "--font-anniv-display",
+  display: "swap",
+});
+const mono = IBM_Plex_Mono({
+  weight: ["400", "500", "600"],
+  subsets: ["latin"],
+  variable: "--font-anniv-mono",
   display: "swap",
 });
 
@@ -37,7 +44,7 @@ export const metadata: Metadata = pageMetadata({
 
 export default function AnniversaryPage() {
   return (
-    <div className={`${pixel.variable} flex flex-1 flex-col`}>
+    <div className={`${display.variable} ${mono.variable} flex flex-1 flex-col`}>
       <AnniversaryContent />
     </div>
   );

@@ -60,13 +60,13 @@ export function BugsSection({ onSquash }: { onSquash: (all: boolean) => void }) 
         color="#fb7185"
         glitch
       />
-      <p data-reveal className="mt-4 text-center text-sm font-bold text-[var(--a-amber)]">
+      <p data-reveal className="anniv-mono mx-auto mt-5 max-w-6xl text-xs uppercase text-[var(--a-amber)]">
         {fixed.size === BUGS.length
           ? t("anniversary.bugs.allFixed")
           : t("anniversary.bugs.progress", { n: fixed.size, total: BUGS.length })}
       </p>
 
-      <ul className="mx-auto mt-12 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="mx-auto mt-12 grid max-w-6xl gap-5 md:grid-cols-2 xl:grid-cols-5">
         {BUGS.map((bug, i) => {
           const done = fixed.has(bug.key);
           const title = t(`anniversary.bugs.${bug.key}.title`);
@@ -75,26 +75,21 @@ export function BugsSection({ onSquash }: { onSquash: (all: boolean) => void }) 
               <button
                 type="button"
                 onClick={(e) => squash(bug.key, e.currentTarget)}
-                className="anniv-bug relative block w-full rounded-2xl p-5 text-left text-zinc-900 shadow-[0_14px_40px_rgba(0,0,0,0.35)] hover:-translate-y-1"
+                className="anniv-bug relative block w-full rounded-sm p-5 text-left text-zinc-900 shadow-[0_14px_40px_rgba(0,0,0,0.35)] hover:-translate-y-1"
                 style={{ background: PAPER[i % PAPER.length] }}
                 aria-pressed={done}
               >
                 <span className="absolute left-1/2 top-[-10px] h-5 w-16 -translate-x-1/2 rotate-[-3deg] bg-white/60" aria-hidden="true" />
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-4xl" aria-hidden="true">
-                    {bug.emoji}
-                  </span>
-                  <span className="rounded-full bg-black/10 px-2.5 py-1 text-xs font-bold">{bug.date}</span>
-                </div>
-                <h3 className={`mt-3 text-lg font-extrabold leading-tight ${done ? "line-through decoration-[3px] opacity-60" : ""}`}>{title}</h3>
+                <p className="anniv-mono text-xs font-medium text-zinc-600">{bug.date}</p>
+                <h3 className={`mt-2 text-lg font-extrabold leading-tight ${done ? "line-through decoration-[3px] opacity-60" : ""}`}>{title}</h3>
                 <p className="mt-2 text-[14.5px] leading-snug text-zinc-700">{t(`anniversary.bugs.${bug.key}.text`)}</p>
                 {bug.commit && (
-                  <p className="mt-3 break-words rounded-lg bg-zinc-900 px-3 py-2 font-mono text-[12px] text-[#f87171]">
+                  <p className="anniv-mono mt-3 break-words rounded-sm bg-zinc-900 px-3 py-2 text-[11.5px] tracking-normal text-[#f87171]">
                     git commit -m &quot;{bug.commit}&quot;
                   </p>
                 )}
                 {done ? (
-                  <span className="anniv-stamp pointer-events-none absolute right-4 top-1/2 rounded-lg border-[3px] border-emerald-600 px-3 py-1 text-lg font-black uppercase tracking-wider text-emerald-600">
+                  <span className="anniv-stamp anniv-mono pointer-events-none absolute right-4 top-1/2 rounded-sm border-[3px] border-emerald-600 px-3 py-1 text-lg font-black uppercase tracking-wider text-emerald-600">
                     {t("anniversary.bugs.stamp")}
                   </span>
                 ) : (
