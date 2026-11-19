@@ -46,7 +46,7 @@ import {
 } from "react-icons/md";
 import { LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { GifPicker } from "@/components/GifPicker";
-import { InviteEmbeds } from "@/components/groups/InviteEmbed";
+import { GoLiveEmbeds } from "@/components/GoLiveEmbeds";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 import { Popover, Tooltip } from "@/components/Tooltip";
 import { AttachMenu, splitPicked } from "@/components/AttachMenu";
@@ -889,7 +889,7 @@ const MessageBubble = memo(function MessageBubble({
                 <Markdown text={bubble.text} renderText={(plain) => linkify(plain, false)} trailing={marks} />
               </div>
             )}
-            {bubble.text && <InviteEmbeds text={bubble.text} />}
+            {bubble.text && <GoLiveEmbeds text={bubble.text} />}
             {bubble.text && <LinkPreviewCard text={bubble.text} />}
             {media}
             {reactions}
@@ -953,7 +953,7 @@ const MessageBubble = memo(function MessageBubble({
         {/* Under the bubble rather than in it: the card keeps its own colours
             whichever side's bubble the link was sent in. The same goes for a
             link's own card (see LinkPreviewCard). */}
-        {bubble.text && <InviteEmbeds text={bubble.text} />}
+        {bubble.text && <GoLiveEmbeds text={bubble.text} />}
         {bubble.text && <LinkPreviewCard text={bubble.text} />}
         {reactions}
         {failure}

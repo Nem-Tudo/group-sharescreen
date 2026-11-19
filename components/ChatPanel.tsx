@@ -45,7 +45,7 @@ import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { useNameFxListAttrs } from "@/lib/nameFxLite";
 import { AttachmentTray, dataUrlToFile, ImageViewOnceButton } from "@/components/AttachmentTray";
 import { MessageAttachments } from "@/components/MessageAttachments";
-import { InviteEmbeds } from "@/components/groups/InviteEmbed";
+import { GoLiveEmbeds } from "@/components/GoLiveEmbeds";
 import { Markdown } from "@/components/Markdown";
 import { MessageEmbeds } from "@/components/MessageEmbeds";
 import { CopyMessageButton } from "@/components/CopyMessageButton";
@@ -1377,7 +1377,7 @@ export function ChatPanel({
                     </div>
                   )}
                   {/* A group invite in the message, as a card to join from. */}
-                  {m.text.trim() && <InviteEmbeds text={m.text} />}
+                  {m.text.trim() && <GoLiveEmbeds text={m.text} />}
                   <MessageEmbeds
                     embeds={m.embeds}
                     onOpenImage={(src) =>

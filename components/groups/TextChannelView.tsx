@@ -2,7 +2,7 @@
 
 import { useAuraOf } from "@/components/groups/AuraMark";
 import { MessageAttachments } from "@/components/MessageAttachments";
-import { InviteEmbeds } from "@/components/groups/InviteEmbed";
+import { GoLiveEmbeds } from "@/components/GoLiveEmbeds";
 import { ChatImages } from "@/components/ChatImages";
 import { attachmentsPreview } from "@/lib/chatAttachments";
 import {
@@ -1920,7 +1920,7 @@ export const TextChannelView = memo(function TextChannelView({
               </div>
             )}
             {/* A group invite in the message, as a card to join from. */}
-            {message.text && <InviteEmbeds text={message.text} />}
+            {message.text && <GoLiveEmbeds text={message.text} />}
             <MessageEmbeds
               embeds={message.embeds}
               renderText={embedText}
