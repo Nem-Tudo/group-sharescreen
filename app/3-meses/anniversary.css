@@ -1,0 +1,284 @@
+/* The "3 meses" page. Its own look on purpose — like a year-in-review, it is a
+   show rather than a screen of the app — so it is always dark and sets its own
+   colours instead of the zinc palette globals.css redefines per theme.
+   Everything here is scoped under .anniv. */
+
+.anniv {
+  --a-bg: #0a0c14;
+  --a-bg-2: #11152a;
+  --a-card: #161b30;
+  --a-line: rgba(255, 255, 255, 0.09);
+  --a-ink: #f5f6fc;
+  --a-mute: #a3abc2;
+  --a-rose: #f43f5e;
+  --a-sky: #38bdf8;
+  --a-indigo: #6366f1;
+  --a-amber: #fbbf24;
+  --a-green: #34d399;
+  --a-violet: #a78bfa;
+  background: var(--a-bg);
+  color: var(--a-ink);
+  font-family: var(--font-jakarta), var(--font-geist-sans), system-ui, sans-serif;
+  overflow-x: clip;
+  color-scheme: dark;
+}
+
+.anniv ::selection {
+  background: var(--a-rose);
+  color: white;
+}
+
+.anniv-pixel {
+  font-family: var(--font-anniv-pixel), ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+.anniv-grad-text {
+  background: linear-gradient(100deg, #fbbf24 0%, #fb7185 35%, #c026d3 65%, #818cf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Background blobs (hero, finale) ───────────────────────────────────── */
+.anniv-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.55;
+  animation: anniv-blob 16s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes anniv-blob {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(8vw, -6vh) scale(1.15); }
+  100% { transform: translate(-6vw, 5vh) scale(0.92); }
+}
+
+.anniv-grid-floor {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background-image:
+    linear-gradient(rgba(129, 140, 248, 0.25) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(129, 140, 248, 0.25) 1px, transparent 1px);
+  background-size: 48px 48px;
+  transform: perspective(420px) rotateX(62deg);
+  transform-origin: bottom;
+  mask-image: linear-gradient(to top, black, transparent);
+  animation: anniv-floor 2.5s linear infinite;
+  pointer-events: none;
+}
+@keyframes anniv-floor {
+  to { background-position: 0 48px, 0 0; }
+}
+
+/* ── Mascot idle motion ─────────────────────────────────────────────────── */
+.anniv-mascot { overflow: visible; }
+.anniv-mascot-bob { animation: anniv-bob 2.6s ease-in-out infinite; transform-origin: 60px 120px; }
+@keyframes anniv-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-5px) rotate(-1.5deg); }
+}
+.anniv-mascot[data-mood="party"] .anniv-mascot-bob { animation-duration: 0.7s; }
+.anniv-mascot[data-mood="sleep"] .anniv-mascot-bob { animation-duration: 4.5s; }
+.anniv-mascot[data-mood="shock"] .anniv-mascot-bob,
+.anniv-mascot[data-mood="sweat"] .anniv-mascot-bob { animation: anniv-jitter 0.18s linear infinite; }
+@keyframes anniv-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(1px, -1px); }
+  75% { transform: translate(-1px, 1px); }
+}
+.anniv-mascot-eye { animation: anniv-blink 4.2s infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes anniv-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+.anniv-mascot-rec { animation: anniv-rec 1.2s steps(2, jump-none) infinite; }
+@keyframes anniv-rec {
+  0% { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+.anniv-mascot-waving { animation: anniv-wave 0.9s ease-in-out infinite; transform-origin: 108px 62px; }
+@keyframes anniv-wave {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-22deg); }
+}
+.anniv-mascot-drop { animation: anniv-drop 1.4s ease-in infinite; }
+@keyframes anniv-drop {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(26px); opacity: 0; }
+}
+.anniv-mascot-zzz { animation: anniv-float 2.4s ease-in-out infinite; }
+@keyframes anniv-float {
+  0%, 100% { transform: translateY(0); opacity: 0.9; }
+  50% { transform: translateY(-6px); opacity: 0.5; }
+}
+
+/* Speech bubble */
+.anniv-bubble {
+  position: relative;
+  background: white;
+  color: #0f172a;
+  border-radius: 16px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+.anniv-bubble::after {
+  content: "";
+  position: absolute;
+  left: 22px;
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  background: white;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
+/* ── Glitch (outage, bug wall) ──────────────────────────────────────────── */
+.anniv-glitch { position: relative; display: inline-block; }
+.anniv-glitch::before,
+.anniv-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.anniv-glitch::before {
+  color: #22d3ee;
+  transform: translate(-2px, 0);
+  clip-path: inset(0 0 55% 0);
+  animation: anniv-glitch-a 2.2s steps(1) infinite;
+  mix-blend-mode: screen;
+}
+.anniv-glitch::after {
+  color: #f43f5e;
+  transform: translate(2px, 0);
+  clip-path: inset(50% 0 0 0);
+  animation: anniv-glitch-b 1.7s steps(1) infinite;
+  mix-blend-mode: screen;
+}
+@keyframes anniv-glitch-a {
+  0%, 82%, 100% { transform: translate(-2px, 0); clip-path: inset(0 0 55% 0); }
+  84% { transform: translate(-6px, -2px); clip-path: inset(10% 0 70% 0); }
+  88% { transform: translate(5px, 1px); clip-path: inset(40% 0 30% 0); }
+}
+@keyframes anniv-glitch-b {
+  0%, 76%, 100% { transform: translate(2px, 0); clip-path: inset(50% 0 0 0); }
+  79% { transform: translate(7px, 2px); clip-path: inset(70% 0 5% 0); }
+  85% { transform: translate(-4px, -1px); clip-path: inset(30% 0 45% 0); }
+}
+
+.anniv-static {
+  position: absolute;
+  inset: -50%;
+  background-image:
+    repeating-radial-gradient(circle at 17% 32%, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px),
+    repeating-radial-gradient(circle at 73% 61%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px);
+  animation: anniv-static 0.35s steps(4) infinite;
+  pointer-events: none;
+}
+@keyframes anniv-static {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-3%, 2%); }
+  50% { transform: translate(2%, -3%); }
+  75% { transform: translate(-1%, 3%); }
+  100% { transform: translate(3%, -1%); }
+}
+.anniv-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.28) 0 2px, transparent 2px 4px);
+  pointer-events: none;
+}
+
+/* ── Night sky (behind the scenes) ──────────────────────────────────────── */
+.anniv-stars {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 18%, white, transparent),
+    radial-gradient(1px 1px at 28% 62%, white, transparent),
+    radial-gradient(2px 2px at 44% 30%, #c7d2fe, transparent),
+    radial-gradient(1px 1px at 63% 12%, white, transparent),
+    radial-gradient(1.5px 1.5px at 78% 46%, white, transparent),
+    radial-gradient(1px 1px at 88% 80%, #fde68a, transparent),
+    radial-gradient(1px 1px at 8% 86%, white, transparent),
+    radial-gradient(2px 2px at 55% 88%, #c7d2fe, transparent),
+    radial-gradient(1px 1px at 36% 8%, white, transparent),
+    radial-gradient(1.5px 1.5px at 94% 24%, white, transparent);
+  background-size: 640px 640px;
+  animation: anniv-twinkle 4s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes anniv-twinkle {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* ── Bug cards ──────────────────────────────────────────────────────────── */
+.anniv-bug {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+}
+.anniv-bug:hover {
+  box-shadow: 0 18px 50px rgba(244, 63, 94, 0.25);
+}
+.anniv-stamp {
+  animation: anniv-stamp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes anniv-stamp {
+  from { transform: rotate(-14deg) scale(2.4); opacity: 0; }
+  to { transform: rotate(-14deg) scale(1); opacity: 1; }
+}
+
+/* ── Misc ───────────────────────────────────────────────────────────────── */
+.anniv-caret::after {
+  content: "▋";
+  margin-left: 2px;
+  animation: anniv-rec 0.9s steps(2, jump-none) infinite;
+}
+.anniv-bounce-y { animation: anniv-bounce-y 1.4s ease-in-out infinite; }
+@keyframes anniv-bounce-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(8px); }
+}
+.anniv-marquee { animation: anniv-marquee 30s linear infinite; }
+@keyframes anniv-marquee {
+  to { transform: translateX(-50%); }
+}
+.anniv-live-dot { animation: anniv-rec 1s steps(2, jump-none) infinite; }
+
+.anniv-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.anniv-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: white;
+  cursor: ew-resize;
+}
+.anniv-range::-moz-range-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: white;
+  border: 0;
+  cursor: ew-resize;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anniv *,
+  .anniv *::before,
+  .anniv *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

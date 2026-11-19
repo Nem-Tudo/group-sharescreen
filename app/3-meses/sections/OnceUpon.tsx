@@ -1,0 +1,154 @@
+"use client";
+
+import { useRef } from "react";
+import { useT } from "@/lib/useI18n";
+import { gsap, useGSAP } from "../gsap";
+import { SceneTitle, ScaledStage } from "../shared";
+import { Day1Landing, LaunchLanding, NewRoom, OldRoom } from "../mocks";
+
+// Pinned: scrolling plays the first two days of the site in a browser
+// window — "ShareScreen", the rename (and its subtitle), the launch landing
+// with its counter, then the room of day one against the room of today.
+
+export function OnceUponSection() {
+  const t = useT();
+  const ref = useRef<HTMLElement>(null);
+  const compare = useRef<HTMLDivElement>(null);
+
+  const setSplit = (percent: number) => {
+    compare.current?.style.setProperty("--split", `${percent}%`);
+  };
+
+  useGSAP(
+    () => {
+      const move = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const counter = ref.current?.querySelector<HTMLElement>(".ou-count");
+      const count = { n: 0 };
+      const split = { v: 100 };
+      gsap.set([".ou-cap-2", ".ou-cap-3", ".ou-cap-4", ".ou-tab-2", ".ou-tab-3", ".ou-url-2", ".ou-c", ".ou-d"], { autoAlpha: 0 });
+
+      const tl = gsap.timeline({
+        defaults: { ease: "power2.inOut", duration: 0.5 },
+        scrollTrigger: {
+          trigger: ref.current,
+          pin: ".ou-pin",
+          start: "top top",
+          end: "+=340%",
+          scrub: 0.6,
+          anticipatePin: 1,
+        },
+      });
+
+      tl.to({}, { duration: 0.4 })
+        // 18/08 01:13 — the rename
+        .to(".ou-cap-1", { autoAlpha: 0, y: move ? -16 : 0 })
+        .fromTo(".ou-cap-2", { y: move ? 16 : 0 }, { autoAlpha: 1, y: 0 }, "<")
+        .to(".ou-tab-1", { autoAlpha: 0 }, "<")
+        .to(".ou-tab-2", { autoAlpha: 1 }, "<0.15")
+        .to(".ou-url-1", { autoAlpha: 0 }, "<")
+        .to(".ou-url-2", { autoAlpha: 1 }, "<")
+        .to(".ou-old", { autoAlpha: 0, y: move ? -10 : 0 }, "<")
+        .fromTo(".ou-new", { y: move ? 10 : 0 }, { autoAlpha: 1, y: 0 }, "<")
+        .to({}, { duration: 0.5 })
+        // 19/08 — launch landing and its counter
+        .to(".ou-cap-2", { autoAlpha: 0, y: move ? -16 : 0 })
+        .fromTo(".ou-cap-3", { y: move ? 16 : 0 }, { autoAlpha: 1, y: 0 }, "<")
+        .to(".ou-a", { autoAlpha: 0, scale: move ? 0.94 : 1 }, "<")
+        .fromTo(".ou-c", { y: move ? 40 : 0 }, { autoAlpha: 1, y: 0 }, "<0.1")
+        .to(count, {
+          n: 2000,
+          duration: 1,
+          ease: "power1.in",
+          onUpdate: () => {
+            if (counter) counter.textContent = Math.round(count.n).toLocaleString();
+          },
+        })
+        .to({}, { duration: 0.3 })
+        // today
+        .to(".ou-cap-3", { autoAlpha: 0, y: move ? -16 : 0 })
+        .fromTo(".ou-cap-4", { y: move ? 16 : 0 }, { autoAlpha: 1, y: 0 }, "<")
+        .to(".ou-tab-2", { autoAlpha: 0 }, "<")
+        .to(".ou-tab-3", { autoAlpha: 1 }, "<0.15")
+        .to(".ou-c", { autoAlpha: 0, scale: move ? 0.94 : 1 }, "<")
+        .fromTo(".ou-d", { y: move ? 40 : 0 }, { autoAlpha: 1, y: 0 }, "<0.1")
+        .to(split, { v: 12, duration: 1, ease: "power1.inOut", onUpdate: () => setSplit(split.v) })
+        .to(split, { v: 50, duration: 0.6, onUpdate: () => setSplit(split.v) })
+        .to({}, { duration: 0.4 });
+    },
+    { scope: ref }
+  );
+
+  const caption = "absolute inset-x-0 top-0 text-base font-semibold text-white/85 sm:text-lg";
+
+  return (
+    <section ref={ref} data-scene="day1" className="relative">
+      <div className="ou-pin flex min-h-[100svh] flex-col items-center justify-center gap-5 px-4 py-10">
+        <SceneTitle kicker={t("anniversary.day1.kicker")} title={t("anniversary.day1.title")} color="var(--a-sky)" />
+
+        <div className="relative h-14 w-full max-w-2xl text-center sm:h-12">
+          <p className={`ou-cap-1 ${caption}`}>{t("anniversary.day1.c1")}</p>
+          <p className={`ou-cap-2 ${caption}`}>{t("anniversary.day1.c2")}</p>
+          <p className={`ou-cap-3 ${caption}`}>{t("anniversary.day1.c3")}</p>
+          <p className={`ou-cap-4 ${caption}`}>{t("anniversary.day1.c4")}</p>
+        </div>
+
+        {/* Browser window */}
+        <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-white/10 bg-[#202330] shadow-[0_40px_100px_rgba(0,0,0,0.6)] sm:rounded-2xl">
+          <div className="flex items-end gap-2 px-3 pt-2.5">
+            <span className="mb-2 hidden gap-1.5 sm:flex">
+              <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
+              <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
+              <span className="h-3 w-3 rounded-full bg-[#28c840]" />
+            </span>
+            <div className="relative h-8 w-52 rounded-t-lg bg-[#2d3142] px-3 text-[12px] leading-8 text-white/85 sm:ml-3 sm:w-64">
+              <span className="ou-tab-1 absolute inset-x-3 truncate">▲ ShareScreen</span>
+              <span className="ou-tab-2 absolute inset-x-3 truncate">🔴 GoLive: AntiJanja</span>
+              <span className="ou-tab-3 absolute inset-x-3 truncate">🔴 GoLive</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 bg-[#2d3142] px-3 py-2">
+            <span className="hidden text-white/40 sm:inline">← → ⟳</span>
+            <div className="relative h-7 flex-1 rounded-full bg-[#1a1d29] px-4 font-mono text-[11px] leading-7 text-white/60 sm:text-[12px]">
+              <span className="ou-url-1 absolute inset-x-4">localhost:3000</span>
+              <span className="ou-url-2 absolute inset-x-4">🔒 golive.nemtudo.me</span>
+            </div>
+          </div>
+
+          <ScaledStage width={960} height={600}>
+            <div className="ou-a absolute inset-0">
+              <Day1Landing />
+            </div>
+            <div className="ou-c absolute inset-0">
+              <LaunchLanding />
+            </div>
+            <div ref={compare} className="ou-d absolute inset-0" style={{ ["--split" as string]: "100%" }}>
+              <NewRoom />
+              <div className="absolute inset-0" style={{ clipPath: "inset(0 calc(100% - var(--split)) 0 0)" }}>
+                <OldRoom />
+              </div>
+              <div className="pointer-events-none absolute inset-y-0 w-1 -translate-x-1/2 bg-white shadow-[0_0_20px_rgba(0,0,0,0.6)]" style={{ left: "var(--split)" }}>
+                <span className="absolute top-1/2 flex h-16 w-16 -translate-x-[30px] -translate-y-1/2 items-center justify-center rounded-full bg-white text-2xl font-black text-zinc-900 shadow-xl">
+                  ⇆
+                </span>
+              </div>
+              <span className="absolute left-4 top-[74px] rounded-full bg-zinc-900 px-3 py-1 text-sm font-bold text-white">17/08</span>
+              <span className="absolute right-[266px] top-[60px] rounded-full bg-white px-3 py-1 text-sm font-bold text-zinc-900">
+                {t("anniversary.day1.today")}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                defaultValue={100}
+                aria-label={t("anniversary.day1.compare")}
+                onInput={(e) => setSplit(Number(e.currentTarget.value))}
+                className="anniv-range absolute inset-0 h-full w-full cursor-ew-resize opacity-0"
+              />
+            </div>
+          </ScaledStage>
+        </div>
+        <p className="text-xs text-white/40">{t("anniversary.day1.drag")}</p>
+      </div>
+    </section>
+  );
+}
