@@ -153,59 +153,6 @@
   50% { transform: translateY(-6px); opacity: 0.5; }
 }
 
-/* Speech bubble */
-.anniv-bubble {
-  position: relative;
-  background: var(--a-ink, #ece9e2);
-  color: #111215;
-  border-radius: 3px;
-  padding: 7px 11px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.3;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-}
-.anniv-bubble::after {
-  content: "";
-  position: absolute;
-  right: -5px;
-  top: 12px;
-  width: 10px;
-  height: 10px;
-  background: var(--a-ink, #ece9e2);
-  transform: rotate(45deg);
-}
-
-/* Says its line when the scene changes, then gets out of the way. */
-.anniv-bubble-brief {
-  animation: anniv-bubble-brief 5s ease-out both;
-}
-@keyframes anniv-bubble-brief {
-  0% { opacity: 0; transform: translateX(8px); }
-  6%, 82% { opacity: 1; transform: none; }
-  100% { opacity: 0; transform: none; visibility: hidden; }
-}
-
-/* ── Livinho on the move (MascotWalker) ─────────────────────────────────── */
-/* Walking: placed by a transform from the scroll. Otherwise (less motion, or
-   before the script runs) he waits in the top-right corner. */
-.anniv-walker { position: fixed; z-index: 30; pointer-events: none; }
-.anniv-walker:not([data-mode="walk"]) { right: 12px; top: 64px; }
-.anniv-walker[data-mode="walk"] { left: 0; top: 0; will-change: transform; }
-.anniv-walker-body { translate: 0 var(--hop, 0px); rotate: var(--lean, 0deg); transform-origin: 50% 80%; }
-.anniv-walker-say { position: absolute; top: 10px; width: max-content; max-width: 170px; pointer-events: none; }
-.anniv-walker:not([data-say="right"]) .anniv-walker-say { right: calc(100% + 10px); }
-.anniv-walker[data-say="right"] .anniv-walker-say { left: calc(100% + 10px); }
-.anniv-walker[data-say="right"] .anniv-bubble::after { left: -5px; right: auto; }
-@media (min-width: 640px) {
-  .anniv-walker:not([data-mode="walk"]) { right: 20px; }
-  .anniv-walker-say { top: 24px; max-width: 240px; }
-}
-/* His step: each leg lifts, the eyes look where he is going. */
-.anniv-mascot-leg-l { translate: 0 calc(var(--leg-l, 0) * -1px); }
-.anniv-mascot-leg-r { translate: 0 calc(var(--leg-r, 0) * -1px); }
-.anniv-mascot-face { translate: calc(var(--look, 0) * 5px) 0; }
-
 /* ── Glitch (outage, bug wall) ──────────────────────────────────────────── */
 .anniv-glitch { position: relative; display: inline-block; }
 .anniv-glitch::before,
@@ -347,12 +294,5 @@
   .anniv *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-  }
-}
-
-/* With less motion asked for, the mascot's line just stays. */
-@media (prefers-reduced-motion: reduce) {
-  .anniv .anniv-bubble-brief {
-    animation: none !important;
   }
 }

@@ -30,7 +30,7 @@ export function Mascot({ mood, className = "" }: { mood: MascotMood; className?:
       </defs>
 
       <g className="anniv-mascot-bob">
-        {/* Legs (each lifts on its own when he walks: --leg-l / --leg-r, see MascotWalker) */}
+        {/* Legs */}
         <g fill="#312e81">
           <g className="anniv-mascot-leg-l">
             <rect x="38" y="98" width="10" height="18" rx="5" />

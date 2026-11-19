@@ -129,7 +129,6 @@ export function OnceUponSection() {
         {/* Browser window */}
         {/* As wide as the screen allows, and never so tall that the pinned scene spills below it. */}
         <div
-          data-walk="ou-window"
           className="w-full overflow-hidden rounded-lg border border-white/10 bg-[#202330] shadow-[0_30px_80px_rgba(0,0,0,0.55)]"
           style={{ maxWidth: "min(56rem, calc((100svh - 370px) * 1.6 + 2px))" }}
         >

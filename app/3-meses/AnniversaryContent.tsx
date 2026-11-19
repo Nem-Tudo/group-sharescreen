@@ -18,8 +18,6 @@ import {
 } from "@/lib/anniversary";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "./gsap";
 import { Chiptune, type MusicMood } from "./chiptune";
-import { type MascotMood } from "./Mascot";
-import { MascotWalker } from "./MascotWalker";
 import { Confetti } from "./shared";
 import { IntroSection } from "./sections/Intro";
 import { DayZeroSection } from "./sections/DayZero";
@@ -31,29 +29,30 @@ import { RecapSection } from "./sections/Recap";
 import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
 import { BugsSection } from "./sections/Bugs";
+import { TeamSection } from "./sections/Team";
 import { FinaleSection } from "./sections/Finale";
 import { HARD_FIGURES } from "./historyData";
 import "./anniversary.css";
 
-type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "timeline" | "night" | "bugs" | "finale";
+type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "timeline" | "night" | "bugs" | "team" | "finale";
 
-const SCENES: Record<Scene, { mood: MascotMood; music: MusicMood }> = {
-  intro: { mood: "wave", music: "calm" },
-  day0: { mood: "think", music: "calm" },
-  day1: { mood: "love", music: "calm" },
-  first72: { mood: "happy", music: "calm" },
-  outage: { mood: "sweat", music: "tense" },
-  numbers: { mood: "party", music: "party" },
-  recap: { mood: "love", music: "party" },
-  timeline: { mood: "wave", music: "calm" },
-  night: { mood: "sleep", music: "night" },
-  bugs: { mood: "shock", music: "tense" },
-  finale: { mood: "party", music: "party" },
+const SCENES: Record<Scene, { music: MusicMood }> = {
+  intro: { music: "calm" },
+  day0: { music: "calm" },
+  day1: { music: "calm" },
+  first72: { music: "calm" },
+  outage: { music: "tense" },
+  numbers: { music: "party" },
+  recap: { music: "party" },
+  timeline: { music: "calm" },
+  night: { music: "night" },
+  bugs: { music: "tense" },
+  team: { music: "party" },
+  finale: { music: "party" },
 };
 
 const MUSIC_PREF_KEY = "sharescreen:anniversary:music";
 const STATS_POLL_MS = 60_000;
-const EASTER_EGG_CLICKS = 10;
 
 function readMusicPref(): boolean {
   try {
@@ -81,8 +80,6 @@ export function AnniversaryContent() {
   const [failed, setFailed] = useState(false);
   const [chartDays, setChartDays] = useState<number[] | null>(null);
   const [burst, setBurst] = useState(0);
-  const [clicks, setClicks] = useState(0);
-  const [allSquashed, setAllSquashed] = useState(false);
 
   const getMusic = () => (music.current ??= new Chiptune());
 
@@ -294,28 +291,6 @@ export function AnniversaryContent() {
     { scope: root }
   );
 
-  /** A click on Livinho; true from the easter egg on (he spins). */
-  const poke = () => {
-    trackAnniversary(ANNIVERSARY_EVENTS.mascotClick);
-    const next = clicks + 1;
-    setClicks(next);
-    void getMusic().blip(next >= EASTER_EGG_CLICKS ? 96 : 76 + (next % 5) * 2);
-    if (next === EASTER_EGG_CLICKS) {
-      setBurst((b) => b + 1);
-      trackAnniversary(ANNIVERSARY_EVENTS.easterEgg);
-    }
-    return next >= EASTER_EGG_CLICKS;
-  };
-
-  const egg = clicks >= EASTER_EGG_CLICKS;
-  const mood: MascotMood = egg ? "love" : allSquashed && scene === "bugs" ? "party" : SCENES[scene].mood;
-  const speech = egg
-    ? t("anniversary.say.easterEgg")
-    : allSquashed && scene === "bugs"
-      ? t("anniversary.say.bugsFixed")
-      : t(`anniversary.say.${scene}`);
-  const dockVisible = scene !== "intro" && scene !== "finale";
-
   return (
     <div ref={root} className="anniv relative min-h-screen">
       {/* Top bar */}
@@ -365,16 +340,13 @@ export function AnniversaryContent() {
             trackAnniversary(ANNIVERSARY_EVENTS.bugFix);
             if (all) {
               trackAnniversary(ANNIVERSARY_EVENTS.bugsAll);
-              setAllSquashed(true);
               setBurst((b) => b + 1);
             }
           }}
         />
+        <TeamSection />
         <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} />
       </main>
-
-      {/* Livinho, walking along with the scroll */}
-      <MascotWalker mood={mood} speech={speech} speechKey={`${scene}-${egg}-${allSquashed}`} visible={dockVisible} onPoke={poke} />
 
       <Confetti burst={burst} />
     </div>

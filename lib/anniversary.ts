@@ -25,8 +25,6 @@ export const ANNIVERSARY_EVENTS = {
   scrollHalf: "anniv_scroll_half",
   scrollEnd: "anniv_scroll_end",
   musicOn: "anniv_music_on",
-  mascotClick: "anniv_mascot_click",
-  easterEgg: "anniv_easter_egg",
   share: "anniv_share",
   ctaRoom: "anniv_cta_room",
   ctaDiscord: "anniv_cta_discord",
@@ -60,6 +58,7 @@ export const ANNIVERSARY_SCENES = [
   "timeline",
   "night",
   "bugs",
+  "team",
   "finale",
 ] as const;
 

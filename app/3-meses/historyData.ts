@@ -97,6 +97,16 @@ export const HARD_FIGURES = {
   sockets: 14302,
 };
 
+/**
+ * The team ("Nossa equipe"). `photo` is a path under public/ (e.g.
+ * "/aniversario/equipe/nemtudo.jpg"); null shows the initials instead.
+ */
+export const TEAM: { id: string; name: string; handle: string; role: "ceo" | "dev" | "support"; place: string; color: string; photo: string | null }[] = [
+  { id: "nemtudo", name: "Gustavo Felipe", handle: "NemTudo", role: "ceo", place: "Santa Rita do Sapucaí, Minas Gerais", color: "#ff3b2f", photo: null },
+  { id: "commandbat", name: "Tiago", handle: "Commandbat", role: "dev", place: "Guapiaçu, São Paulo", color: "#4c86ff", photo: null },
+  { id: "g4buh", name: "Gabriela", handle: "G4buh", role: "support", place: "Porto, Portugal", color: "#2fbf71", photo: null },
+];
+
 /** The bug wall. `date` is shown as written. */
 export const BUGS: { date: string; key: string; emoji: string; commit?: string }[] = [
   { date: "31/08", key: "electron3x", emoji: "🔁", commit: "fix: electron loading 3 times" },

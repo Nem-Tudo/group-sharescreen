@@ -69,7 +69,7 @@ export function RecapSection() {
       ) : (
         <div className="px-4 py-28 sm:py-36">
           <SceneTitle kicker={t("anniversary.recap.kicker")} title={t("anniversary.recap.title")} color="var(--a-green)" />
-          <div data-walk="recap" className="mx-auto mt-12 flex max-w-md flex-col items-center rounded-lg border border-[var(--a-line)] bg-[var(--a-card)] p-8 text-center">
+          <div className="mx-auto mt-12 flex max-w-md flex-col items-center rounded-lg border border-[var(--a-line)] bg-[var(--a-card)] p-8 text-center">
             <div className="w-28">
               <Mascot mood={failed ? "sweat" : signedIn || loading ? "think" : "wave"} />
             </div>
@@ -518,7 +518,7 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
           </p>
           <h2 className="anniv-display mt-3 text-5xl sm:text-6xl">{t("anniversary.recap.storyTitle")}</h2>
         </div>
-        <div data-walk="recap" className="relative h-[min(74svh,600px)] w-full max-w-[400px]">
+        <div className="relative h-[min(74svh,600px)] w-full max-w-[400px]">
           <div className="absolute inset-x-4 top-3 z-20 flex gap-1.5">
             {slides.map((s) => (
               <span key={s.id} className="h-[3px] flex-1 overflow-hidden bg-white/35">

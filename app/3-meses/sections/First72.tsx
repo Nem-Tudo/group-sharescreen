@@ -42,7 +42,7 @@ export function First72Section() {
       />
 
       <div className="mx-auto mt-12 max-w-6xl">
-      <div data-reveal data-walk="f72-chat" className="max-w-2xl overflow-hidden rounded-lg border border-[var(--a-line)] bg-[#0d1117] shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+      <div data-reveal className="max-w-2xl overflow-hidden rounded-lg border border-[var(--a-line)] bg-[#0d1117] shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
         <div className="flex items-center gap-3 border-b border-white/5 px-5 py-4">
           <span className="text-white/40">#</span>
           <span className="font-bold">{t("anniversary.first72.channel")}</span>

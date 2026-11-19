@@ -72,7 +72,7 @@ export function OutageSection({ peak }: { peak: number }) {
       />
 
       <div className="out-crt-wrap relative mx-auto mt-12 max-w-6xl">
-        <div data-walk="out-crt" className="out-crt relative max-w-2xl rounded-[28px] border-[10px] border-[#1f2230] bg-[#0b0b0b] p-6 shadow-[0_0_120px_rgba(244,63,94,0.25)] sm:p-9">
+        <div className="out-crt relative max-w-2xl rounded-[28px] border-[10px] border-[#1f2230] bg-[#0b0b0b] p-6 shadow-[0_0_120px_rgba(244,63,94,0.25)] sm:p-9">
           <div className="anniv-scanlines rounded-[18px]" />
           <div className="relative space-y-3 font-[family-name:var(--font-geist-sans)] text-lg font-bold leading-snug sm:text-2xl">
             <h3 className="out-line" style={{ color: "#ff2828", fontSize: "1.3em" }}>
@@ -96,7 +96,7 @@ export function OutageSection({ peak }: { peak: number }) {
         <p data-reveal className="anniv-mono mb-4 text-xs uppercase text-white/50">
           {t("anniversary.outage.logTitle")}
         </p>
-        <div data-walk="out-logs" className="space-y-2.5">
+        <div className="space-y-2.5">
           {NIGHT_LOG.map((log) => (
             <div key={log.at} className="out-log flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 font-mono text-[13px] sm:text-sm">
               <span className="shrink-0 text-white/40">{log.at}</span>
