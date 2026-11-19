@@ -13,6 +13,9 @@ import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
 import type { ProSource } from "@/lib/proSourceAttribution";
+import { trackFeatureEvent } from "@/lib/features";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import { AVATAR_FREE_BADGE, AVATAR_FREE_EVENTS } from "@/lib/avatarFree";
 import { ProfileLinksRow } from "@/components/ProfileLinksRow";
 import { ProfileLinksEditor } from "@/components/ProfileLinksEditor";
 import { MAX_PROFILE_LINKS, type ProfileLink } from "@/lib/profileLinks";
@@ -306,10 +309,13 @@ export function PlanLink({
   label,
   className = "",
   source = "profile_lock",
+  onOpen,
 }: {
   tier: PlanTier;
   /** The door the sale is credited to (see lib/proSourceAttribution). */
   source?: ProSource;
+  /** Also told about the click — for a stats event of the caller's own. */
+  onOpen?: () => void;
   /** Overrides the default sentence, for a label that already names the plan. */
   label?: string;
   className?: string;
@@ -330,6 +336,7 @@ export function PlanLink({
       type="button"
       onClick={(e) => {
         e.preventDefault();
+        onOpen?.();
         openPro(source, tier === "proUltra" ? "pro_ultra" : undefined);
       }}
       className={`inline-flex cursor-pointer items-center gap-1 underline underline-offset-2 transition hover:text-zinc-800 dark:hover:text-zinc-200 ${className}`}
@@ -349,6 +356,9 @@ function AvatarRow({
   locked = false,
   lockedHint,
   lockedTier,
+  lockedSource,
+  onLockedOpen,
+  badge,
 }: {
   label: string;
   paths: string[];
@@ -357,17 +367,23 @@ function AvatarRow({
   locked?: boolean;
   lockedHint?: string;
   lockedTier?: "pro" | "proMax";
+  lockedSource?: ProSource;
+  onLockedOpen?: () => void;
+  badge?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
         {label}
+        {badge}
         {locked && lockedHint && (
           <>
             <span aria-hidden>·</span>
             <PlanLink
               tier={lockedTier ?? "pro"}
               label={lockedHint}
+              source={lockedSource}
+              onOpen={onLockedOpen}
               className="text-[11px] text-zinc-500 dark:text-zinc-400"
             />
           </>
@@ -743,6 +759,9 @@ function ProfileContent({
 
   /** A preset: stored as its own path, so no upload is involved. */
   function handlePickPreset(path: string) {
+    // A gallery picture only the avatar-free experiment unlocked: the badge
+    // on that row has done its job.
+    if (avatarOptions?.freeGallery && avatarOptions.gallery.includes(path)) markFeatureUsed(AVATAR_FREE_BADGE);
     setError(null);
     setPreviewAvatar(path);
     setAvatarDataUrl(path);
@@ -751,6 +770,7 @@ function ProfileContent({
   async function handleAvatarPicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (avatarOptions?.freeUpload) markFeatureUsed(AVATAR_FREE_BADGE);
     setError(null);
     if (file.size > AVATAR_IMAGE_MAX_BYTES) {
       setError(t("userProfileCard.theImageMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
@@ -1219,7 +1239,12 @@ function ProfileContent({
           {isEditing && (
             <button
               type="button"
-              onClick={() => setAvatarPickerOpen((open) => !open)}
+              onClick={() => {
+                // Every group: how often people go to change their picture at
+                // all is part of what the avatar-free experiment moves.
+                if (!avatarPickerOpen) trackFeatureEvent(AVATAR_FREE_EVENTS.pickerOpen);
+                setAvatarPickerOpen((open) => !open);
+              }}
               aria-expanded={avatarPickerOpen}
               aria-label={t("userProfileCard.changeProfilePicture")}
               className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/30 text-white transition-colors hover:bg-black/60 focus-visible:bg-black/60"
@@ -1315,6 +1340,9 @@ function ProfileContent({
                       locked={!avatarOptions.canUseGallery}
                       lockedHint={t("userProfileCard.availableOnPro")}
                       lockedTier="pro"
+                      lockedSource="avatar_lock"
+                      onLockedOpen={() => trackFeatureEvent(AVATAR_FREE_EVENTS.lockGallery)}
+                      badge={avatarOptions.freeGallery ? <NewBadge id={AVATAR_FREE_BADGE} /> : null}
                     />
                   </div>
                 )}
@@ -1332,8 +1360,14 @@ function ProfileContent({
                     <MdPhotoCamera className="h-3.5 w-3.5" />
                     {t("userProfileCard.uploadMyImage")}
                   </button>
+                  {avatarOptions.freeUpload && <NewBadge id={AVATAR_FREE_BADGE} />}
                   {!avatarOptions.canUpload && (
-                    <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
+                    <PlanLink
+                      tier="proMax"
+                      source="avatar_lock"
+                      onOpen={() => trackFeatureEvent(AVATAR_FREE_EVENTS.lockUpload)}
+                      className="text-xs text-zinc-500 dark:text-zinc-400"
+                    />
                   )}
                 </div>
 

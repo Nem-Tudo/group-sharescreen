@@ -13,6 +13,7 @@ import { MULTI_SCREEN_LIMITS } from "@/lib/multiScreen";
 import type { PremiumPlan } from "@/lib/premiumApi";
 import { PUBLISHED_THEME_LIMITS } from "@/lib/roomThemes";
 import { CALL_TRANSCRIPT_FREE_FEATURE } from "@/lib/useCallTranscript";
+import { useAvatarFree } from "@/lib/avatarFree";
 import { LIVE_TRANSLATION_FREE_FEATURE } from "@/lib/useLiveTranslation";
 
 // What each plan gives, in words — shared by the /pro page (which sells it)
@@ -83,6 +84,9 @@ export type PerkGates = {
   emoji: boolean;
   transcriptFree: boolean;
   translationFree: boolean;
+  /** Avatars the avatar-free experiment already gives this person. */
+  avatarGalleryFree: boolean;
+  avatarUploadFree: boolean;
   effectsPublish: boolean;
   effectsOnOthers: boolean;
 };
@@ -96,9 +100,21 @@ export function usePerkGates(): PerkGates {
   const custom = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
   const effectsOnOthers = useFeature(CAMERA_OTHERS_FEATURE, { track: false }).enabled;
   const effectsPublish = workshop && custom;
+  const avatarFree = useAvatarFree();
+  const avatarGalleryFree = avatarFree.gallery;
+  const avatarUploadFree = avatarFree.upload;
   return useMemo(
-    () => ({ aura, emoji, transcriptFree, translationFree, effectsPublish, effectsOnOthers }),
-    [aura, emoji, transcriptFree, translationFree, effectsPublish, effectsOnOthers]
+    () => ({
+      aura,
+      emoji,
+      transcriptFree,
+      translationFree,
+      avatarGalleryFree,
+      avatarUploadFree,
+      effectsPublish,
+      effectsOnOthers,
+    }),
+    [aura, emoji, transcriptFree, translationFree, avatarGalleryFree, avatarUploadFree, effectsPublish, effectsOnOthers]
   );
 }
 
@@ -220,6 +236,8 @@ export function perksOf(plan: PremiumPlan | null, gates: PerkGates): Map<string,
     if (!plan.features.includes(feature)) continue;
     if (feature === "call_transcript" && gates.transcriptFree) continue;
     if (feature === "live_translation" && gates.translationFree) continue;
+    if (feature === "avatar_gallery" && gates.avatarGalleryFree) continue;
+    if (feature === "avatar_upload" && gates.avatarUploadFree) continue;
     if (feature === "camera_effect_publish" && !gates.effectsPublish) continue;
     if (feature === "camera_effect_others" && !gates.effectsOnOthers) continue;
     // "Até 4K" already says 2K.

@@ -564,6 +564,12 @@ export type AvatarOptions = {
   gallery: string[];
   canUseGallery: boolean;
   canUpload: boolean;
+  /**
+   * Unlocked by the avatar-free experiment rather than by a plan (decided by
+   * the API — see lib/avatarFree.ts). Absent from an older API.
+   */
+  freeGallery?: boolean;
+  freeUpload?: boolean;
 };
 
 export async function fetchAvatarOptions(): Promise<AvatarOptions> {
