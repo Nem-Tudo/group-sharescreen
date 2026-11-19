@@ -90,7 +90,8 @@ import { AnnotateButton, AnnotationLayer } from "@/components/roomTools/Annotati
 import { annotatedVideoDrawer, openCanvasPip } from "@/components/roomTools/canvasPip";
 import { useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
 import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
-import { useFeature } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { CONNECTING_TILE_EVENTS, CONNECTING_TILE_FEATURE, CONNECTING_TILE_SLOW_MS } from "@/lib/connectingTile";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 
 function noopSubscribe() {
@@ -1992,6 +1993,54 @@ export function ResumingPeerTile({ fill = false }: { fill?: boolean }) {
   return (
     <PlaceholderTile fill={fill}>
       <p className="text-sm text-zinc-400">{t("videoTile.resuming")}</p>
+    </PlaceholderTile>
+  );
+}
+
+// A transmission that is on (the room's peer list says so) with nothing
+// arriving from it here yet: a first connection still being set up, or a
+// failed one waiting for the broadcaster's next attempt. See lib/connectingTile
+// for why this exists instead of no tile at all.
+export function ConnectingPeerTile({
+  label,
+  fill = false,
+  onRetry,
+}: {
+  label: ReactNode;
+  fill?: boolean;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSlow(true);
+      trackFeatureEvent(CONNECTING_TILE_EVENTS.slow, { feature: CONNECTING_TILE_FEATURE });
+    }, CONNECTING_TILE_SLOW_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <PlaceholderTile fill={fill}>
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
+      <div className="flex flex-col items-center justify-center text-center text-sm">
+        <p className="text-zinc-300">{t("videoTile.connectingToBroadcast")}</p>
+        <div className="mt-0.5 flex items-center justify-center text-center text-zinc-500">{label}</div>
+      </div>
+      {slow && (
+        <>
+          <p className="max-w-sm text-xs text-zinc-400">{t("videoTile.connectingSlow")}</p>
+          <button
+            type="button"
+            onClick={() => {
+              trackFeatureEvent(CONNECTING_TILE_EVENTS.retry, { feature: CONNECTING_TILE_FEATURE });
+              onRetry();
+            }}
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/20"
+          >
+            {t("common.tryAgain")}
+          </button>
+        </>
+      )}
     </PlaceholderTile>
   );
 }

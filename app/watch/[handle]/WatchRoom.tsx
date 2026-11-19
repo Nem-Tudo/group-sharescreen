@@ -133,7 +133,14 @@ import {
   SoundEffectsToggle,
 } from "@/components/SitePreferenceToggles";
 import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE, useSettingsCallSlot } from "@/lib/settingsHub";
-import { VideoTile, StoppedPeerTile, ResumingPeerTile, IOSScreenSelfTile } from "@/components/VideoTile";
+import {
+  VideoTile,
+  StoppedPeerTile,
+  ResumingPeerTile,
+  ConnectingPeerTile,
+  IOSScreenSelfTile,
+} from "@/components/VideoTile";
+import { CONNECTING_TILE_FEATURE } from "@/lib/connectingTile";
 import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
@@ -4501,6 +4508,35 @@ function WatchRoomView({
     () => state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)),
     [state.peers]
   );
+  // Experiment "connecting-peer-tile" (see lib/connectingTile): who is
+  // transmitting with nothing of it arriving here, and not because we chose
+  // so (stopped) or are already waiting on a resume. Only an explicit `true`
+  // for the channel counts — a client too old to report the breakdown sends
+  // null, and guessing "screen" for it would park a "Conectando…" tile under
+  // somebody sharing only a camera, for good.
+  const connectingScreenPeers = tilePeers.filter(
+    (p) =>
+      p.id !== state.selfId &&
+      p.sharing &&
+      p.screen === true &&
+      !(p.id in remoteStreams) &&
+      !stoppedPeers.has(p.id) &&
+      !resumingPeers.has(p.id)
+  );
+  const connectingCameraPeers = tilePeers.filter(
+    (p) =>
+      p.id !== state.selfId &&
+      p.sharing &&
+      p.camera === true &&
+      !(p.id in remoteCameraStreams) &&
+      !stoppedCameraPeers.has(p.id) &&
+      !resumingCameraPeers.has(p.id)
+  );
+  // Counted for both sides the moment there is somebody to show the tile for —
+  // which is exactly when the other side shows nothing.
+  const connectingTileOn = useFeature(CONNECTING_TILE_FEATURE, {
+    track: connectingScreenPeers.length + connectingCameraPeers.length > 0,
+  }).enabled;
   const visiblePeers = useMemo(
     () => tilePeers.filter((p) => !isAttachedScreenCompanion(p, presentPeerIds)),
     [tilePeers, presentPeerIds]
@@ -6726,6 +6762,24 @@ function WatchRoomView({
     });
   }
 
+  // On, and nothing of it here: see lib/connectingTile. Under the same id the
+  // real tile takes, so a focus on it survives the gap. Left out while
+  // hyperfocused, like the other placeholders.
+  if (connectingTileOn && !activeHyperfocusId) {
+    for (const peer of connectingScreenPeers) {
+      tiles.push({
+        id: tileId("screen", peer.id),
+        render: (fill) => (
+          <ConnectingPeerTile
+            label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+            fill={fill}
+            onRetry={() => resumeWatchingPeer(peer.id)}
+          />
+        ),
+      });
+    }
+  }
+
   for (const peer of visibleStoppedCamera2Entries) {
     tiles.push({
       id: tileId("camera2", peer.id),
@@ -6804,6 +6858,21 @@ function WatchRoomView({
       id: tileId("camera", peer.id),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
+  }
+
+  if (connectingTileOn && !activeHyperfocusId) {
+    for (const peer of connectingCameraPeers) {
+      tiles.push({
+        id: tileId("camera", peer.id),
+        render: (fill) => (
+          <ConnectingPeerTile
+            label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+            fill={fill}
+            onRetry={() => resumeWatchingCameraPeer(peer.id)}
+          />
+        ),
+      });
+    }
   }
 
   for (const [slot, peer] of visibleStoppedFileEntries) {

@@ -3623,6 +3623,8 @@
   "videoTile.resetTheZoom": "Reset the zoom",
   "videoTile.resumeBroadcast": "Resume broadcast",
   "videoTile.resuming": "Resuming...",
+  "videoTile.connectingToBroadcast": "Connecting to the broadcast…",
+  "videoTile.connectingSlow": "This is taking a while. It is almost always one of your networks (the provider, a firewall, a work or school network) blocking the direct connection. We keep trying.",
   "videoTile.stopWatching": "Stop watching",
   "videoTile.showChat": "Show chat",
   "videoTile.hideChat": "Hide chat",
