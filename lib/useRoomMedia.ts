@@ -521,6 +521,14 @@ const STAGGER_MS = 150;
 // left while this client was disconnected still disappears promptly.
 const PEER_PRUNE_GRACE_MS = 5000;
 
+// How long after a "peer-left" a peer we were watching is still asked for its
+// stream back when it reappears (see departedWhileWatching). Covers a sender
+// whose socket was down longer than the server's departure hold
+// (PEER_LEFT_GRACE_MS, 8 s) and then reconnected, with room for a slow
+// reconnect backoff. Past this, a return is treated like any new arrival:
+// the sender opens its connections on its own.
+const REJOIN_RESUME_WINDOW_MS = 120_000;
+
 // If a sendPC hasn't reached "connected" within this long, treat it as dead
 // and retry — see openSendPC's doc comment on why this exists *in addition
 // to* the connectionState === "failed" handler below it: a silently-dropped
@@ -1132,6 +1140,15 @@ function useBroadcastChannel(
   // own comment for why an immediate prune is wrong right after a signaling
   // server restart.
   const pendingPruneTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Peers we were receiving from on this channel when a "peer-left" arrived
+  // for them, with when it arrived. A sender whose socket stays down past the
+  // server's departure hold is announced as gone, so we close our connection
+  // — but its own connection to us never heard about that and still looks
+  // fine to it, so when it reconnects it has no reason to send a new offer,
+  // and nothing on our side ever asked. The tile stayed empty until the
+  // viewer left and rejoined the room. When such a peer reappears, the
+  // subscriber below asks it for a fresh connection ("resume").
+  const departedWhileWatching = useRef<Map<string, number>>(new Map());
   // Mirrors the forceRelayIce prop for callbacks below that must read the
   // live value without becoming a dependency of every connection-opening
   // useCallback — same pattern as videoQualityRef.
@@ -2384,6 +2401,7 @@ function useBroadcastChannel(
     const unsubscribeSignal = signalingClient.onSignal((from, rawData) => {
       const data = rawData as SignalData;
       if (data.kind === "peer-left") {
+        if (recvPCs.current.has(from)) departedWhileWatching.current.set(from, Date.now());
         closeSendPC(from);
         closeRecvPCFully(from);
         viewerPausedPeers.current.delete(from);
@@ -2605,6 +2623,28 @@ function useBroadcastChannel(
       // the array and still gets through, which is correct and cheap —
       // openSendPCsStaggered's own pendingStaggeredPeers dedup absorbs the
       // repeat for peers already waiting on a first attempt.
+      //
+      // Viewer side first, since it runs whether or not we broadcast: a peer
+      // we were watching when its "peer-left" came is back (see
+      // departedWhileWatching). "resume" rather than "reconnect-request",
+      // because the latter tries an ICE restart first, and a restart offer
+      // cannot rebuild the connection we already closed. Marked decided so
+      // the autoJoin gate lets the fresh offer through: closeRecvPCFully
+      // forgot the decision, and this is the same share continuing.
+      const departed = departedWhileWatching.current;
+      if (departed.size > 0) {
+        const now = Date.now();
+        const present = new Set(signalingClient.state.peers.map((p) => p.id));
+        for (const [peerId, leftAt] of departed) {
+          if (now - leftAt > REJOIN_RESUME_WINDOW_MS) {
+            departed.delete(peerId);
+          } else if (present.has(peerId)) {
+            departed.delete(peerId);
+            autoJoinDecidedRef.current.add(peerId);
+            signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "resume" });
+          }
+        }
+      }
       if (!activeRef.current) return;
       const peers = signalingClient.state.peers;
       if (peers === lastScannedPeers.current) return;
