@@ -125,6 +125,13 @@ import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
+import {
+  OWN_AUDIO_FILTER_FEATURE,
+  ownAudioConstraints,
+  reportShareAudio,
+  reportShareAudioRefused,
+  setOwnAudioFilterEnabled,
+} from "./ownAudioFilter";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { isClassicSend, NEW_SEND_FEATURE, setClassicSend } from "./classicSend";
 import { H264_SEND_FEATURE, setH264Send } from "./h264Send";
@@ -3190,6 +3197,12 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setStereoAudioEnabled(stereoAudioFeature.enabled);
   }, [stereoAudioFeature.enabled]);
+  // Experiment "share-own-audio-filter" (see lib/ownAudioFilter): read when
+  // a screen share asks for system audio; exposure counted while sharing.
+  const ownAudioFilterFeature = useFeature(OWN_AUDIO_FILTER_FEATURE, { track: false });
+  useEffect(() => {
+    setOwnAudioFilterEnabled(ownAudioFilterFeature.enabled);
+  }, [ownAudioFilterFeature.enabled]);
 
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
@@ -3604,6 +3617,9 @@ export function useRoomMedia(room: string) {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
+        // Experiment "share-own-audio-filter": leave the room's own voices
+        // out of the system audio (see lib/ownAudioFilter.ts).
+        ...ownAudioConstraints(),
       };
       // In the desktop app on Windows 11, the system audio comes from
       // somewhere else entirely: a native helper capturing the mix with
@@ -3625,6 +3641,9 @@ export function useRoomMedia(room: string) {
       // apart, so a share that failed for this reason says so instead of
       // looking like nothing happened at all.
       const activationLost = !hasUserActivation();
+      // Set when the request with system audio was refused and retried
+      // without it, so that share is not also counted as one that asked.
+      let audioRetried = false;
       const capture = navigator.mediaDevices
         .getDisplayMedia({
           video: displayConstraints,
@@ -3655,6 +3674,8 @@ export function useRoomMedia(room: string) {
           // second time, since every getDisplayMedia is a new pick.
           if (isVideoSourceFailure(err)) throw windowCaptureBlocked();
           if (err instanceof DOMException && err.name === "NotReadableError") {
+            if (!excluded) reportShareAudioRefused();
+            audioRetried = true;
             return (async () => {
               // In the desktop app the retry would otherwise open the picker
               // again, for a choice the person made a second ago. The shell
@@ -3680,7 +3701,14 @@ export function useRoomMedia(room: string) {
           throw err;
         });
 
-      if (!excluded) return guardFirstFrame(await withNativeVideo(await capture));
+      if (!excluded) {
+        const stream = await capture;
+        // A refused request was retried video-only and already reported as
+        // such; this is the share that asked for system audio and got an
+        // answer (see lib/ownAudioFilter.ts).
+        if (!audioRetried) reportShareAudio(stream);
+        return guardFirstFrame(await withNativeVideo(stream));
+      }
 
       // The picker is still open at this point, and it is the one place the
       // share can still be called off. A cancelled picker rejects here, and
@@ -4687,6 +4715,7 @@ export function useRoomMedia(room: string) {
   useFeature(NEW_SEND_FEATURE, { track: screen.active });
   useFeature(H264_SEND_FEATURE, { track: screen.active });
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
+  useFeature(OWN_AUDIO_FILTER_FEATURE, { track: screen.active });
   useFeature(AV1_HW_ONLY_FEATURE, { track: Object.keys(screen.remoteStreams).length > 0 });
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture
