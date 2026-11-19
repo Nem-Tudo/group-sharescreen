@@ -873,7 +873,7 @@ function QualityControls({
               <span className="font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
                 {meshCapacity.availableOutgoingKbps > 0
                   ? t("watch.watchRoom.valueMbps", { value: (meshCapacity.availableOutgoingKbps / 1000).toFixed(1) })
-                  : "medindo…"}
+                  : t("watch.watchRoom.measuring")}
               </span>
             </div>
             <div className="flex justify-between gap-2">
