@@ -235,6 +235,19 @@ export function classifyRoute(localType: CandidateType, remoteType: CandidateTyp
   return "direct";
 }
 
+/**
+ * How long a connection may go without a working candidate pair before the
+ * stats panels say it is not getting through, instead of "Conectando…" next
+ * to "Nenhum problema detectado" — which is what a stuck ICE used to look
+ * like there, 0 fps and all. Well past an ordinary negotiation.
+ */
+export const NOT_CONNECTED_MS = 10_000;
+
+/** ICE has a working path (whatever its kind). */
+export function iceIsUp(state: RTCIceConnectionState | null | undefined): boolean {
+  return state === "connected" || state === "completed";
+}
+
 export function isRelayed(kind: RouteKind): boolean {
   return kind === "relay-local" || kind === "relay-remote" || kind === "relay-both";
 }

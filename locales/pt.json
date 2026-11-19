@@ -1669,6 +1669,8 @@
   "connectionStats.limitedByCpu": "limitado pelo processador {value}% do tempo",
   "connectionStats.lossDropsFreezes": "perda {loss}% · descartados {dropped}% · travadas {freezes}",
   "connectionStats.noCauses": "Nenhum problema detectado agora.",
+  "connectionStats.notConnected": "A conexão entre vocês não está fechando. Quase sempre é a rede de um dos dois (operadora com CGNAT, firewall, rede de empresa ou faculdade) bloqueando a conexão direta.",
+  "connectionStats.notConnectedRelay": "Nem pelos nossos servidores deu para ligar vocês. Toque em \"Copiar\" e mande para o suporte.",
   "connectionStats.noViewers": "Ninguém recebendo sua transmissão agora.",
   "connectionStats.viewerNotLooking": "Não está olhando: nada sendo enviado agora",
   "connectionStats.open": "Estatísticas da conexão",

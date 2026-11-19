@@ -1669,6 +1669,8 @@
   "connectionStats.limitedByCpu": "limited by the processor {value}% of the time",
   "connectionStats.lossDropsFreezes": "loss {loss}% · dropped {dropped}% · freezes {freezes}",
   "connectionStats.noCauses": "No problems detected right now.",
+  "connectionStats.notConnected": "The connection between you is not getting through. It is almost always one of your networks (carrier-grade NAT, a firewall, a work or school network) blocking the direct connection.",
+  "connectionStats.notConnectedRelay": "Not even our servers could connect you. Press \"Copy\" and send it to support.",
   "connectionStats.noViewers": "Nobody is receiving your broadcast right now.",
   "connectionStats.viewerNotLooking": "Not looking: nothing being sent right now",
   "connectionStats.open": "Connection stats",

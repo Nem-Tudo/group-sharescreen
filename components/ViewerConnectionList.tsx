@@ -105,7 +105,11 @@ export function ViewerConnectionList() {
                 {row.channel !== "screen" && <span className="text-zinc-500"> · {row.channel}</span>}
                 <span className={isRelayed(route.kind) ? "text-amber-600 dark:text-amber-500" : ""}>
                   {" · "}
-                  {isRelayed(route.kind) ? "TURN" : t("connectionStats.routeDirect")}
+                  {isRelayed(route.kind)
+                    ? "TURN"
+                    : route.kind === "unknown"
+                      ? t("connectionStats.routeUnknown")
+                      : t("connectionStats.routeDirect")}
                   {/* Only our own side is knowable from here (see
                       ConnectionStatsOverlay) — a viewer's relay is theirs. */}
                   {provider && ` · ${t(provider === "cloudflare" ? "connectionStats.turnCloudflare" : "connectionStats.turnOwn")}`}
