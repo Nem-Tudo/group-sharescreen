@@ -25,7 +25,7 @@ export function RoleChip({
   return (
     <span
       className={`flex shrink-0 items-center gap-1 rounded-full border border-zinc-200 font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300 ${
-        md ? "max-w-52 py-1 pl-2 pr-2.5 text-xs" : "max-w-40 py-0.5 pl-1.5 pr-2 text-[11px]"
+        md ? "max-w-52 bg-zinc-950/[0.03] py-1 pl-2 pr-2.5 text-xs dark:bg-white/[0.05]" : "max-w-40 py-0.5 pl-1.5 pr-2 text-[11px]"
       }`}
     >
       {onRemove ? (

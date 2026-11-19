@@ -1,7 +1,7 @@
 "use client";
 
 import { errorText } from "@/lib/errorText";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
 import { MicIcon, ScreenIcon } from "@/components/icons";
@@ -403,9 +403,20 @@ export function UserProfileCard({
   id,
   onNavigate,
   autoPlaySong = false,
+  sections,
 }: {
   id: string;
   onNavigate?: () => void;
+  /**
+   * More about this person, drawn inside the card under its footer (the
+   * profile's comments, a group's roles for them) rather than as cards of
+   * their own under it. As separate cards they read as something else that
+   * happened to be below — a different surface from a themed profile, with
+   * its own border and gap. In here they share the card's colours, and each
+   * one gets a divider above it. A section that renders nothing gets no
+   * divider either (the rule is on the children, not the wrapper).
+   */
+  sections?: ReactNode;
   /**
    * Whether the profile song starts on its own. True only from the /user page
    * — in the room's popup somebody is checking who a name belongs to, and
@@ -457,6 +468,7 @@ export function UserProfileCard({
       onNavigate={onNavigate}
       onProfileUpdated={setProfile}
       autoPlaySong={autoPlaySong}
+      sections={sections}
     />
   );
 }
@@ -549,7 +561,9 @@ function ProfileContent({
   onNavigate,
   onProfileUpdated,
   autoPlaySong = false,
+  sections,
 }: {
+  sections?: ReactNode;
   profile: UserProfile;
   onNavigate?: () => void;
   onProfileUpdated?: (updated: UserProfile) => void;
@@ -2011,6 +2025,23 @@ function ProfileContent({
               </button>
             </div>
           </form>
+        )}
+
+        {/* Hidden while editing: the form above is the card's whole job then. */}
+        {sections && !isEditing && (
+          <div
+            // `data-scheme` makes every `dark:` class inside follow the
+            // profile's own background rather than the site's (see the dark
+            // variant in globals.css): a light gradient on a dark site would
+            // otherwise get white comment text.
+            data-scheme={theme ? (theme.dark ? "dark" : "light") : undefined}
+            className={`flex flex-col [&>*]:mt-5 [&>*]:border-t [&>*]:pt-5 ${
+              theme ? "[&>*]:border-[var(--profile-border)]" : "[&>*]:border-zinc-200 dark:[&>*]:border-zinc-800"
+            }`}
+            style={theme ? ({ "--profile-border": theme.border } as React.CSSProperties) : undefined}
+          >
+            {sections}
+          </div>
         )}
       </div>
     </div>

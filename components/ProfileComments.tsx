@@ -120,8 +120,14 @@ function sameProfile(account: { id: string; username: string } | null, profileId
 export function ProfileComments({
   profileId,
   compact = false,
+  embedded = false,
   className = "",
 }: {
+  /**
+   * Drawn as a section of the profile card (UserProfileCard's `sections`),
+   * which supplies the divider and the background — so no card of its own.
+   */
+  embedded?: boolean;
   /** The profile's account id or username — whatever /user/[id] was opened with. */
   profileId: string;
   /** The room's popup: the newest few, expanding in place. */
@@ -336,14 +342,14 @@ export function ProfileComments({
       ref={sectionRef}
       id={compact ? undefined : "comments"}
       aria-label={t("profileComments.title")}
-      className={`${CARD} scroll-mt-4 p-4 sm:p-5 ${className}`}
+      className={`${embedded ? "" : `${CARD} p-4 sm:p-5`} scroll-mt-4 ${className}`}
     >
       <div className="flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           <MdChatBubbleOutline className="h-4 w-4 text-zinc-500" />
           {t("profileComments.title")}
           {enabled && total > 0 && (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+            <span className="rounded-full bg-zinc-950/[0.06] px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-white/10 dark:text-zinc-400">
               {total}
             </span>
           )}
@@ -381,7 +387,7 @@ export function ProfileComments({
               onClick={() => setSettingsOpen((open) => !open)}
               aria-label={t("profileComments.settings")}
               aria-expanded={settingsOpen}
-              className="flex cursor-pointer rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+              className="flex cursor-pointer rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-950/[0.06] hover:text-zinc-800 dark:hover:bg-white/10 dark:hover:text-zinc-200"
             >
               <MdSettings className="h-4 w-4" />
             </button>
@@ -465,7 +471,7 @@ export function ProfileComments({
           type="button"
           onClick={() => void showMore()}
           disabled={loadingMore}
-          className="mt-4 w-full cursor-pointer rounded-lg border border-zinc-200 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+          className="mt-4 w-full cursor-pointer rounded-lg border border-zinc-950/10 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-950/[0.04] disabled:opacity-60 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/[0.06]"
         >
           {loadingMore
             ? t("common.loading")
@@ -555,7 +561,7 @@ function Composer({
 
   return (
     <div className="mt-3">
-      <div className="rounded-xl border border-zinc-300 bg-white transition focus-within:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="rounded-xl border border-zinc-950/15 bg-zinc-950/[0.03] transition focus-within:border-zinc-950/40 dark:border-white/15 dark:bg-white/[0.04] dark:focus-within:border-white/35">
         <textarea
           ref={textareaRef}
           value={text}
@@ -586,7 +592,7 @@ function Composer({
             </div>
           </div>
         )}
-        <div className="flex items-center gap-1 border-t border-zinc-200 px-1.5 py-1 dark:border-zinc-800">
+        <div className="flex items-center gap-1 border-t border-zinc-950/10 px-1.5 py-1 dark:border-white/10">
           <Popover
             open={gifOpen}
             onClose={() => setGifOpen(false)}
@@ -601,7 +607,7 @@ function Composer({
                 setGifOpen(!gifOpen);
               }}
               aria-label={t("chatPanel.addGif")}
-              className="inline-flex h-8 cursor-pointer items-center justify-center rounded-lg px-2 text-xs font-bold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className="inline-flex h-8 cursor-pointer items-center justify-center rounded-lg px-2 text-xs font-bold text-zinc-500 transition hover:bg-zinc-950/[0.06] hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
             >
               GIF
             </button>
@@ -609,7 +615,7 @@ function Composer({
           <EmojiPickerButton
             onPick={insertEmoji}
             iconSize={18}
-            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-950/[0.06] dark:hover:bg-white/10"
           />
           <span className="ml-auto" />
           {nearLimit && (
@@ -732,7 +738,7 @@ function CommentItem({
                 }}
                 aria-label={t("profileComments.react")}
                 aria-expanded={pickerOpen}
-                className={`flex shrink-0 cursor-pointer rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/comment:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200 ${
+                className={`flex shrink-0 cursor-pointer rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-950/[0.06] hover:text-zinc-700 group-hover/comment:opacity-100 dark:hover:bg-white/10 dark:hover:text-zinc-200 ${
                   pickerOpen ? "opacity-100" : "opacity-60"
                 }`}
               >
@@ -783,7 +789,7 @@ function CommentItem({
                 aria-expanded={menuOpen}
                 // Dimmed until the row is hovered, never hidden: a control that
                 // only exists on hover cannot be found on a phone.
-                className="-mr-1 flex shrink-0 cursor-pointer rounded-lg p-1 text-zinc-400 opacity-60 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/comment:opacity-100 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+                className="-mr-1 flex shrink-0 cursor-pointer rounded-lg p-1 text-zinc-400 opacity-60 transition hover:bg-zinc-950/[0.06] hover:text-zinc-700 group-hover/comment:opacity-100 dark:hover:bg-white/10 dark:hover:text-zinc-200"
               >
                 <MdMoreHoriz className="h-4 w-4" />
               </button>
@@ -827,7 +833,7 @@ function CommentItem({
                   } ${
                     reaction.me
                       ? "border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
-                      : `border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 ${
+                      : `border-zinc-950/10 bg-zinc-950/[0.03] text-zinc-600 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 ${
                           clickable ? "hover:border-zinc-400 dark:hover:border-zinc-600" : ""
                         }`
                   }`}

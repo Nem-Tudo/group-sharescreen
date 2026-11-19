@@ -132,14 +132,31 @@ export function UserProfileDialog({
         </div>
 
         {guest ? (
-          <GuestProfileCard name={guest.name} avatarUrl={guest.avatarUrl} />
+          <>
+            <GuestProfileCard name={guest.name} avatarUrl={guest.avatarUrl} />
+            {/* A guest's card has no sections slot, so what the caller adds
+                still gets a card of its own here. */}
+            {extra && (
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                {extra}
+              </div>
+            )}
+          </>
         ) : (
-          <UserProfileCard id={userId} onNavigate={onClose} />
+          <UserProfileCard
+            id={userId}
+            onNavigate={onClose}
+            // Inside the card, not under it (see `sections` there).
+            // Experiment profile-comments — the newest few, expanding in
+            // place (see ProfileComments).
+            sections={
+              <>
+                {extra}
+                <ProfileComments profileId={userId} compact embedded />
+              </>
+            }
+          />
         )}
-        {extra}
-        {/* Experiment profile-comments — the newest few, expanding in place
-            (see ProfileComments). Nothing for a guest, who has no profile. */}
-        {!guest && <ProfileComments profileId={userId} compact className="mt-3" />}
 
       </div>
       </div>
