@@ -1476,6 +1476,7 @@
   "common.nobodyFoundWithThatName": "No se encontró a nadie con ese nombre.",
   "common.noCategory": "Sin categoría",
   "common.noConnectionToTheServer": "Sin conexión con el servidor.",
+  "common.serverUnreachable": "No se pudo conectar con el servidor. Revisa tu internet (una VPN, un antivirus o un firewall pueden bloquearlo) e inténtalo de nuevo.",
   "common.noLimit": "Sin límite",
   "common.noRequestsWaitingForYou": "No tienes solicitudes pendientes.",
   "common.notForSale": "— fuera de venta",

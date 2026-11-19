@@ -1,5 +1,6 @@
 "use client";
 
+import { errorText } from "@/lib/errorText";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -81,7 +82,7 @@ export function LoginForm({
       trackEvent("account_login");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t("common.invalidUsernameOrPassword"));
+      setFormError(errorText(err, t("common.invalidUsernameOrPassword")));
     } finally {
       setSubmitting(false);
     }

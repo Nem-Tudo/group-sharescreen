@@ -1,5 +1,6 @@
 "use client";
 
+import { errorText } from "@/lib/errorText";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -82,7 +83,7 @@ export function ForgotPasswordForm({
       setStep("code");
       setResendIn(60);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t("email.couldNotSend"));
+      setFormError(errorText(err, t("email.couldNotSend")));
     } finally {
       setSubmitting(false);
     }
@@ -100,7 +101,7 @@ export function ForgotPasswordForm({
       trackEvent("password_reset_completed");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t("email.wrongCode"));
+      setFormError(errorText(err, t("email.wrongCode")));
     } finally {
       setSubmitting(false);
     }

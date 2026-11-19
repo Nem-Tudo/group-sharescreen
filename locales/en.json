@@ -1476,6 +1476,7 @@
   "common.nobodyFoundWithThatName": "Nobody found with that name.",
   "common.noCategory": "No category",
   "common.noConnectionToTheServer": "No connection to the server.",
+  "common.serverUnreachable": "Couldn't reach the server. Check your internet (a VPN, antivirus or firewall may be blocking it) and try again.",
   "common.noLimit": "No limit",
   "common.noRequestsWaitingForYou": "No requests waiting for you.",
   "common.notForSale": "— not for sale",

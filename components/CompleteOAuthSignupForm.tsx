@@ -1,5 +1,6 @@
 "use client";
 
+import { errorText } from "@/lib/errorText";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -98,7 +99,7 @@ export function CompleteOAuthSignupForm({
       // The realistic failure is the name being taken — the ticket is still
       // good, so the user just picks another one right here instead of
       // starting the whole provider flow over.
-      setFormError(err instanceof Error ? err.message : t("common.couldNotCreateTheAccount"));
+      setFormError(errorText(err, t("common.couldNotCreateTheAccount")));
     } finally {
       setSubmitting(false);
     }
@@ -115,7 +116,7 @@ export function CompleteOAuthSignupForm({
       trackEvent("account_login_oauth_linked");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t("common.invalidUsernameOrPassword"));
+      setFormError(errorText(err, t("common.invalidUsernameOrPassword")));
     } finally {
       setSubmitting(false);
     }

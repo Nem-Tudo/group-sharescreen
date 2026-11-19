@@ -1,5 +1,6 @@
 "use client";
 
+import { errorText } from "@/lib/errorText";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
@@ -923,7 +924,7 @@ function ProfileContent({
 
       setIsEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("userProfileCard.couldNotSaveTheChanges"));
+      setError(errorText(err, t("userProfileCard.couldNotSaveTheChanges")));
     } finally {
       setSaving(false);
     }
