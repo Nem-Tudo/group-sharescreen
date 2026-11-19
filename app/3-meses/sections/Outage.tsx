@@ -13,7 +13,7 @@ const NIGHT_LOG = [
   { at: "00:14", msg: "is back again (vou fazer uma API pra isso relaxa)", color: "#34d399" },
 ];
 
-export function OutageSection() {
+export function OutageSection({ peak }: { peak: number }) {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const fmt = useNumberFormat();
@@ -110,7 +110,7 @@ export function OutageSection() {
         <p data-reveal className="mt-10 text-center text-lg leading-relaxed text-white/75">
           {t("anniversary.outage.moral", {
             people: fmt(HARD_FIGURES.reconnecting),
-            sockets: fmt(HARD_FIGURES.sockets),
+            sockets: fmt(peak),
           })}
         </p>
       </div>

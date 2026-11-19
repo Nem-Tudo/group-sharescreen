@@ -44,9 +44,9 @@ const DEVICE_LABEL: Record<string, string> = {
 };
 
 const TIER_LABEL: Record<string, string> = {
-  premium: "💎 GoLive Pro",
-  premium_max: "👑 GoLive Pro Max",
-  pro_ultra: "🚀 GoLive Pro Ultra",
+  premium: "💎 Go Live Pro",
+  premium_max: "👑 Go Live Pro Max",
+  pro_ultra: "🚀 Go Live Pro Ultra",
 };
 
 export function RecapSection() {

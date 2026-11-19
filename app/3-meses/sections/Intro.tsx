@@ -20,7 +20,7 @@ const STICKERS: { emoji: string; x: string; y: string; size: number; speed: numb
 export function IntroSection() {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
-  const title = "GoLive";
+  const title = "Go Live";
 
   useGSAP(
     () => {
@@ -115,12 +115,16 @@ export function IntroSection() {
           <span className="i-kicker i-show invisible text-3xl text-white/90 sm:text-5xl">
             {t("anniversary.intro.threeMonthsOf")}
           </span>
-          <span className="mt-1 flex text-[22vw] sm:text-[10rem]" aria-label={title}>
-            {title.split("").map((c, i) => (
-              <span key={i} className="i-char i-show invisible anniv-grad-text inline-block" aria-hidden="true">
-                {c}
-              </span>
-            ))}
+          <span className="mt-1 flex text-[19vw] sm:text-[10rem]" aria-label={title}>
+            {title.split("").map((c, i) =>
+              c === " " ? (
+                <span key={i} className="inline-block w-[0.22em]" aria-hidden="true" />
+              ) : (
+                <span key={i} className="i-char i-show invisible anniv-grad-text inline-block" aria-hidden="true">
+                  {c}
+                </span>
+              )
+            )}
           </span>
         </h1>
         <div className="i-mascot i-show invisible mt-2 w-36 sm:w-44">

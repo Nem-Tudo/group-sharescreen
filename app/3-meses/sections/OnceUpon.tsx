@@ -107,7 +107,7 @@ export function OnceUponSection() {
             <div className="relative h-8 w-52 rounded-t-lg bg-[#2d3142] px-3 text-[12px] leading-8 text-white/85 sm:ml-3 sm:w-64">
               <span className="ou-tab-1 absolute inset-x-3 truncate">▲ ShareScreen</span>
               <span className="ou-tab-2 absolute inset-x-3 truncate">🔴 GoLive: AntiJanja</span>
-              <span className="ou-tab-3 absolute inset-x-3 truncate">🔴 GoLive</span>
+              <span className="ou-tab-3 absolute inset-x-3 truncate">🔴 Go Live</span>
             </div>
           </div>
           <div className="flex items-center gap-2 bg-[#2d3142] px-3 py-2">

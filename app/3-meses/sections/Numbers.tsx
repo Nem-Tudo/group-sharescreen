@@ -1,53 +1,186 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocale, useT } from "@/lib/useI18n";
 import { LOCALE_TAGS } from "@/lib/i18n";
 import { usePeopleOnline } from "@/lib/peopleOnline";
 import type { AnniversaryStats } from "@/lib/anniversary";
-import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "../gsap";
+import { gsap, ScrollTrigger, useGSAP, MOTION_OK, MOTION_REDUCED } from "../gsap";
 import { SceneTitle, useNumberFormat } from "../shared";
 import { HARD_FIGURES, TIMELINE, dayIndex } from "../historyData";
 
-/** A number that rolls up from zero the first time it is on screen. */
-function Counter({ value, className = "" }: { value: number; className?: string }) {
+/** How far ahead a running total is aimed: one poll of the page (AnniversaryContent's STATS_POLL_MS). */
+const PACE_S = 60;
+
+/**
+ * A number that rolls up from zero the first time it is on screen.
+ *
+ * Given a `rate` (per second), it is a running total: it keeps climbing on its
+ * own, and each new reading re-aims it at where the figures say it will be one
+ * poll from now — so it speeds up or slows down to meet the real number, and
+ * never counts backwards (if it ran ahead, it waits for the figures to catch
+ * up). Without one it simply rolls to each new value, up or down (people
+ * online right now).
+ *
+ * React renders the first value only and never touches the text again: the
+ * tweens and the ticker own it.
+ */
+export function Counter({ value, rate, className = "" }: { value: number; rate?: number; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
   const fmt = useNumberFormat();
+  const [initial] = useState(value);
+  const running = rate !== undefined;
+  const shown = useRef(value);
+  const written = useRef<number | null>(null);
+  const target = useRef(value);
+  const targetRate = useRef(rate ?? 0);
+  const speed = useRef(0);
+  const started = useRef(false);
+  const tween = useRef<gsap.core.Tween | null>(null);
+
+  const write = () => {
+    const el = ref.current;
+    const whole = Math.floor(shown.current + 1e-6);
+    if (!el || whole === written.current) return;
+    written.current = whole;
+    el.textContent = fmt(whole);
+  };
+  const pace = () => {
+    const ahead = target.current + targetRate.current * PACE_S;
+    speed.current = Math.max(0, (ahead - shown.current) / PACE_S);
+  };
+  const rollTo = (to: number, duration: number, then?: () => void) => {
+    tween.current?.kill();
+    const state = { n: shown.current };
+    tween.current = gsap.to(state, {
+      n: to,
+      duration,
+      ease: "power3.out",
+      onUpdate: () => {
+        shown.current = state.n;
+        write();
+      },
+      onComplete: then,
+    });
+  };
+
   useGSAP(
     () => {
       const el = ref.current;
       if (!el) return;
       const mm = gsap.matchMedia();
       mm.add(MOTION_OK, () => {
-        const state = { n: 0 };
-        el.textContent = fmt(0);
-        gsap.to(state, {
-          n: value,
-          duration: 2.2,
-          ease: "power3.out",
-          scrollTrigger: { trigger: el, start: "top 92%", once: true },
-          onUpdate: () => {
-            el.textContent = fmt(Math.round(state.n));
+        shown.current = 0;
+        write();
+        ScrollTrigger.create({
+          trigger: el,
+          start: "top 92%",
+          once: true,
+          onEnter: () => {
+            started.current = true;
+            rollTo(target.current, 2.2, running ? pace : undefined);
           },
         });
       });
+      mm.add(MOTION_REDUCED, () => {
+        started.current = true;
+        if (running) pace();
+      });
     },
-    { dependencies: [value], scope: ref }
+    { scope: ref }
   );
+
+  // A running total climbs every frame between readings.
+  useEffect(() => {
+    if (!running) return;
+    const tick = (_time: number, deltaMs: number) => {
+      if (!started.current || tween.current?.isActive() || speed.current <= 0) return;
+      shown.current += (speed.current * deltaMs) / 1000;
+      write();
+    };
+    gsap.ticker.add(tick);
+    return () => gsap.ticker.remove(tick);
+    // write/fmt are recreated each render; the ticker only needs adding once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+
+  // A new reading.
+  useEffect(() => {
+    target.current = value;
+    targetRate.current = rate ?? 0;
+    if (!started.current) return;
+    if (running) {
+      // Mid roll-up, the roll's own ending paces it with these figures.
+      if (!tween.current?.isActive()) pace();
+      return;
+    }
+    if (Math.round(shown.current) === value) return;
+    if (window.matchMedia(MOTION_REDUCED).matches) {
+      shown.current = value;
+      write();
+      return;
+    }
+    rollTo(value, 1.4);
+    // rollTo/pace/write are recreated each render; only new figures should act.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, rate]);
+
   return (
-    <span ref={ref} className={`tabular-nums ${className}`}>
-      {fmt(value)}
+    <span ref={ref} className={`inline-block tabular-nums ${className}`}>
+      {fmt(Math.floor(initial))}
     </span>
   );
 }
 
 type Card = { id: string; value: number; emoji: string; bg: string; ink: string; fun?: string; wide?: boolean };
 
-export function NumbersSection({ stats, failed }: { stats: AnniversaryStats | null; failed: boolean }) {
+/** Which of the API's growth rates make up each card. */
+const RATE_KEYS: Record<string, string[]> = {
+  accounts: ["accounts"],
+  callHours: ["callHours"],
+  shareHours: ["shareHours"],
+  micHours: ["micHours"],
+  messages: ["groupMessages", "directMessages"],
+  groups: ["groups"],
+  dmCalls: ["dmCalls"],
+  appInstalls: ["appInstalls"],
+};
+
+/**
+ * A card's figure as of now (the reading aged by its own growth since the
+ * server took it) and its growth per second. No rate from an older API: the
+ * counter then just rolls to each reading.
+ */
+function liveFigure(stats: AnniversaryStats, id: string, value: number): { value: number; rate?: number } {
+  if (!stats.rates) return { value };
+  const rate = (RATE_KEYS[id] ?? []).reduce((sum, key) => sum + (stats.rates?.[key] ?? 0), 0);
+  const ageS = stats.now ? Math.max(0, (stats.now - stats.at) / 1000) : 0;
+  return { value: value + rate * ageS, rate };
+}
+
+export function NumbersSection({
+  stats,
+  failed,
+  chartDays,
+}: {
+  stats: AnniversaryStats | null;
+  failed: boolean;
+  /** The curve as first loaded: it is drawn by the scroll, and redrawing it every minute would restart that. */
+  chartDays: number[] | null;
+}) {
   const t = useT();
   const fmt = useNumberFormat();
   const ref = useRef<HTMLElement>(null);
   const online = usePeopleOnline();
+  const locale = useLocale();
+  const recordDate = (at: number) =>
+    new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
+      day: "numeric",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(at));
 
   const cards: Card[] = [];
   if (stats) {
@@ -127,7 +260,15 @@ export function NumbersSection({ stats, failed }: { stats: AnniversaryStats | nu
       <SceneTitle
         kicker={t("anniversary.numbers.kicker")}
         title={t("anniversary.numbers.title")}
-        sub={t("anniversary.numbers.sub")}
+        sub={
+          <>
+            {t("anniversary.numbers.sub")}
+            <span className="mt-3 flex items-center justify-center gap-2 text-sm font-bold text-[var(--a-rose)]">
+              <span className="anniv-live-dot h-2 w-2 rounded-full bg-[var(--a-rose)]" />
+              {t("anniversary.numbers.liveNote")}
+            </span>
+          </>
+        }
         color="var(--a-rose)"
       />
 
@@ -139,7 +280,7 @@ export function NumbersSection({ stats, failed }: { stats: AnniversaryStats | nu
             {t("anniversary.numbers.liveNow")}
           </span>
           <p className="mt-5 text-5xl font-black tracking-tight sm:text-6xl">
-            {online === null ? "…" : <span className="tabular-nums">{fmt(online)}</span>}
+            {online === null ? "…" : <Counter value={online} />}
           </p>
           <p className="mt-2 font-semibold text-white/85">{t("anniversary.numbers.liveNowLabel")}</p>
         </div>
@@ -157,7 +298,7 @@ export function NumbersSection({ stats, failed }: { stats: AnniversaryStats | nu
               {t(`anniversary.numbers.${card.id}`)}
             </p>
             <p className={`relative mt-3 font-black leading-none tracking-tight ${card.wide ? "text-6xl sm:text-7xl" : "text-5xl sm:text-6xl"}`}>
-              <Counter value={card.value} />
+              <Counter {...liveFigure(stats!, card.id, card.value)} />
             </p>
             {card.fun && <p className="relative mt-3 text-[15px] font-bold leading-snug opacity-85">{card.fun}</p>}
           </div>
@@ -166,9 +307,13 @@ export function NumbersSection({ stats, failed }: { stats: AnniversaryStats | nu
         <div className="num-card relative overflow-hidden rounded-[28px] border border-[var(--a-line)] bg-[var(--a-card)] p-6">
           <p className="text-sm font-extrabold uppercase tracking-wide text-[var(--a-amber)]">{t("anniversary.numbers.record")}</p>
           <p className="mt-3 text-5xl font-black tracking-tight sm:text-6xl">
-            <Counter value={HARD_FIGURES.sockets} />
+            <Counter value={stats?.peakSockets ?? HARD_FIGURES.sockets} />
           </p>
-          <p className="mt-3 text-[15px] font-semibold leading-snug text-[var(--a-mute)]">{t("anniversary.numbers.recordFun")}</p>
+          <p className="mt-3 text-[15px] font-semibold leading-snug text-[var(--a-mute)]">
+            {stats?.peakAt
+              ? t("anniversary.numbers.recordAt", { date: recordDate(stats.peakAt) })
+              : t("anniversary.numbers.recordFun")}
+          </p>
         </div>
 
         {!stats &&
@@ -178,7 +323,7 @@ export function NumbersSection({ stats, failed }: { stats: AnniversaryStats | nu
 
       {failed && <p className="mx-auto mt-6 max-w-xl text-center text-sm text-[var(--a-mute)]">{t("anniversary.numbers.failed")}</p>}
 
-      {stats && stats.signupsPerDay.length > 1 && <SignupChart perDay={stats.signupsPerDay} total={stats.accounts} />}
+      {stats && chartDays && chartDays.length > 1 && <SignupChart perDay={chartDays} total={liveFigure(stats, "accounts", stats.accounts)} />}
     </section>
   );
 }
@@ -188,7 +333,7 @@ const H = 420;
 const TOP = 70;
 const BOTTOM = 50;
 
-function SignupChart({ perDay, total }: { perDay: number[]; total: number }) {
+function SignupChart({ perDay, total }: { perDay: number[]; total: { value: number; rate?: number } }) {
   const t = useT();
   const locale = useLocale();
   const fmt = useNumberFormat();
@@ -259,7 +404,9 @@ function SignupChart({ perDay, total }: { perDay: number[]; total: number }) {
           <h3 className="mt-1 text-2xl font-extrabold sm:text-3xl">{t("anniversary.numbers.chartTitle")}</h3>
         </div>
         <p className="sc-total text-right">
-          <span className="block text-4xl font-black tabular-nums text-[var(--a-amber)] sm:text-5xl">{fmt(total)}</span>
+          <span className="block text-4xl font-black tabular-nums text-[var(--a-amber)] sm:text-5xl">
+            <Counter {...total} />
+          </span>
           <span className="text-sm font-semibold text-[var(--a-mute)]">{t("anniversary.numbers.chartTotal")}</span>
         </p>
       </div>

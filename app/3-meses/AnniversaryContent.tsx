@@ -27,6 +27,7 @@ import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
 import { BugsSection } from "./sections/Bugs";
 import { FinaleSection } from "./sections/Finale";
+import { HARD_FIGURES } from "./historyData";
 import "./anniversary.css";
 
 type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "timeline" | "night" | "bugs" | "finale";
@@ -46,6 +47,7 @@ const SCENES: Record<Scene, { mood: MascotMood; music: MusicMood }> = {
 };
 
 const MUSIC_PREF_KEY = "sharescreen:anniversary:music";
+const STATS_POLL_MS = 60_000;
 const EASTER_EGG_CLICKS = 10;
 
 function readMusicPref(): boolean {
@@ -73,6 +75,7 @@ export function AnniversaryContent() {
   const [playing, setPlaying] = useState(false);
   const [stats, setStats] = useState<AnniversaryStats | null>(null);
   const [failed, setFailed] = useState(false);
+  const [chartDays, setChartDays] = useState<number[] | null>(null);
   const [burst, setBurst] = useState(0);
   const [clicks, setClicks] = useState(0);
   const [allSquashed, setAllSquashed] = useState(false);
@@ -85,25 +88,50 @@ export function AnniversaryContent() {
     markFeatureUsed(ANNIVERSARY_FEATURE);
   }, []);
 
+  // The numbers are live: asked for again every STATS_POLL_MS while the tab
+  // is visible, and at once when it comes back. In between, the counters keep
+  // climbing at the growth rates the answer carries (see Numbers' Counter).
+  // The API answers from a 30-second cache (its anniversaryRoutes.ts).
   useEffect(() => {
-    const controller = new AbortController();
-    fetchAnniversaryStats(controller.signal)
-      .then(setStats)
-      .catch(() => {
-        if (!controller.signal.aborted) setFailed(true);
-      });
-    return () => controller.abort();
+    let controller: AbortController | null = null;
+    let loaded = false;
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
+      controller?.abort();
+      const mine = new AbortController();
+      controller = mine;
+      fetchAnniversaryStats(mine.signal)
+        .then((data) => {
+          loaded = true;
+          setStats(data);
+          setFailed(false);
+          setChartDays((days) => days ?? data.signupsPerDay);
+        })
+        .catch(() => {
+          // A miss after the first load keeps the numbers on screen.
+          if (!mine.signal.aborted && !loaded) setFailed(true);
+        });
+    };
+    load();
+    const timer = setInterval(load, STATS_POLL_MS);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
+      controller?.abort();
+    };
   }, []);
 
-  // Charts and counters change height when the numbers land; the pinned
-  // scenes below have to measure again.
+  // Charts and counters change height when the numbers first land; the
+  // pinned scenes below have to measure again. Later updates change no height.
+  const measured = useRef(false);
   useEffect(() => {
-    if (stats || failed) {
-      requestAnimationFrame(() => {
-        ScrollTrigger.sort();
-        ScrollTrigger.refresh();
-      });
-    }
+    if (measured.current || !(stats || failed)) return;
+    measured.current = true;
+    requestAnimationFrame(() => {
+      ScrollTrigger.sort();
+      ScrollTrigger.refresh();
+    });
   }, [stats, failed]);
 
   // Music: off until asked for. Somebody who turned it on before gets it back
@@ -226,7 +254,7 @@ export function AnniversaryContent() {
             className="flex items-center gap-2 rounded-full bg-black/40 py-1.5 pl-1.5 pr-3.5 text-sm font-bold text-white backdrop-blur transition hover:bg-black/60"
           >
             <img src="/icon.png" alt="" className="h-7 w-7 rounded-full" />
-            GoLive
+            Go Live
           </Link>
           <button
             type="button"
@@ -253,8 +281,8 @@ export function AnniversaryContent() {
         <DayZeroSection />
         <OnceUponSection />
         <First72Section />
-        <OutageSection />
-        <NumbersSection stats={stats} failed={failed} />
+        <OutageSection peak={stats?.peakSockets ?? HARD_FIGURES.sockets} />
+        <NumbersSection stats={stats} failed={failed} chartDays={chartDays} />
         <RecapSection />
         <TimelineSection />
         <BackstageSection />

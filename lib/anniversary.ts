@@ -44,6 +44,13 @@ export interface AnniversaryStats {
   dmCalls: number | null;
   dmCallHours: number | null;
   appInstalls: number | null;
+  /** Most connections held at once; absent from an API older than the live record. */
+  peakSockets?: number;
+  peakAt?: number | null;
+  /** The server's clock when it answered (ages `at` without trusting this device's clock). */
+  now?: number;
+  /** Growth per second of each running total, keyed like the fields above. */
+  rates?: Record<string, number>;
 }
 
 export async function fetchAnniversaryStats(signal?: AbortSignal): Promise<AnniversaryStats> {

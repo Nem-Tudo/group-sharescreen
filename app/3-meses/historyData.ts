@@ -53,6 +53,7 @@ export const TIMELINE: Milestone[] = [
   { date: "10-17", key: "events", emoji: "🏙️", pin: true },
   { date: "10-27", key: "effects", emoji: "🪄" },
   { date: "10-31", key: "discord", emoji: "🎮" },
+  { date: "10-31", key: "rename", emoji: "🔤" },
   { date: "11-12", key: "ios", emoji: "🍎", pin: true },
   { date: "11-14", key: "remote", emoji: "🕹️", pin: true },
   { date: "11-17", key: "comments", emoji: "📝" },
@@ -93,8 +94,8 @@ export const DEV_STATS = {
 export const HARD_FIGURES = {
   /** 20/08: people reconnecting at once when the API would not come back up. */
   reconnecting: 2000,
-  /** 11/09: WebSocket connections held at once. */
-  sockets: 13000,
+  /** Most WebSocket connections held at once, as of 19/11. The API keeps the live one (anniversaryPeak.ts); this is the fallback. */
+  sockets: 14302,
 };
 
 /** The bug wall. `date` is shown as written. */
