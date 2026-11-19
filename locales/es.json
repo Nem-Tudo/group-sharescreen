@@ -2185,7 +2185,7 @@
   "groups.groupMessageComposer.messageInChannelname": "Mensaje en {channelName}",
   "groups.groupMessageComposer.replying": "Respondiendo",
   "groups.groupMessageComposer.theImagesWentOverTheMaximum": "Las imágenes han superado el tamaño máximo por mensaje.",
-  "groups.groupMessageComposer.theMessageGotTooLongWith": "El mensaje se ha hecho demasiado largo con las menciones. Acórtalo un poco.",
+  "groups.groupMessageComposer.theMessageGotTooLongWith": "El mensaje se ha hecho demasiado largo con las menciones y los emojis. Acórtalo un poco.",
   "groups.groupMessageComposer.youDoNotHavePermissionTo": "No tienes permiso para enviar imágenes en esta sala.",
   "groups.groupName.privateHint": "Grupo privado. Solo las personas con la invitación pueden entrar",
   "groups.groupName.publicHint": "Grupo público. Aparece en la pestaña descubrir grupos",
