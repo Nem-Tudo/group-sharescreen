@@ -1165,6 +1165,17 @@ function useBroadcastChannel(
   const sendTracks = useRef<Map<string, MediaStreamTrack>>(new Map());
   const recvPCs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const activeRef = useRef(false);
+  // The capture start() is waiting on, if any. `active` only turns true once
+  // the capture resolves — a getUserMedia on a slow Windows driver, or behind
+  // a permission prompt, can take seconds — and before this existed that gap
+  // was a hole: stop() saw nothing active and did nothing, and a second click
+  // (toggleMic reads `active`, still false) opened a *second* capture. Both
+  // resolved, one was orphaned, and the microphone stayed open with the
+  // button showing it off — the "it records me while muted" report.
+  // stop() now marks the pending capture cancelled, and start() closes what a
+  // cancelled capture brings back instead of broadcasting it.
+  const pendingStartRef = useRef<{ cancelled: boolean; source?: ShareSource } | null>(null);
+  const [starting, setStarting] = useState(false);
   const pendingSendCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const pendingRecvCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   // Peers who (as viewers of OUR stream) asked us to stop sending — mirrors
@@ -1976,6 +1987,12 @@ function useBroadcastChannel(
   }, [active]);
 
   const stop = useCallback(() => {
+    // Asked to stop before the capture came back: start() closes it when it
+    // does (see pendingStartRef). Nothing else exists yet to tear down.
+    if (pendingStartRef.current && !pendingStartRef.current.cancelled) {
+      pendingStartRef.current.cancelled = true;
+      setStarting(false);
+    }
     if (!activeRef.current) return;
     activeRef.current = false;
     setActive(false);
@@ -2048,13 +2065,42 @@ function useBroadcastChannel(
 
   const start = useCallback(async (requestedSource?: ShareSource) => {
     if (activeRef.current) return;
+    // A capture is already on its way. Never a second one alongside it: if it
+    // was cancelled (on → off → on, faster than the device opens) and is for
+    // the same thing, it simply goes ahead after all.
+    const inFlight = pendingStartRef.current;
+    if (inFlight) {
+      if (inFlight.cancelled && inFlight.source === requestedSource) {
+        inFlight.cancelled = false;
+        setStarting(true);
+      }
+      return;
+    }
     setError(null);
     if (!isSupported()) {
       setError(notSupportedMessage);
       return;
     }
+    const pending: { cancelled: boolean; source?: ShareSource } = { cancelled: false, source: requestedSource };
+    pendingStartRef.current = pending;
+    setStarting(true);
     try {
-      const stream = await capture(requestedSource);
+      let stream: MediaStream;
+      try {
+        stream = await capture(requestedSource);
+      } finally {
+        pendingStartRef.current = null;
+        setStarting(false);
+      }
+      if (pending.cancelled) {
+        // Stopped while the device was opening: close it, and let the owner
+        // release what it built around it (the mic's noise graph holds the
+        // raw capture — stopping only this output would leave it open).
+        stream.getTracks().forEach((t) => t.stop());
+        onStoppedRef.current?.();
+        trackEvent(`${eventPrefix}_cancelled`);
+        return;
+      }
       // contentHint steers the encoder's whole strategy, and the right value
       // depends entirely on what is being shared — which is why this is a
       // user-facing choice rather than a constant. See contentHintFor, which
@@ -2106,6 +2152,8 @@ function useBroadcastChannel(
       // signaling rate limit and leave some viewers' connections stuck.
       openSendPCsStaggered(signalingClient.state.peers.map((peer) => peer.id));
     } catch (err) {
+      // Nobody is waiting for this capture any more: failing is not news.
+      if (pending.cancelled) return;
       // A failure the capture already worked out the reason for carries the
       // message that fits it — `failureMessage` is a per-channel fallback for
       // everything else, and "verifique as permissões" is the wrong thing to
@@ -2851,6 +2899,8 @@ function useBroadcastChannel(
 
   return {
     active,
+    /** start() is waiting on the capture; `active` is not true yet. */
+    starting,
     start,
     stop,
     swapCapture,
@@ -4908,9 +4958,11 @@ export function useRoomMedia(room: string) {
   }, [releaseMicGraph]);
 
   const toggleMic = useCallback(() => {
-    const next = !mic.active;
-    setStoredMicOn(next);
-    if (mic.active) mic.stop();
+    // Still opening counts as on: a click then is the person changing their
+    // mind, so it cancels the capture rather than opening a second one.
+    const on = mic.active || mic.starting;
+    setStoredMicOn(!on);
+    if (on) mic.stop();
     else mic.start();
   }, [mic]);
 
@@ -4933,7 +4985,9 @@ export function useRoomMedia(room: string) {
    */
   const setMicOn = useCallback(
     (on: boolean) => {
-      if (mic.active === on) return;
+      // Opening counts as on — deafening while the mic is still coming up
+      // must cancel it, not wait for it to arrive and leave it open.
+      if ((mic.active || mic.starting) === on) return;
       if (on) mic.start();
       else mic.stop();
     },
