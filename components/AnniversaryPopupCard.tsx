@@ -83,14 +83,14 @@ export function AnniversaryPopupCard({ signedIn, onClose }: { signedIn: boolean;
           <div className="mt-5 flex gap-2">
             <Link
               ref={cta}
-              href={anniversaryPath("popup", signedIn ? "seu-recap" : "")}
+              href={anniversaryPath("popup")}
               onClick={() => {
                 trackAnniversary(ANNIVERSARY_EVENTS.popupClick);
                 onClose();
               }}
               className="anniv-mono flex flex-1 items-center justify-center gap-2 rounded-sm bg-[var(--a-tally)] px-4 py-3 text-xs font-semibold uppercase text-white outline-offset-2 transition hover:brightness-110"
             >
-              {t(signedIn ? "anniversary.popup.ctaRecap" : "anniversary.popup.cta")}
+              {t("anniversary.popup.cta")}
             </Link>
             <button
               type="button"
