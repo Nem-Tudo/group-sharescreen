@@ -820,6 +820,15 @@ function copyForViewer(track: MediaStreamTrack): MediaStreamTrack {
 //                                the OS); "window"/"browser" mix that bar
 //                                with the window or tab going away
 //   screen_share_restart        started within a minute of the last one ending
+//   screen_share_restart.<why>  ...and what the one before looked like, to
+//                                tell a fix from a habit (several can fire):
+//                                after_lost   it ended without stop pressed
+//                                after_stop   the person pressed stop
+//                                after_short  it ran under 30 s
+//                                after_black  viewers were connected and not
+//                                             one frame had gone out
+//                                same_source  the same screen/window again
+//                                new_source   a different one
 //   screen_share_seconds         on stop; value = how long it ran
 //   screen_share_fps             on stop; value = average frames sent per second
 //   screen_share_low_fps         on stop, below 60% of the frame rate asked for
@@ -877,6 +886,12 @@ const SHARE_SAMPLE_MS = 5_000;
 // (see guardFirstFrame) — long enough for a minimized window to be restored.
 const LATE_FRAME_WAIT_MS = 5 * 60_000;
 let lastScreenShareEndedAt = 0;
+// What the last share looked like when it ended, for screen_share_restart.<why>.
+// The label (a window title, "screen:0:0") never leaves this page: it is only
+// compared with the next share's.
+let lastShareEnd: { lost: boolean; seconds: number; black: boolean; label: string } | null = null;
+// Under this a share counts as a false start (see screen_share_restart.after_short).
+const SHORT_SHARE_S = 30;
 
 interface ScreenStartConfig {
   native: boolean;
@@ -896,6 +911,8 @@ interface ShareStats {
   lost: boolean;
   /** What was captured, for screen_share_lost.<surface>. */
   surface: ShareSurface;
+  /** The capture's track label, compared with the next share's (see lastShareEnd). */
+  label: string;
   /** Frames sent, summed over samples, and the seconds they covered. */
   frames: number;
   seconds: number;
@@ -919,11 +936,19 @@ function shareSurface(stream: MediaStream): ShareSurface {
   return surface === "monitor" || surface === "window" || surface === "browser" ? surface : "other";
 }
 
-function startShareStats(quality: QualityPreset | null, surface: ShareSurface): ShareStats {
+function startShareStats(quality: QualityPreset | null, surface: ShareSurface, label: string): ShareStats {
   const now = Date.now();
   trackFeatureEvent(SCREEN_SHARE_STATS.start, { value: 1 });
   if (lastScreenShareEndedAt && now - lastScreenShareEndedAt < RESTART_WINDOW_MS) {
     trackFeatureEvent(SCREEN_SHARE_STATS.restart);
+    const previous = lastShareEnd;
+    if (previous) {
+      const why = (reason: string) => trackFeatureEvent(`${SCREEN_SHARE_STATS.restart}.${reason}`);
+      why(previous.lost ? "after_lost" : "after_stop");
+      if (previous.seconds < SHORT_SHARE_S) why("after_short");
+      if (previous.black) why("after_black");
+      if (previous.label && label) why(previous.label === label ? "same_source" : "new_source");
+    }
   }
   const stats: ShareStats = {
     startedAt: now,
@@ -933,6 +958,7 @@ function startShareStats(quality: QualityPreset | null, surface: ShareSurface): 
     peerFailures: 0,
     lost: false,
     surface,
+    label,
     frames: 0,
     seconds: 0,
     samples: 0,
@@ -1011,6 +1037,13 @@ function reportShareEnd(stats: ShareStats) {
   clearInterval(stats.timer);
   lastScreenShareEndedAt = Date.now();
   const seconds = Math.round((lastScreenShareEndedAt - stats.startedAt) / 1000);
+  lastShareEnd = {
+    lost: stats.lost,
+    seconds,
+    // A viewer connection was sampled and had sent nothing: the black share.
+    black: stats.last !== null && stats.last.framesSent === 0 && stats.frames === 0,
+    label: stats.label,
+  };
   trackFeatureEvent(SCREEN_SHARE_STATS.seconds, { value: seconds });
   if (stats.lost) {
     trackFeatureEvent(SCREEN_SHARE_STATS.lost);
@@ -2051,7 +2084,11 @@ function useBroadcastChannel(
       else signalingClient.setSharing({ [channel]: true });
       trackEvent(`${eventPrefix}_start`);
       if (channel === "screen" && requestedSource !== "camera") {
-        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null, shareSurface(stream));
+        shareStatsRef.current = startShareStats(
+          videoQualityRef.current ?? null,
+          shareSurface(stream),
+          stream.getVideoTracks()[0]?.label ?? ""
+        );
       }
       if (channel !== "mic" && stream.getAudioTracks().length > 0) {
         trackFeatureEvent(STEREO_AUDIO_SHARE_EVENT, { feature: STEREO_AUDIO_FEATURE });
@@ -3643,6 +3680,7 @@ export function useRoomMedia(room: string) {
     // Counted as what it is (manualRestart), not as a share restarted out of
     // dissatisfaction (screen_share_restart).
     lastScreenShareEndedAt = 0;
+    lastShareEnd = null;
     await getDesktopBridge()?.useSavedShareSource?.();
     trackFeatureEvent(SCREEN_SHARE_STATS.manualRestart);
     screen.start(source);
