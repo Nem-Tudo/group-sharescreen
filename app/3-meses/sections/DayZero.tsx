@@ -64,15 +64,12 @@ export function DayZeroSection() {
       <SceneTitle kicker={t("anniversary.day0.kicker")} title={t("anniversary.day0.title")} />
       <div className="mx-auto mt-12 grid max-w-6xl items-start gap-12 lg:grid-cols-[1fr_1.3fr]">
         <div className="relative">
-          <p data-reveal className="text-lg leading-relaxed text-[var(--a-mute)]">
+          <p data-reveal data-walk="d0-text" className="text-lg leading-relaxed text-[var(--a-mute)]">
             {t("anniversary.day0.p1")}
-          </p>
-          <p data-reveal className="mt-4 text-lg leading-relaxed text-[var(--a-mute)]">
-            {t("anniversary.day0.p2")}
           </p>
         </div>
 
-        <div data-reveal className="d0-term overflow-hidden rounded-lg border border-[var(--a-line)] bg-[#05070d] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+        <div data-reveal data-walk="d0-term" className="d0-term overflow-hidden rounded-lg border border-[var(--a-line)] bg-[#05070d] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
           <div className="flex items-center gap-2 border-b border-[var(--a-line)] bg-white/5 px-4 py-3">
             <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
             <span className="h-3 w-3 rounded-full bg-[#febc2e]" />

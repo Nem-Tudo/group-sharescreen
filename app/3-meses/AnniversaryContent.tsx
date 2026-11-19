@@ -18,7 +18,8 @@ import {
 } from "@/lib/anniversary";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "./gsap";
 import { Chiptune, type MusicMood } from "./chiptune";
-import { Mascot, type MascotMood } from "./Mascot";
+import { type MascotMood } from "./Mascot";
+import { MascotWalker } from "./MascotWalker";
 import { Confetti } from "./shared";
 import { IntroSection } from "./sections/Intro";
 import { DayZeroSection } from "./sections/DayZero";
@@ -72,7 +73,6 @@ function writeMusicPref(on: boolean) {
 export function AnniversaryContent() {
   const t = useT();
   const root = useRef<HTMLDivElement>(null);
-  const dock = useRef<HTMLButtonElement>(null);
   const progress = useRef<HTMLDivElement>(null);
   const music = useRef<Chiptune | null>(null);
   const [scene, setScene] = useState<Scene>("intro");
@@ -294,6 +294,7 @@ export function AnniversaryContent() {
     { scope: root }
   );
 
+  /** A click on Livinho; true from the easter egg on (he spins). */
   const poke = () => {
     trackAnniversary(ANNIVERSARY_EVENTS.mascotClick);
     const next = clicks + 1;
@@ -303,13 +304,7 @@ export function AnniversaryContent() {
       setBurst((b) => b + 1);
       trackAnniversary(ANNIVERSARY_EVENTS.easterEgg);
     }
-    if (dock.current && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      gsap
-        .timeline()
-        .to(dock.current, { y: -50, rotate: next >= EASTER_EGG_CLICKS ? 360 : 0, duration: 0.28, ease: "power2.out" })
-        .to(dock.current, { y: 0, duration: 0.5, ease: "bounce.out" })
-        .set(dock.current, { rotate: 0 });
-    }
+    return next >= EASTER_EGG_CLICKS;
   };
 
   const egg = clicks >= EASTER_EGG_CLICKS;
@@ -378,23 +373,8 @@ export function AnniversaryContent() {
         <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} />
       </main>
 
-      {/* Livinho, following along */}
-      <div
-        className={`fixed right-3 top-16 z-30 flex flex-row-reverse items-start gap-2 transition-all duration-500 sm:right-5 ${dockVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-6 opacity-0"}`}
-      >
-        <button
-          ref={dock}
-          type="button"
-          onClick={poke}
-          aria-label={t("anniversary.mascot.label")}
-          className="w-[50px] shrink-0 cursor-pointer sm:w-[84px]"
-        >
-          <Mascot mood={mood} />
-        </button>
-        <p key={`${scene}-${egg}-${allSquashed}`} className="anniv-bubble anniv-bubble-brief mt-3 max-w-[170px] sm:mt-7 sm:max-w-[240px]" role="status">
-          {speech}
-        </p>
-      </div>
+      {/* Livinho, walking along with the scroll */}
+      <MascotWalker mood={mood} speech={speech} speechKey={`${scene}-${egg}-${allSquashed}`} visible={dockVisible} onPoke={poke} />
 
       <Confetti burst={burst} />
     </div>

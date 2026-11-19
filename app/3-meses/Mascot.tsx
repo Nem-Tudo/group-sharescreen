@@ -30,12 +30,16 @@ export function Mascot({ mood, className = "" }: { mood: MascotMood; className?:
       </defs>
 
       <g className="anniv-mascot-bob">
-        {/* Legs */}
+        {/* Legs (each lifts on its own when he walks: --leg-l / --leg-r, see MascotWalker) */}
         <g fill="#312e81">
-          <rect x="38" y="98" width="10" height="18" rx="5" />
-          <rect x="72" y="98" width="10" height="18" rx="5" />
-          <ellipse cx="41" cy="117" rx="11" ry="6" />
-          <ellipse cx="79" cy="117" rx="11" ry="6" />
+          <g className="anniv-mascot-leg-l">
+            <rect x="38" y="98" width="10" height="18" rx="5" />
+            <ellipse cx="41" cy="117" rx="11" ry="6" />
+          </g>
+          <g className="anniv-mascot-leg-r">
+            <rect x="72" y="98" width="10" height="18" rx="5" />
+            <ellipse cx="79" cy="117" rx="11" ry="6" />
+          </g>
         </g>
 
         {/* Left arm (always relaxed) */}
@@ -174,7 +178,7 @@ function Face({ mood }: { mood: MascotMood }) {
   }
 
   return (
-    <g>
+    <g className="anniv-mascot-face">
       {eyes}
       <circle cx="31" cy="72" r="5" fill="#fb7185" opacity="0.45" />
       <circle cx="89" cy="72" r="5" fill="#fb7185" opacity="0.45" />

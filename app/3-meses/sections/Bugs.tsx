@@ -66,7 +66,7 @@ export function BugsSection({ onSquash }: { onSquash: (all: boolean) => void }) 
           : t("anniversary.bugs.progress", { n: fixed.size, total: BUGS.length })}
       </p>
 
-      <ul className="mx-auto mt-12 grid max-w-6xl gap-5 md:grid-cols-2 xl:grid-cols-5">
+      <ul data-walk="bugs" className="mx-auto mt-12 grid max-w-6xl gap-5 md:grid-cols-2 xl:grid-cols-5">
         {BUGS.map((bug, i) => {
           const done = fixed.has(bug.key);
           const title = t(`anniversary.bugs.${bug.key}.title`);

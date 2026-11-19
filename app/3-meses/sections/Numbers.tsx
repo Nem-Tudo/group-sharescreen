@@ -250,7 +250,7 @@ export function NumbersSection({
           color="var(--a-tally)"
         />
 
-        <div className="mt-14 grid border-t border-[var(--a-line)] sm:grid-cols-2 sm:gap-x-10">
+        <div data-walk="num-board" className="mt-14 grid border-t border-[var(--a-line)] sm:grid-cols-2 sm:gap-x-10">
           {/* People in rooms this very moment: the one figure that goes down too. */}
           <div className={row}>
             <p className={label}>

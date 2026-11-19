@@ -54,7 +54,6 @@ export const TIMELINE: Milestone[] = [
   { date: "10-27", key: "effects", emoji: "🪄" },
   { date: "10-31", key: "discord", emoji: "🎮" },
   { date: "10-31", key: "rename", emoji: "🔤" },
-  { date: "11-12", key: "ios", emoji: "🍎", pin: true },
   { date: "11-14", key: "remote", emoji: "🕹️", pin: true },
   { date: "11-17", key: "comments", emoji: "📝" },
 ];
@@ -105,10 +104,10 @@ export const BUGS: { date: string; key: string; emoji: string; commit?: string }
   { date: "14/09", key: "antivirus", emoji: "🛡️", commit: "fix: antivirus" },
   { date: "29/09", key: "grayScreen", emoji: "🌫️", commit: "fix: gray screen" },
   { date: "23/10", key: "memoryLeak", emoji: "🧠", commit: "fix: memory leak (se funcionar)" },
+  { date: "29/10", key: "flippedCam", emoji: "🙃", commit: "fix camera rotation in effect" },
   { date: "31/10", key: "sixReleases", emoji: "📦", commit: "1.0.22 → 1.0.28" },
   { date: "04/11", key: "ghostLeave", emoji: "👻", commit: "fix: socket lost connection" },
-  { date: "06/11", key: "fans", emoji: "🌀" },
-  { date: "13/11", key: "socketCap", emoji: "🚧", commit: "hotfix socket" },
+  { date: "19/11", key: "micTwice", emoji: "🎙️", commit: "Never open the microphone twice while it is still starting" },
   { date: "19/11", key: "freePro", emoji: "💸" },
 ];
 
