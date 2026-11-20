@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
-import { useCallSession } from "@/lib/callSession";
 import { useFeature } from "@/lib/features";
 import { arrivedBefore } from "@/lib/newcomer";
 import {
@@ -23,8 +22,9 @@ import {
 
 // The one-time "Uai, cê é aqui da região!" popup (see lib/regional.ts), for
 // people in the regional-popup experiment whose IP puts them within ~100 km
-// of Santa Rita do Sapucaí. Shown once per browser, never during a call,
-// never on someone's first day here.
+// of Santa Rita do Sapucaí. Shown once per browser, never on someone's first
+// day here. It does open during a call too (asked for on 2026-11-20): the
+// call keeps running behind it.
 //
 // This part only decides; the card (map, shirt, ticket) is its own chunk,
 // downloaded only by the few who will see it.
@@ -39,6 +39,8 @@ const RegionalPopupCard = dynamic(() => loadCard().then((m) => m.RegionalPopupCa
 const SETTLED_MS = 24 * 60 * 60 * 1000;
 /** A beat after the page appears, so it does not cover the first paint. */
 const SHOW_AFTER_MS = 1500;
+/** How often it looks again while something else holds the screen. */
+const RETRY_MS = 2000;
 /** Pages it never opens on: sign-in, and the ones OBS or another window shows. */
 const EXCLUDED = ["/login", "/obs", "/stream", "/oauth", "/oauth2", "/cam", "/admin", "/ad", "/3-meses", "/redeem", "/gift"];
 
@@ -47,7 +49,6 @@ const PREVIEW_SPOT: RegionalSpot = { lat: REGIONAL_TOWNS[0].lat + 0.01, lng: REG
 export function RegionalPopup() {
   const pathname = usePathname();
   const { account, loading } = useAuth();
-  const call = useCallSession();
   const [seen, setSeen] = useState(true);
   const [open, setOpen] = useState(false);
   const [spot, setSpot] = useState<RegionalSpot | null>(null);
@@ -98,7 +99,7 @@ export function RegionalPopup() {
   const settled =
     now !== null &&
     (arrivedBefore(now - SETTLED_MS) || (!loading && account !== null && now - account.createdAt > SETTLED_MS));
-  const candidate = !seen && !open && routeOk && settled && call === null;
+  const candidate = !seen && !open && routeOk && settled;
   const km = spot ? distanceKm(spot, REGIONAL_HQ) : null;
   const near = km !== null && km <= REGIONAL_RADIUS_KM;
   // Exposure only for somebody who would actually get the popup — which needs
@@ -121,15 +122,23 @@ export function RegionalPopup() {
     if (!candidate || !enabled || !near || km === null) return;
     // The card's chunk downloads during the wait, not after it.
     void loadCard();
-    const timer = setTimeout(() => {
-      // Not on top of another dialog already open; the next page will try again.
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = () => {
+      // Not on top of another dialog, and not while a video is fullscreen
+      // (it would open behind it, unseen, and it is shown only once): wait
+      // and look again.
+      const fullscreen = document.fullscreenElement ?? (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement;
+      if (fullscreen || document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        timer = setTimeout(attempt, RETRY_MS);
+        return;
+      }
       if (regionalPopupSeen()) return;
       markRegionalPopupSeen();
       setSeen(true);
       setOpen(true);
       trackRegional(REGIONAL_EVENTS.show, Math.max(1, Math.round(km)));
-    }, SHOW_AFTER_MS);
+    };
+    timer = setTimeout(attempt, SHOW_AFTER_MS);
     return () => clearTimeout(timer);
   }, [candidate, enabled, near, km]);
 

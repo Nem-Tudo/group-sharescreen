@@ -22,8 +22,13 @@ import {
 // sits; the visitor's pin drops in and a signal line runs from it to the
 // logo. Below: who makes Go Live, and the shirt deal as a Pro Ultra ticket.
 
-/** The first moments it cannot be closed: a click aimed at the page underneath, or a reflex Esc, would. */
-const CLOSE_LOCK_MS = 1200;
+/**
+ * How long it cannot be closed (✕, Esc, a click outside, "Combinado!"): a
+ * click or tap aimed at the page underneath, a reflex Esc or an Enter would
+ * throw it away unread, and it is shown only once. The ✕ and the button fill
+ * up while it lasts, so nobody thinks they are broken.
+ */
+const CLOSE_LOCK_MS = 3000;
 
 const KEYFRAMES = `
 @keyframes rg-pop-in { from { opacity: 0; transform: translateY(28px) scale(0.97); } to { opacity: 1; transform: none; } }
@@ -43,8 +48,13 @@ const KEYFRAMES = `
 .rg-shine { animation: rg-shine 4s 1.4s ease-in-out infinite; }
 .rg-sway { transform-origin: 50% 6%; animation: rg-sway 3.4s ease-in-out infinite; }
 .rg-blink { animation: rg-blink 1.1s ease-in-out infinite; }
+@keyframes rg-lock-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes rg-lock-ring { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.rg-lock-fill { transform-origin: left; animation: rg-lock-fill ${CLOSE_LOCK_MS}ms linear both; }
+.rg-lock-ring { animation: rg-lock-ring ${CLOSE_LOCK_MS}ms linear both; }
 @media (prefers-reduced-motion: reduce) {
-  .rg-root, .rg-root * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; }
+  /* The lock's progress is a timer, not motion: it keeps its real length. */
+  .rg-root, .rg-root *:not(.rg-lock) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; }
 }
 `;
 
@@ -370,7 +380,7 @@ export function RegionalPopupCard({
   onClose: () => void;
 }) {
   const t = useT();
-  const okRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [armed, setArmed] = useState(false);
   const armedRef = useRef(false);
 
@@ -397,7 +407,9 @@ export function RegionalPopupCard({
   };
 
   useEffect(() => {
-    okRef.current?.focus({ preventScroll: true });
+    // The dialog itself, not "Combinado!": Enter on a focused button would
+    // close it the moment it opens.
+    dialogRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") dismiss();
     };
@@ -431,18 +443,20 @@ export function RegionalPopupCard({
 
   return (
     <div
-      className="rg-root fixed inset-0 z-[80] flex items-end justify-center bg-black/65 p-3 backdrop-blur-[2px] sm:items-center"
+      className="rg-root fixed inset-0 z-[95] flex items-end justify-center bg-black/65 p-3 backdrop-blur-[2px] sm:items-center"
       onClick={dismiss}
       role="presentation"
     >
       <style>{KEYFRAMES}</style>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="rg-title"
         aria-describedby="rg-text"
         onClick={(e) => e.stopPropagation()}
-        className="rg-pop-in relative max-h-[calc(100dvh-1.5rem)] w-full max-w-[420px] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 text-white shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
+        className="rg-pop-in relative max-h-[calc(100dvh-1.5rem)] w-full max-w-[420px] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 text-white shadow-[0_30px_90px_rgba(0,0,0,0.65)] outline-none"
         style={{ background: CARD_BG }}
       >
         <RegionalMap
@@ -529,16 +543,18 @@ export function RegionalPopupCard({
 
           <div className="mt-5 flex gap-2">
             <button
-              ref={okRef}
               type="button"
+              disabled={!armed}
               onClick={() => {
+                if (!armedRef.current) return;
                 track(REGIONAL_EVENTS.ok);
                 onClose();
               }}
-              className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-white outline-offset-2 transition hover:brightness-110"
-              style={{ background: BRAND }}
+              className="relative flex-1 overflow-hidden rounded-xl px-4 py-3 text-sm font-bold text-white outline-offset-2 transition hover:brightness-110 disabled:cursor-default disabled:hover:brightness-100"
+              style={{ background: armed ? BRAND : `color-mix(in srgb, ${BRAND} 45%, ${CARD_BG})` }}
             >
-              {t("regional.ok")}
+              {!armed && <span className="rg-lock rg-lock-fill absolute inset-0" style={{ background: BRAND }} aria-hidden="true" />}
+              <span className="relative">{t("regional.ok")}</span>
             </button>
             <button
               type="button"
@@ -567,9 +583,17 @@ export function RegionalPopupCard({
           onClick={dismiss}
           disabled={!armed}
           aria-label={t("regional.close")}
-          className="absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-lg leading-none text-white transition hover:bg-black disabled:cursor-default disabled:opacity-40"
+          className="absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-lg leading-none text-white transition hover:bg-black disabled:cursor-default disabled:hover:bg-black/55"
         >
-          <span aria-hidden="true">×</span>
+          {!armed && (
+            <svg viewBox="0 0 32 32" className="absolute inset-0 -rotate-90" aria-hidden="true">
+              <circle cx="16" cy="16" r="14.5" fill="none" stroke="#ffffff" strokeOpacity="0.15" strokeWidth="2" />
+              <circle cx="16" cy="16" r="14.5" fill="none" stroke="#ffffff" strokeOpacity="0.85" strokeWidth="2" pathLength={1} strokeDasharray="1" strokeLinecap="round" className="rg-lock rg-lock-ring" />
+            </svg>
+          )}
+          <span aria-hidden="true" className={armed ? undefined : "opacity-40"}>
+            ×
+          </span>
         </button>
       </div>
     </div>
