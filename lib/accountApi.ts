@@ -27,6 +27,12 @@ export type Account = {
   equippedNameColor?: string | null;
   equippedProfileColor?: string | null;
   /**
+   * The avatar decoration worn — its picture's path — or null. It also rides
+   * inside avatarUrl (see lib/avatarShape), which is what draws it; this copy
+   * is for the screens that list or toggle it.
+   */
+  equippedAvatarDecoration?: string | null;
+  /**
    * The verified mark this account chose to wear instead of the highest one
    * its plan affords ("blue"/"gold" for a Pro Ultra subscriber, "blue" for a
    * Pro Max one), or null/absent for "the highest I have". Only for the

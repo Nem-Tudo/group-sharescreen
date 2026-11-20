@@ -8,7 +8,9 @@ import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
 
-export type CosmeticProductType = "name_color" | "profile_color";
+// "avatar_decoration": a frame around the profile picture; its value is the
+// picture's path (see lib/avatarShape and components/UserAvatar).
+export type CosmeticProductType = "name_color" | "profile_color" | "avatar_decoration";
 
 export type CosmeticProduct = {
   id: string;
@@ -22,6 +24,8 @@ export type CosmeticProduct = {
    * item with one is drawn by lib/nameStyle, not as a plain color.
    */
   collection?: string;
+  /** False for something only ever given (an event gift): not sold, not listed to who lacks it. */
+  forSale?: boolean;
 };
 
 export type CosmeticsCatalogResponse = {
@@ -29,7 +33,13 @@ export type CosmeticsCatalogResponse = {
   ownedCosmetics: string[];
   equippedNameColor: string | null;
   equippedProfileColor?: string | null;
+  equippedAvatarDecoration?: string | null;
 };
+
+/** What the store lists: everything for sale, and gift-only items to whoever has them. */
+export function visibleInStore(product: CosmeticProduct, owned: readonly string[]): boolean {
+  return product.forSale !== false || owned.includes(product.id);
+}
 
 async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
   const data = await res.json().catch(() => null);
@@ -55,6 +65,7 @@ export type PurchaseCosmeticResult = {
   ownedCosmetics: string[];
   equippedNameColor: string | null;
   equippedProfileColor?: string | null;
+  equippedAvatarDecoration?: string | null;
 };
 
 export async function purchaseCosmetic(productId: string): Promise<PurchaseCosmeticResult> {
@@ -71,6 +82,7 @@ export async function purchaseCosmetic(productId: string): Promise<PurchaseCosme
 export type EquipCosmeticResult = {
   equippedNameColor: string | null;
   equippedProfileColor?: string | null;
+  equippedAvatarDecoration?: string | null;
 };
 
 // Switches which owned name color or profile color is active — free, since buying already

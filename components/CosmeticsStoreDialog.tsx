@@ -11,6 +11,7 @@ import {
   fetchCosmeticsCatalog,
   purchaseCosmetic,
   equipCosmetic as equipCosmeticRequest,
+  visibleInStore,
   type CosmeticProduct,
   type CosmeticProductType,
 } from "@/lib/cosmetics";
@@ -20,6 +21,8 @@ import { POINTS_SHOP_EVENTS, POINTS_SHOP_FEATURE } from "@/lib/pointsShop";
 import { PointsShopDialog } from "@/components/PointsShopDialog";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
+import { UserAvatar } from "@/components/UserAvatar";
+import { withAvatarDecoration } from "@/lib/avatarShape";
 
 export type CosmeticsStorePopupData = Record<string, never>;
 
@@ -43,6 +46,7 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
   const [owned, setOwned] = useState<string[]>([]);
   const [equippedNameColor, setEquippedNameColor] = useState<string | null>(null);
   const [equippedProfileColor, setEquippedProfileColor] = useState<string | null>(null);
+  const [equippedDecoration, setEquippedDecoration] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -56,6 +60,7 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
         setOwned(data.ownedCosmetics);
         setEquippedNameColor(data.equippedNameColor);
         setEquippedProfileColor(data.equippedProfileColor ?? null);
+        setEquippedDecoration(data.equippedAvatarDecoration ?? null);
       })
       .catch((err) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : t("cosmeticsStoreDialog.couldNotLoadTheShop"));
@@ -82,6 +87,7 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
       setOwned(result.ownedCosmetics);
       if (result.equippedNameColor !== undefined) setEquippedNameColor(result.equippedNameColor);
       if (result.equippedProfileColor !== undefined) setEquippedProfileColor(result.equippedProfileColor);
+      if (result.equippedAvatarDecoration !== undefined) setEquippedDecoration(result.equippedAvatarDecoration);
       trackEvent("cosmetic_purchased", { productId: product.id });
       trackFeatureEvent(POINTS_SHOP_EVENTS.purchase, { feature: POINTS_SHOP_FEATURE, value: product.price });
       await refresh();
@@ -101,6 +107,8 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
       const result = await equipCosmeticRequest(productId, activeTab);
       if (activeTab === "name_color") {
         setEquippedNameColor(result.equippedNameColor);
+      } else if (activeTab === "avatar_decoration") {
+        setEquippedDecoration(result.equippedAvatarDecoration ?? null);
       } else {
         setEquippedProfileColor(result.equippedProfileColor ?? null);
       }
@@ -117,8 +125,16 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
   // Only the plain colors: everything on a shelf of its own (gradient and
   // animated names, patterned banners) belongs to the new store, which is
   // the one that knows how to draw it — see PointsShopDialog.
-  const currentProducts = catalog?.filter((p) => p.type === activeTab && !p.collection) ?? [];
-  const currentEquipped = activeTab === "name_color" ? equippedNameColor : equippedProfileColor;
+  // Decorations are the exception: every one of them is a picture this list
+  // can draw (on your own face), so all of them are listed.
+  const currentProducts =
+    catalog?.filter((p) =>
+      activeTab === "avatar_decoration"
+        ? p.type === activeTab && visibleInStore(p, owned)
+        : p.type === activeTab && !p.collection
+    ) ?? [];
+  const currentEquipped =
+    activeTab === "name_color" ? equippedNameColor : activeTab === "avatar_decoration" ? equippedDecoration : equippedProfileColor;
 
   return (
     <div className="flex w-84 sm:w-96 max-w-[calc(100vw-1rem)] flex-col gap-4 bg-white p-4 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
@@ -155,7 +171,7 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
       )}
 
       {/* Tabs */}
-      <div className="grid grid-cols-2 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">
         <button
           type="button"
           onClick={() => {
@@ -184,11 +200,29 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
         >
           {t("cosmeticsStoreDialog.bannerColour")}
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("avatar_decoration");
+            setActionError(null);
+          }}
+          className={`rounded-md py-1.5 text-xs font-semibold transition ${
+            activeTab === "avatar_decoration"
+              ? "bg-white text-zinc-950 shadow-xs dark:bg-zinc-800 dark:text-zinc-50"
+              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          }`}
+        >
+          {t("pointsShop.tabDecoration")}
+        </button>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-          {activeTab === "name_color" ? t("cosmeticsStoreDialog.coloursForYourUsername") : t("cosmeticsStoreDialog.backgroundColoursForYourProfile")}
+          {activeTab === "name_color"
+            ? t("cosmeticsStoreDialog.coloursForYourUsername")
+            : activeTab === "avatar_decoration"
+              ? t("pointsShop.decorationsHint")
+              : t("cosmeticsStoreDialog.backgroundColoursForYourProfile")}
         </p>
 
         {loadError && <p className="text-xs text-red-500">{loadError}</p>}
@@ -212,7 +246,11 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
               >
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 shrink-0 rounded-full border border-dashed border-zinc-400 dark:border-zinc-600" />
-                  {activeTab === "name_color" ? t("cosmeticsStoreDialog.noneDefault") : t("cosmeticsStoreDialog.defaultGolive")}
+                  {activeTab === "name_color"
+                    ? t("cosmeticsStoreDialog.noneDefault")
+                    : activeTab === "avatar_decoration"
+                      ? t("pointsShop.noDecoration")
+                      : t("cosmeticsStoreDialog.defaultGolive")}
                 </span>
                 <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   {currentEquipped === null ? t("cosmeticsStoreDialog.equipped") : t("cosmeticsStoreDialog.equip")}
@@ -235,7 +273,9 @@ function ClassicCosmeticsStore({ closePopup }: { closePopup: (hasAction?: boolea
                   }`}
                 >
                   <span className="flex items-center gap-2.5">
-                    {product.type === "profile_color" ? (
+                    {product.type === "avatar_decoration" ? (
+                      <UserAvatar src={withAvatarDecoration(account?.avatarUrl, product.value)} name={account?.displayName ?? "Go Live"} size={28} />
+                    ) : product.type === "profile_color" ? (
                       <span
                         className="h-5 w-7 shrink-0 rounded-md border border-black/20 shadow-2xs"
                         style={{ background: product.value }}

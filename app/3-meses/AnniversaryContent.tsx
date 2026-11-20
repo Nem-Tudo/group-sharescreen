@@ -26,6 +26,7 @@ import { First72Section } from "./sections/First72";
 import { OutageSection } from "./sections/Outage";
 import { NumbersSection } from "./sections/Numbers";
 import { RecapSection } from "./sections/Recap";
+import { GiftSection } from "./sections/Gift";
 import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
 import { BugsSection } from "./sections/Bugs";
@@ -34,7 +35,7 @@ import { FinaleSection } from "./sections/Finale";
 import { HARD_FIGURES } from "./historyData";
 import "./anniversary.css";
 
-type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "timeline" | "night" | "bugs" | "team" | "finale";
+type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "gift" | "timeline" | "night" | "bugs" | "team" | "finale";
 
 const SCENES: Record<Scene, { music: MusicMood }> = {
   intro: { music: "calm" },
@@ -44,6 +45,7 @@ const SCENES: Record<Scene, { music: MusicMood }> = {
   outage: { music: "tense" },
   numbers: { music: "party" },
   recap: { music: "party" },
+  gift: { music: "party" },
   timeline: { music: "calm" },
   night: { music: "night" },
   bugs: { music: "tense" },
@@ -332,6 +334,7 @@ export function AnniversaryContent() {
         <OutageSection peak={stats?.peakSockets ?? HARD_FIGURES.sockets} />
         <NumbersSection stats={stats} failed={failed} chartDays={chartDays} />
         <RecapSection />
+        <GiftSection onCelebrate={() => setBurst((b) => b + 1)} />
         <TimelineSection />
         <BackstageSection />
         <BugsSection
@@ -345,7 +348,7 @@ export function AnniversaryContent() {
           }}
         />
         <TeamSection />
-        <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} />
+        <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} stats={stats} />
       </main>
 
       <Confetti burst={burst} />

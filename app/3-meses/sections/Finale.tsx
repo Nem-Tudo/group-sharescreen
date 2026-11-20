@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { useT } from "@/lib/useI18n";
-import { ANNIVERSARY_EVENTS, anniversaryShareUrl, trackAnniversary } from "@/lib/anniversary";
+import { ANNIVERSARY_EVENTS, ANNIVERSARY_HASHTAG, anniversaryShareUrl, trackAnniversary, type AnniversaryStats } from "@/lib/anniversary";
+import { HARD_FIGURES } from "../historyData";
+import { useNumberFormat } from "../shared";
+import { ShareSheet } from "../ShareSheet";
+import { drawPageCard } from "../shareCard";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "../gsap";
 import { Mascot } from "../Mascot";
 
@@ -12,10 +16,10 @@ const THANKS = ["obrigado", "thank you", "gracias", "valeu", "obrigada", "merci"
 
 // Sign-off: the thank-you, the three ways out, and a news crawl along the
 // bottom like the end of a broadcast.
-export function FinaleSection({ onCelebrate }: { onCelebrate: () => void }) {
+export function FinaleSection({ onCelebrate, stats }: { onCelebrate: () => void; stats: AnniversaryStats | null }) {
   const t = useT();
+  const fmt = useNumberFormat();
   const ref = useRef<HTMLElement>(null);
-  const [copied, setCopied] = useState(false);
 
   useGSAP(
     () => {
@@ -45,26 +49,21 @@ export function FinaleSection({ onCelebrate }: { onCelebrate: () => void }) {
     { scope: ref }
   );
 
-  const share = async () => {
-    trackAnniversary(ANNIVERSARY_EVENTS.share);
-    const url = anniversaryShareUrl("share");
-    const data = { title: t("anniversary.meta.title"), text: t("anniversary.finale.shareText"), url };
-    try {
-      if (navigator.share) {
-        await navigator.share(data);
-        return;
-      }
-    } catch {
-      // Cancelled, or refused: fall through to copying the link.
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
-    } catch {
-      // Nothing more to try.
-    }
-  };
+  // The page's own story picture, for whoever has no recap to post.
+  const drawCard = () =>
+    drawPageCard(
+      {
+        kicker: t("anniversary.card.pageKicker"),
+        title: t("anniversary.card.pageTitle").split("|"),
+        stats: [
+          ...(stats ? [{ value: fmt(stats.accounts), label: t("anniversary.numbers.accounts") }] : []),
+          ...(stats ? [{ value: fmt(stats.callHours), label: t("anniversary.numbers.callHours") }] : []),
+          { value: fmt(stats?.peakSockets ?? HARD_FIGURES.sockets), label: t("anniversary.card.record") },
+        ],
+        text: t("anniversary.card.pageText"),
+      },
+      { live: t("anniversary.card.live"), brand: t("anniversary.card.brand"), hashtag: ANNIVERSARY_HASHTAG, url: "golive.nemtudo.me/3-meses" }
+    );
 
   const lines = t("anniversary.finale.title").split("|");
   const button =
@@ -93,9 +92,6 @@ export function FinaleSection({ onCelebrate }: { onCelebrate: () => void }) {
           </p>
 
           <div data-reveal className="mt-10 flex flex-col gap-3 sm:flex-row">
-            <button type="button" onClick={share} className={`${button} bg-[var(--a-ink)] text-[var(--a-bg)] hover:bg-white`}>
-              {copied ? t("anniversary.finale.copied") : t("anniversary.finale.share")}
-            </button>
             <Link
               href="/"
               onClick={() => trackAnniversary(ANNIVERSARY_EVENTS.ctaRoom)}
@@ -113,6 +109,16 @@ export function FinaleSection({ onCelebrate }: { onCelebrate: () => void }) {
             >
               {t("anniversary.finale.discord")} ↗
             </a>
+          </div>
+
+          <div data-reveal className="mt-10">
+            <p className="anniv-mono mb-3 text-xs uppercase text-[var(--a-mute)]">{t("anniversary.finale.share")}</p>
+            <ShareSheet
+              text={t("anniversary.finale.shareText")}
+              url={anniversaryShareUrl("share")}
+              card={drawCard}
+              onShare={() => trackAnniversary(ANNIVERSARY_EVENTS.share)}
+            />
           </div>
         </div>
         <div className="fin-mascot mx-auto w-40 sm:w-52">

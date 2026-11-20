@@ -4,7 +4,11 @@ import { useRef } from "react";
 import { useT } from "@/lib/useI18n";
 import { gsap, useGSAP, MOTION_OK } from "../gsap";
 import { SceneTitle } from "../shared";
-import { TEAM } from "../historyData";
+import { FaInstagram } from "react-icons/fa6";
+import { TEAM, type TeamRole } from "../historyData";
+
+/** One colour per role, so everyone on support wears the same one. */
+const ROLE_COLOR: Record<TeamRole, string> = { ceo: "#ff3b2f", dev: "#4c86ff", support: "#a855f7" };
 
 // The people behind the site, as three camera feeds on the control-room wall:
 // each one switches on like an old monitor when the wall comes into view, then
@@ -40,7 +44,7 @@ export function TeamSection() {
     <section ref={ref} data-scene="team" className="relative px-4 py-28 sm:px-8 sm:py-36">
       <SceneTitle kicker={t("anniversary.team.kicker")} title={t("anniversary.team.title")} sub={t("anniversary.team.sub")} color="var(--a-amber)" />
 
-      <ul className="tm-wall mx-auto mt-14 grid max-w-6xl gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+      <ul className="tm-wall mx-auto mt-14 grid max-w-6xl gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {TEAM.map((person, i) => {
           const initials = person.name
             .split(" ")
@@ -58,7 +62,7 @@ export function TeamSection() {
               </p>
               <div
                 className="tm-feed relative aspect-[4/5] overflow-hidden rounded-sm border border-white/10 transition-[border-color] group-hover:border-[var(--a-tally)]"
-                style={{ background: `radial-gradient(circle at 50% 35%, ${person.color}55, #0b0c10 70%)` }}
+                style={{ background: `radial-gradient(circle at 50% 35%, ${ROLE_COLOR[person.role]}55, #0b0c10 70%)` }}
               >
                 {person.photo ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -74,12 +78,22 @@ export function TeamSection() {
                   {t("anniversary.team.from", { place: person.place })}
                 </p>
                 <div className="tm-lower absolute inset-x-0 bottom-4 flex flex-col items-start pr-4">
-                  <p className="anniv-display bg-[var(--a-ink)] px-3 py-1.5 text-2xl text-[var(--a-bg)]">{person.name}</p>
-                  <p className="anniv-mono px-3 py-1 text-[11px] font-semibold uppercase text-white" style={{ background: person.color }}>
-                    @{person.handle} · {t(`anniversary.team.role.${person.role}`)}
+                  <p className="anniv-display bg-[var(--a-ink)] px-3 py-1.5 text-xl text-[var(--a-bg)] sm:text-2xl">{person.name}</p>
+                  <p className="anniv-mono px-3 py-1 text-[11px] font-semibold uppercase text-white" style={{ background: ROLE_COLOR[person.role] }}>
+                    {person.handle} · {t(`anniversary.team.role.${person.role}`)}
                   </p>
                 </div>
               </div>
+              {person.instagram && (
+                <a
+                  href={`https://instagram.com/${person.instagram}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="anniv-mono mt-2.5 inline-flex items-center gap-1.5 text-xs text-[var(--a-mute)] transition-colors hover:text-[var(--a-ink)]"
+                >
+                  <FaInstagram className="h-3.5 w-3.5" aria-hidden="true" />@{person.instagram}
+                </a>
+              )}
             </li>
           );
         })}

@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { PresenceDot, type PresenceSurface } from "@/components/PresenceDot";
 import { usePresence } from "@/lib/presence";
-import { avatarShapeClass } from "@/lib/avatarShape";
+import { avatarDecorationOf, avatarImageOf, avatarShapeClass } from "@/lib/avatarShape";
 import type { PresenceInfo } from "@/lib/signalingClient";
 
 // One face, drawn the same way everywhere it appears.
@@ -28,6 +28,11 @@ import type { PresenceInfo } from "@/lib/signalingClient";
 
 /** The first free default (see the API's avatarCatalog). */
 export const DEFAULT_AVATAR_PATH = "/assets/default_avatars/01.png";
+
+/** Below this a frame is a smudge of a few pixels around the face: left off. */
+const DECORATION_MIN_SIZE = 20;
+/** A decoration's picture is this much wider than the face it sits around (Discord's proportion). */
+const DECORATION_SCALE = 1.2;
 
 /** Muted enough to sit behind white text without competing with the UI. */
 const COLORS = [
@@ -85,7 +90,10 @@ export function UserAvatar({
    *  PresenceDot's SURFACES). */
   presenceSurface?: PresenceSurface;
 }) {
-  const shown = src || DEFAULT_AVATAR_PATH;
+  // The picture without what rides on its URL (see lib/avatarShape): the
+  // published default face of a decorated account loads the site's own.
+  const shown = avatarImageOf(src) || DEFAULT_AVATAR_PATH;
+  const decoration = size >= DECORATION_MIN_SIZE ? avatarDecorationOf(src) : null;
   const [failed, setFailed] = useState(false);
   // Keyed on the source so a person changing their picture mid-call gets a
   // fresh attempt instead of inheriting the previous one's failure.
@@ -106,21 +114,41 @@ export function UserAvatar({
   // without any caller having to pass it.
   const shared = `shrink-0 ${avatarShapeClass(src)} object-cover ${className}`;
 
-  // Wrapped only when there is actually a dot to place: an avatar with nobody
-  // online behind it stays the single element every layout here was built
-  // around.
+  // Wrapped only when there is actually a dot or a decoration to place: an
+  // avatar with neither stays the single element every layout here was built
+  // around. The decoration hangs outside the face's box (absolutely placed),
+  // so wearing one never moves anything around it.
+  const dot = shownPresence && shownPresence.state !== "offline" ? shownPresence : null;
   const withDot = (face: ReactNode) =>
-    !shownPresence || shownPresence.state === "offline" ? (
+    !dot && !decoration ? (
       face
     ) : (
       <span className="relative inline-flex shrink-0" style={style}>
         {face}
-        <PresenceDot
-          presence={shownPresence}
-          size={Math.max(8, Math.round(size * 0.32))}
-          surface={presenceSurface}
-          className="absolute right-0 bottom-0"
-        />
+        {decoration && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={decoration}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="pointer-events-none absolute max-w-none select-none"
+            style={{
+              width: size * DECORATION_SCALE,
+              height: size * DECORATION_SCALE,
+              left: (size - size * DECORATION_SCALE) / 2,
+              top: (size - size * DECORATION_SCALE) / 2,
+            }}
+          />
+        )}
+        {dot && (
+          <PresenceDot
+            presence={dot}
+            size={Math.max(8, Math.round(size * 0.32))}
+            surface={presenceSurface}
+            className="absolute right-0 bottom-0"
+          />
+        )}
       </span>
     );
 

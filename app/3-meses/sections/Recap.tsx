@@ -6,7 +6,7 @@ import { useLocale, useT, useTCount } from "@/lib/useI18n";
 import { LOCALE_TAGS } from "@/lib/i18n";
 import { useAuth } from "@/lib/AuthContext";
 import { useAccountToken } from "@/lib/accountApi";
-import { ANNIVERSARY_EVENTS, anniversaryShareUrl, fetchMyAnniversary, trackAnniversary, type AnniversaryRecap } from "@/lib/anniversary";
+import { ANNIVERSARY_EVENTS, ANNIVERSARY_HASHTAG, anniversaryShareUrl, fetchMyAnniversary, trackAnniversary, type AnniversaryRecap } from "@/lib/anniversary";
 import {
   compareCall,
   compareMic,
@@ -19,6 +19,8 @@ import {
 import { gsap, ScrollTrigger, useGSAP } from "../gsap";
 import { Mascot } from "../Mascot";
 import { SceneTitle, useNumberFormat } from "../shared";
+import { ShareSheet } from "../ShareSheet";
+import { drawRecapCard } from "../shareCard";
 
 // "Seu GoLive": the signed-in person's own three months, told like stories —
 // pinned, one card per scroll step, with the bars on top. A guest gets the
@@ -140,7 +142,7 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
   const locale = useLocale();
   const fmt = useNumberFormat();
   const ref = useRef<HTMLDivElement>(null);
-  const [copied, setCopied] = useState(false);
+  const { account } = useAuth();
 
   const hoursDigits = (h: number) => (h > 0 && h < 10 ? 1 : 0);
   const messages = (recap.groupMessages ?? 0) + (recap.directMessages ?? 0);
@@ -329,29 +331,48 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
     });
   }
 
-  const share = async () => {
-    trackAnniversary(ANNIVERSARY_EVENTS.recapShare);
-    const url = anniversaryShareUrl("recap");
-    const text = t("anniversary.recap.shareText", {
-      call: fmt(recap.callHours, hoursDigits(recap.callHours)),
-      share: fmt(recap.shareHours, hoursDigits(recap.shareHours)),
-      style: t(`anniversary.recap.style.${style}`),
-    });
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: t("anniversary.meta.title"), text, url });
-        return;
-      }
-    } catch {
-      // Cancelled: copy instead.
-    }
-    try {
-      await navigator.clipboard.writeText(`${text} ${url}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
-    } catch {
-      // Nothing more to try.
-    }
+  const shareText = t("anniversary.recap.shareText", {
+    call: fmt(recap.callHours, hoursDigits(recap.callHours)),
+    share: fmt(recap.shareHours, hoursDigits(recap.shareHours)),
+    style: t(`anniversary.recap.style.${style}`),
+  });
+
+  // The story picture: everything worth posting, Wrapped-style.
+  const drawCard = () => {
+    trackAnniversary(ANNIVERSARY_EVENTS.recapCard);
+    const stats = [
+      { value: `${fmt(recap.shareHours, hoursDigits(recap.shareHours))}h`, label: t("anniversary.recap.summary.streaming") },
+      { value: `${fmt(recap.micHours, hoursDigits(recap.micHours))}h`, label: t("anniversary.recap.summary.mic") },
+      ...(hasMessages ? [{ value: fmt(messages), label: t("anniversary.recap.summary.messages") }] : []),
+      { value: fmt(recap.friends), label: t("anniversary.recap.summary.friends") },
+      { value: fmt(recap.groups), label: t("anniversary.recap.summary.groups") },
+      ...(recap.calls ? [{ value: fmt(recap.calls), label: t("anniversary.recap.card.calls") }] : []),
+      { value: fmt(recap.daysWithUs), label: t("anniversary.recap.card.days") },
+    ].slice(0, 6);
+    const footnote = [
+      t("anniversary.recap.hello.joined", { date: joined }),
+      earlier > 0 ? t("anniversary.recap.hello.earlier", { pct: earlier }) : null,
+      recap.topGroup ? t("anniversary.recap.card.topGroup", { name: recap.topGroup.name }) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return drawRecapCard(
+      {
+        kicker: t("anniversary.recap.summary.kicker"),
+        name: recap.displayName,
+        handle: `@${recap.username}`,
+        // The face as the site shows it now: with the decoration, if one is on.
+        face: account?.avatarUrl ?? recap.avatarUrl,
+        bigLabel: t("anniversary.recap.summary.call"),
+        bigValue: `${fmt(recap.callHours, hoursDigits(recap.callHours))}h`,
+        comparison: recap.callHours > 0 ? cmp(compareCall(recap.callHours)) : null,
+        stats,
+        styleLead: t("anniversary.recap.summary.styleLead"),
+        style: t(`anniversary.recap.style.${style}`),
+        footnote,
+      },
+      { live: t("anniversary.card.live"), brand: t("anniversary.card.brand"), hashtag: ANNIVERSARY_HASHTAG, url: "golive.nemtudo.me/3-meses" }
+    );
   };
 
   const summary = [
@@ -396,16 +417,17 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
           {recap.points > 0 && <span className="anniv-mono rounded-sm bg-white/15 px-2 py-1 uppercase">{tc("anniversary.recap.summary.points", recap.points, { n: fmt(recap.points) })}</span>}
           {recap.devices.map((d) => DEVICE_LABEL[d] && <span key={d} className="anniv-mono rounded-sm bg-white/15 px-2 py-1 uppercase">{DEVICE_LABEL[d]}</span>)}
         </div>
-        <div className="mt-5 flex gap-2">
-          <button
-            type="button"
-            onClick={share}
-            className="anniv-mono flex-1 rounded-sm bg-white px-4 py-3 text-xs font-semibold uppercase text-zinc-900 transition hover:brightness-95"
-          >
-            {copied ? t("anniversary.finale.copied") : t("anniversary.recap.summary.share")}
-          </button>
+        <p className="anniv-mono mt-5 text-[10px] uppercase text-white/60">{t("anniversary.recap.summary.share")}</p>
+        <div className="mt-2">
+          <ShareSheet
+            text={shareText}
+            url={anniversaryShareUrl("recap")}
+            card={drawCard}
+            cardName="meu-recap-go-live.png"
+            compact
+            onShare={() => trackAnniversary(ANNIVERSARY_EVENTS.recapShare)}
+          />
         </div>
-        <p className="mt-3 text-center text-xs font-semibold text-white/50">{t("anniversary.recap.summary.screenshot")}</p>
       </>
     ),
   });

@@ -1,42 +1,108 @@
-// The outline somebody's picture is drawn in — a circle, or a rounded square
-// for Pro Ultra (see entitlements' avatar_shape).
+// What rides along with a profile picture: the outline it is drawn in (a
+// circle, or a rounded square for Pro Ultra) and the decoration around it (a
+// frame from the cosmetics catalog — see components/AvatarDecoration).
 //
-// The shape arrives *inside the avatar URL*, as `#shape=square`: the API adds
-// it when it publishes an account (see its avatarShape.ts for why), so every
-// payload that already carried a face carries its shape with no new field.
-// That makes this file the whole client side of the feature — anything that
+// Both arrive *inside the avatar URL*, as a fragment the API adds when it
+// publishes an account (see its avatarShape.ts for why):
+//
+//     https://cdn.example/a.webp#shape=square&deco=%2Fassets%2Fdecorations%2Fx.svg
+//
+// so every payload that already carried a face carries its look with no new
+// field. That makes this file the whole client side of it — anything that
 // draws a face asks avatarShapeClass(url) for its rounding instead of writing
-// `rounded-full`, and a ring or a highlight hugging the face asks the same.
+// `rounded-full`, and UserAvatar draws the decoration.
+//
+// An account with a decoration but no picture publishes the default face with
+// `none=1`: "this is the default, not a choice". stripAvatarShape gives back
+// the default path for it, which is what a picker should show as selected.
 //
 // A fragment never reaches a server, so the URL still loads as it is.
 
 export const AVATAR_SHAPES = ["circle", "square"] as const;
 export type AvatarShape = (typeof AVATAR_SHAPES)[number];
 
-const FRAGMENT_PREFIX = "#shape=";
+/** The first free default (same as UserAvatar's DEFAULT_AVATAR_PATH). */
+const DEFAULT_FACE = "/assets/default_avatars/01.png";
+
+/** A decoration is a picture the site itself serves; nothing else is ever drawn. */
+const DECORATION_PATH = /^\/assets\/decorations\/[a-z0-9_-]+\.(svg|png|webp|gif)$/;
+
+const FRAGMENT_KEYS = ["#shape=", "#deco=", "#none="];
+
+function fragmentStart(url: string): number {
+  let at = -1;
+  for (const key of FRAGMENT_KEYS) {
+    const i = url.indexOf(key);
+    if (i !== -1 && (at === -1 || i < at)) at = i;
+  }
+  return at;
+}
+
+function fragmentOf(url: string | null | undefined): URLSearchParams | null {
+  if (!url) return null;
+  const at = fragmentStart(url);
+  return at === -1 ? null : new URLSearchParams(url.slice(at + 1));
+}
+
+export function isAvatarDecorationPath(value: unknown): value is string {
+  return typeof value === "string" && DECORATION_PATH.test(value);
+}
 
 /** The shape a published avatar URL asks for. A missing or unknown one is a circle. */
 export function avatarShapeOf(url: string | null | undefined): AvatarShape {
-  if (!url) return "circle";
-  const at = url.indexOf(FRAGMENT_PREFIX);
-  if (at === -1) return "circle";
-  const shape = url.slice(at + FRAGMENT_PREFIX.length);
-  return (AVATAR_SHAPES as readonly string[]).includes(shape) ? (shape as AvatarShape) : "circle";
+  const shape = fragmentOf(url)?.get("shape");
+  return shape && (AVATAR_SHAPES as readonly string[]).includes(shape) ? (shape as AvatarShape) : "circle";
+}
+
+/** The decoration a published avatar URL carries, or null. */
+export function avatarDecorationOf(url: string | null | undefined): string | null {
+  const deco = fragmentOf(url)?.get("deco");
+  return isAvatarDecorationPath(deco) ? deco : null;
+}
+
+/** True when the URL is the default face a decorated account without a picture publishes. */
+export function isDefaultFace(url: string | null | undefined): boolean {
+  return fragmentOf(url)?.get("none") === "1";
 }
 
 /**
- * The URL without the shape — what to compare against a preset path, and
- * what a picker should treat as "the picture".
+ * The URL without the fragment — what to compare against a preset path, and
+ * what a picker should treat as "the picture". The published default face
+ * gives back the default preset's path.
  */
 export function stripAvatarShape(url: string): string {
-  const at = url.indexOf(FRAGMENT_PREFIX);
-  return at === -1 ? url : url.slice(0, at);
+  const at = fragmentStart(url);
+  if (at === -1) return url;
+  return isDefaultFace(url) ? DEFAULT_FACE : url.slice(0, at);
 }
 
-/** The URL as the API would publish it, for previewing a choice before it is saved. */
-export function withAvatarShape(url: string, shape: AvatarShape): string {
+/** The picture to load for a published URL (the site's own default for `none=1`). */
+export function avatarImageOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return stripAvatarShape(url);
+}
+
+function build(url: string, shape: AvatarShape, decoration: string | null, none: boolean): string {
   const bare = stripAvatarShape(url);
-  return shape === "circle" ? bare : `${bare}${FRAGMENT_PREFIX}${shape}`;
+  const parts: string[] = [];
+  if (shape !== "circle" && !none) parts.push(`shape=${shape}`);
+  if (decoration && isAvatarDecorationPath(decoration)) parts.push(`deco=${encodeURIComponent(decoration)}`);
+  if (none && parts.length) parts.push("none=1");
+  return parts.length ? `${bare}#${parts.join("&")}` : bare;
+}
+
+/** The URL as the API would publish it with this shape, for previewing a choice before it is saved. */
+export function withAvatarShape(url: string, shape: AvatarShape): string {
+  return build(url, shape, avatarDecorationOf(url), isDefaultFace(url));
+}
+
+/**
+ * The face wearing a decoration (or none), for previewing one before it is
+ * equipped — the shop, the anniversary gift. A null face is the default one.
+ */
+export function withAvatarDecoration(url: string | null | undefined, decoration: string | null): string {
+  if (!url) return build(DEFAULT_FACE, "circle", decoration, true);
+  return build(url, avatarShapeOf(url), decoration, isDefaultFace(url));
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { BsCoin, BsShop } from "react-icons/bs";
-import { MdCheck, MdPalette, MdTextFields } from "react-icons/md";
+import { MdCheck, MdFace, MdPalette, MdTextFields } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { useSignalingSelector, shallow } from "@/lib/useSignalingSelector";
 import { selectNameSlice } from "@/lib/signalingSelectors";
@@ -12,6 +12,7 @@ import {
   fetchCosmeticsCatalog,
   purchaseCosmetic,
   equipCosmetic as equipCosmeticRequest,
+  visibleInStore,
   type CosmeticProduct,
   type CosmeticProductType,
 } from "@/lib/cosmetics";
@@ -33,6 +34,7 @@ import { formatLocale } from "@/lib/i18n";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { UserAvatar } from "@/components/UserAvatar";
+import { withAvatarDecoration } from "@/lib/avatarShape";
 
 // The redesigned points shop — what "cosmetics_store" opens for whoever is in
 // the points-shop-v2 experiment (see CosmeticsStoreDialog, which decides).
@@ -61,6 +63,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
   const [owned, setOwned] = useState<string[]>([]);
   const [equippedNameColor, setEquippedNameColor] = useState<string | null>(null);
   const [equippedProfileColor, setEquippedProfileColor] = useState<string | null>(null);
+  const [equippedDecoration, setEquippedDecoration] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // The item on the preview, and the one whose "Comprar" is waiting for its
   // second press.
@@ -78,6 +81,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
         setOwned(data.ownedCosmetics);
         setEquippedNameColor(data.equippedNameColor);
         setEquippedProfileColor(data.equippedProfileColor ?? null);
+        setEquippedDecoration(data.equippedAvatarDecoration ?? null);
       })
       .catch((err) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : t("cosmeticsStoreDialog.couldNotLoadTheShop"));
@@ -128,6 +132,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
       setOwned(result.ownedCosmetics);
       if (result.equippedNameColor !== undefined) setEquippedNameColor(result.equippedNameColor);
       if (result.equippedProfileColor !== undefined) setEquippedProfileColor(result.equippedProfileColor);
+      if (result.equippedAvatarDecoration !== undefined) setEquippedDecoration(result.equippedAvatarDecoration);
       trackEvent("cosmetic_purchased", { productId: product.id });
       trackFeatureEvent(POINTS_SHOP_EVENTS.purchase, { feature: POINTS_SHOP_FEATURE, value: product.price });
       const badge = shelfBadgeId(product.collection ?? "");
@@ -149,6 +154,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
     try {
       const result = await equipCosmeticRequest(productId, tab);
       if (tab === "name_color") setEquippedNameColor(result.equippedNameColor);
+      else if (tab === "avatar_decoration") setEquippedDecoration(result.equippedAvatarDecoration ?? null);
       else setEquippedProfileColor(result.equippedProfileColor ?? null);
       trackFeatureEvent(POINTS_SHOP_EVENTS.equip, { feature: POINTS_SHOP_FEATURE });
       await refresh();
@@ -161,10 +167,11 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
   }
 
   const selected = catalog?.find((p) => p.id === selectedId && p.type === tab) ?? null;
-  const equippedValue = tab === "name_color" ? equippedNameColor : equippedProfileColor;
+  const equippedValue =
+    tab === "name_color" ? equippedNameColor : tab === "avatar_decoration" ? equippedDecoration : equippedProfileColor;
   const shelves = catalog
     ? shelvesOf(
-        filter === "owned" ? catalog.filter((p) => owned.includes(p.id)) : catalog,
+        filter === "owned" ? catalog.filter((p) => owned.includes(p.id)) : catalog.filter((p) => visibleInStore(p, owned)),
         tab
       )
     : [];
@@ -174,6 +181,11 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
   const previewName = tab === "name_color" && selected ? selected.value : equippedNameColor;
   const previewBanner = (tab === "profile_color" && selected ? selected.value : equippedProfileColor) ?? DEFAULT_BANNER;
   const displayName = account?.displayName ?? state.name ?? "Go Live";
+  // Your face, wearing the picked decoration (or the one you have on).
+  const previewFace = withAvatarDecoration(
+    account?.avatarUrl,
+    tab === "avatar_decoration" && selected ? selected.value : equippedDecoration
+  );
 
   return (
     <div className="flex max-h-[90dvh] w-[min(44rem,calc(100vw-1rem))] flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
@@ -210,7 +222,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
           <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="-mt-8 flex min-w-0 items-end gap-3">
               <UserAvatar
-                src={account?.avatarUrl}
+                src={previewFace}
                 name={displayName}
                 size={64}
                 className="shrink-0 rounded-full ring-4 ring-white dark:ring-zinc-950"
@@ -246,6 +258,9 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
             </TabButton>
             <TabButton active={tab === "profile_color"} onClick={() => switchTab("profile_color")} icon={<MdPalette className="h-4 w-4" />}>
               {t("pointsShop.tabBanner")}
+            </TabButton>
+            <TabButton active={tab === "avatar_decoration"} onClick={() => switchTab("avatar_decoration")} icon={<MdFace className="h-4 w-4" />}>
+              {t("pointsShop.tabDecoration")}
             </TabButton>
           </div>
           {account && (
@@ -289,7 +304,13 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
             onClick={() => void equip(null)}
             className="flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-dashed border-zinc-300 px-3 py-2 text-left text-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
           >
-            <span>{tab === "name_color" ? t("cosmeticsStoreDialog.noneDefault") : t("cosmeticsStoreDialog.defaultGolive")}</span>
+            <span>
+              {tab === "name_color"
+                ? t("cosmeticsStoreDialog.noneDefault")
+                : tab === "avatar_decoration"
+                  ? t("pointsShop.noDecoration")
+                  : t("cosmeticsStoreDialog.defaultGolive")}
+            </span>
             <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("pointsShop.backToDefault")}</span>
           </button>
         )}
@@ -314,6 +335,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
                     key={product.id}
                     product={product}
                     sample={displayName}
+                    face={account?.avatarUrl ?? null}
                     selected={selectedId === product.id}
                     owned={owned.includes(product.id)}
                     equipped={equippedValue === product.value}
@@ -344,6 +366,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
 }
 
 function shelfTitle(t: ReturnType<typeof useT>, tab: CosmeticProductType, collection: string): string {
+  if (tab === "avatar_decoration") return collection === "anniversary" ? t("pointsShop.shelfAnniversary") : t("pointsShop.shelfDecorations");
   if (collection === "") return tab === "name_color" ? t("pointsShop.shelfNameColors") : t("pointsShop.shelfBannerColors");
   if (collection === "gradient") return t("pointsShop.shelfGradients");
   if (collection === "effect") return t("pointsShop.shelfEffects");
@@ -389,6 +412,7 @@ function TabButton({
 function ItemTile({
   product,
   sample,
+  face,
   selected,
   owned,
   equipped,
@@ -405,6 +429,8 @@ function ItemTile({
   product: CosmeticProduct;
   /** The name drawn on a name item's swatch — your own. */
   sample: string;
+  /** Your published avatar, worn by a decoration's swatch. */
+  face: string | null;
   selected: boolean;
   owned: boolean;
   equipped: boolean;
@@ -434,7 +460,11 @@ function ItemTile({
       }`}
     >
     <button type="button" onClick={onSelect} aria-pressed={selected} className="flex min-w-0 cursor-pointer flex-col gap-2 text-left">
-      {nameStyle ? (
+      {product.type === "avatar_decoration" ? (
+        <span className="flex h-14 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-900">
+          <UserAvatar src={withAvatarDecoration(face, product.value)} name={sample} size={40} />
+        </span>
+      ) : nameStyle ? (
         <span className="flex h-14 items-center justify-center overflow-hidden rounded-lg bg-zinc-100 px-2 dark:bg-zinc-900">
           <span className={`truncate text-base font-bold ${nameStyle.className ?? ""}`} style={nameStyle.style}>
             {sample}
