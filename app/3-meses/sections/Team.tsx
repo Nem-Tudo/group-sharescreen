@@ -44,7 +44,7 @@ export function TeamSection() {
     <section ref={ref} data-scene="team" className="relative px-4 py-28 sm:px-8 sm:py-36">
       <SceneTitle kicker={t("anniversary.team.kicker")} title={t("anniversary.team.title")} sub={t("anniversary.team.sub")} color="var(--a-amber)" />
 
-      <ul className="tm-wall mx-auto mt-14 grid max-w-6xl gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <ul className="tm-wall mx-auto mt-14 grid max-w-6xl gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
         {TEAM.map((person, i) => {
           const initials = person.name
             .split(" ")

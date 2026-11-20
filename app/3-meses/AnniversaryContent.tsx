@@ -31,11 +31,12 @@ import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
 import { BugsSection } from "./sections/Bugs";
 import { TeamSection } from "./sections/Team";
+import { ThanksSection } from "./sections/Thanks";
 import { FinaleSection } from "./sections/Finale";
 import { HARD_FIGURES } from "./historyData";
 import "./anniversary.css";
 
-type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "gift" | "timeline" | "night" | "bugs" | "team" | "finale";
+type Scene = "intro" | "day0" | "day1" | "first72" | "outage" | "numbers" | "recap" | "gift" | "timeline" | "night" | "bugs" | "team" | "thanks" | "finale";
 
 const SCENES: Record<Scene, { music: MusicMood }> = {
   intro: { music: "calm" },
@@ -50,6 +51,7 @@ const SCENES: Record<Scene, { music: MusicMood }> = {
   night: { music: "night" },
   bugs: { music: "tense" },
   team: { music: "party" },
+  thanks: { music: "calm" },
   finale: { music: "party" },
 };
 
@@ -348,6 +350,7 @@ export function AnniversaryContent() {
           }}
         />
         <TeamSection />
+        <ThanksSection />
         <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} stats={stats} />
       </main>
 

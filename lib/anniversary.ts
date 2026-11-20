@@ -48,6 +48,10 @@ export const ANNIVERSARY_EVENTS = {
   giftLogin: "anniv_gift_login",
   /** The recap's story picture drawn (for Stories or a download). */
   recapCard: "anniv_recap_card",
+  /** The thank-you wall: a subscriber's profile opened, the partner's or an advertiser's link. */
+  thanksProfile: "anniv_thanks_profile",
+  thanksPartner: "anniv_thanks_partner",
+  thanksAd: "anniv_thanks_ad",
 } as const;
 
 /** Where a share went: anniv_share.<target> (see app/3-meses/ShareSheet). */
@@ -71,6 +75,7 @@ export const ANNIVERSARY_SCENES = [
   "night",
   "bugs",
   "team",
+  "thanks",
   "finale",
 ] as const;
 
@@ -210,3 +215,35 @@ export const fetchAnniversaryGift = (token: string) => giftRequest("", token, "G
 export const spinAnniversaryGift = (token: string) => giftRequest("/spin", token, "POST");
 /** Gives the drawn frame, after a share (`via` = where it went). */
 export const claimAnniversaryGift = (token: string, via: string) => giftRequest("/claim", token, "POST", { via });
+
+/** The thank-you wall (sharescreen-api anniversaryThanks.ts). */
+export type SupporterTier = "pro_ultra" | "premium_max" | "premium";
+export interface Supporter {
+  id: string;
+  name: string;
+  username: string;
+  avatarUrl: string | null;
+}
+export interface SupporterPage {
+  tier: SupporterTier;
+  total: number;
+  people: Supporter[];
+  next: number | null;
+}
+export interface Advertiser {
+  name: string;
+  iconUrl: string | null;
+  url: string | null;
+}
+
+export async function fetchSupporters(tier: SupporterTier, offset: number, limit = 40): Promise<SupporterPage> {
+  const res = await fetch(`${getSignalingHttpBase()}/public/anniversary/supporters?tier=${tier}&offset=${offset}&limit=${limit}`);
+  if (!res.ok) throw new Error(`supporters: ${res.status}`);
+  return (await res.json()) as SupporterPage;
+}
+
+export async function fetchAdvertisers(): Promise<Advertiser[]> {
+  const res = await fetch(`${getSignalingHttpBase()}/public/anniversary/advertisers`);
+  if (!res.ok) throw new Error(`advertisers: ${res.status}`);
+  return ((await res.json()) as { advertisers: Advertiser[] }).advertisers ?? [];
+}
