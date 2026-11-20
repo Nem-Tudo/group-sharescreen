@@ -20,6 +20,7 @@ import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { useT } from "@/lib/useI18n";
 import { ROOM_PREJOIN_FEATURE } from "@/lib/prejoinMetrics";
 import { UserAvatar } from "./UserAvatar";
+import { RoomSkeleton } from "./RoomSkeleton";
 import { HeadphonesOffIcon, MicIcon, MicOffIcon, SpeakerIcon } from "./icons";
 
 /**
@@ -54,6 +55,10 @@ export const ROOM_PREJOIN_EVENTS = {
   abandon: "prejoin_abandon",
   /** Switched tab or closed it while this screen was up (once per screen). */
   hidden: "prejoin_hidden",
+  /** The room did not exist yet (this person is creating it), or that could not be checked: no screen. */
+  skipNew: "prejoin_skip_new",
+  /** An eligible visit opened from outside the site, in a browser (variant "direct"'s audience). All groups. */
+  directVisit: "prejoin_direct_visit",
   /** Left from this screen without going in. */
   back: "prejoin_back",
   /** Went in with the mic on / off. */
@@ -215,6 +220,18 @@ export function RoomPrejoin({
     return () => controller.abort();
   }, [handle, presentation.isPrivate]);
 
+  // Never in front of a room this person is about to create: there is nobody
+  // and nothing in it to confirm, and making a room is already the decision
+  // to go in. When it cannot be told (the check failed), the same: in doubt,
+  // no extra step. Nothing of the screen is drawn until the answer is in.
+  const skipThisRoom = info.state === "new" || info.state === "unknown";
+  useEffect(() => {
+    if (!skipThisRoom) return;
+    acted.current = true;
+    track(ROOM_PREJOIN_EVENTS.skipNew);
+    onSkip();
+  }, [skipThisRoom, onSkip]);
+
   const trimmedGuestName = guestName.trim();
   const canEnter = (Boolean(account) || trimmedGuestName.length > 0) && !busy;
 
@@ -247,6 +264,8 @@ export function RoomPrejoin({
     if (window.history.length > 1) router.back();
     else router.push("/");
   }
+
+  if (info.state === "loading" || skipThisRoom) return <RoomSkeleton />;
 
   return (
     <div className="flex flex-1 items-center justify-center px-4 py-12">

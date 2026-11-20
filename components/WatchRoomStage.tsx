@@ -64,6 +64,28 @@ function openedByReload(handle: string): boolean {
   }
 }
 
+// Variant "direct" of the experiment: the screen only for a room opened
+// straight from outside the site — a link pasted or clicked in Discord,
+// WhatsApp, an e-mail — in a browser. A room reached by a click inside the
+// site (recent rooms, the room list, a profile) is somebody who already chose
+// it, and the apps are left out. "From outside" = this room is the page the
+// document was loaded on (a client-side navigation never is), by an ordinary
+// navigation (not a reload, not back/forward), with no referrer from our own
+// origin (a full-page link inside the site still carries one).
+const DIRECT_VARIANT = "direct";
+function openedFromOutside(handle: string): boolean {
+  if (reloadClaimed || typeof performance === "undefined" || isAppShell()) return false;
+  try {
+    const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    if (entry?.type !== "navigate") return false;
+    if (decodeURIComponent(new URL(entry.name).pathname) !== `/watch/${handle}`) return false;
+    if (document.referrer && new URL(document.referrer).origin === window.location.origin) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function prejoinApplies(handle: string): boolean {
   return !handle.startsWith(GROUP_VOICE_PREFIX) && !isCallRoomHandle(handle) && !isThemeRoomHandle(handle);
 }
@@ -86,6 +108,7 @@ export function WatchRoomStage({
   // or the prejoin's "Entrar com sua conta"). Read here, cleared in an effect.
   const [skipMarked] = useState(() => readPrejoinSkip(handle));
   const [reloaded] = useState(() => openedByReload(handle));
+  const [direct] = useState(() => openedFromOutside(handle));
   // For "tempo até entrar", the same clock on both sides of the experiment.
   const [openedAt] = useState(() => Date.now());
   const [appShell] = useState(() => isAppShell());
@@ -110,9 +133,19 @@ export function WatchRoomStage({
   // Until both answers are in — who they are, and which side of the experiment
   // — nobody joins: going in and then being shown the door would be the worst
   // of both.
+  // "on": every eligible visit. "direct": only one opened from outside the site.
+  const wantsScreen = prejoin.enabled && (prejoin.variant !== DIRECT_VARIANT || direct);
   const canJoin =
-    !applies || (arrivedAsSomeone !== null && (!eligible || (prejoin.ready && (!prejoin.enabled || entered))));
-  const showPrejoin = eligible && prejoin.ready && prejoin.enabled && !entered;
+    !applies || (arrivedAsSomeone !== null && (!eligible || (prejoin.ready && (!wantsScreen || entered))));
+  const showPrejoin = eligible && prejoin.ready && wantsScreen && !entered;
+
+  // How many eligible visits come from outside, on every side — the reach of
+  // the "direct" variant, and the cut to compare its numbers on.
+  useEffect(() => {
+    if (eligible && direct) {
+      trackFeatureEvent(ROOM_PREJOIN_EVENTS.directVisit, { feature: ROOM_PREJOIN_FEATURE });
+    }
+  }, [eligible, direct]);
 
   // The mark is spent by the visit it was left for; the reload, by the first
   // room to look at it.
