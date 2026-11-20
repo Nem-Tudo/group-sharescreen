@@ -54,6 +54,8 @@ export const ANNIVERSARY_EVENTS = {
   /** The thank-you wall: a subscriber's profile opened, the partner's or an advertiser's link. */
   thanksProfile: "anniv_thanks_profile",
   thanksPartner: "anniv_thanks_partner",
+  /** An Instagram link in the team section (and anniv_team_ig.<member id>, who). */
+  teamInstagram: "anniv_team_ig",
   thanksAd: "anniv_thanks_ad",
 } as const;
 
@@ -63,6 +65,9 @@ export const ANNIVERSARY_SHARE_TARGETS = ["native", "x", "whatsapp", "instagram"
 /** Where a visit came from: anniv_from.<source>, once per page load. */
 export const ANNIVERSARY_SOURCES = ["pill", "popup", "share", "recap", "gift", "site", "external", "direct"] as const;
 export type AnniversarySource = (typeof ANNIVERSARY_SOURCES)[number];
+
+/** The team members with an Instagram (app/3-meses/historyData TEAM ids). */
+export const ANNIVERSARY_TEAM_IDS = ["nemtudo", "commandbat", "g4buh", "copy", "jake"] as const;
 
 /** Each scene reached: anniv_seen.<scene>, once per page load. */
 export const ANNIVERSARY_SCENES = [
@@ -98,6 +103,7 @@ export function anniversaryEventNames(): string[] {
     ...ANNIVERSARY_SCENES.map((s) => `anniv_seen.${s}`),
     ...ANNIVERSARY_STAY_MARKS.map((m) => `anniv_stay.${m.mark}`),
     ...ANNIVERSARY_SHARE_TARGETS.map((s) => `anniv_share.${s}`),
+    ...ANNIVERSARY_TEAM_IDS.map((id) => `anniv_team_ig.${id}`),
   ];
 }
 

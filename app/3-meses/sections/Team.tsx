@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { useT } from "@/lib/useI18n";
+import { ANNIVERSARY_EVENTS, trackAnniversary } from "@/lib/anniversary";
 import { gsap, useGSAP, MOTION_OK } from "../gsap";
 import { SceneTitle } from "../shared";
 import { FaInstagram } from "react-icons/fa6";
@@ -89,6 +90,10 @@ export function TeamSection() {
                   href={`https://instagram.com/${person.instagram}`}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={() => {
+                    trackAnniversary(ANNIVERSARY_EVENTS.teamInstagram);
+                    trackAnniversary(`anniv_team_ig.${person.id}`);
+                  }}
                   className="anniv-mono mt-2.5 inline-flex items-center gap-1.5 text-xs text-[var(--a-mute)] transition-colors hover:text-[var(--a-ink)]"
                 >
                   <FaInstagram className="h-3.5 w-3.5" aria-hidden="true" />@{person.instagram}
