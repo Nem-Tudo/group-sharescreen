@@ -55,7 +55,7 @@ export function DialogFrame({
       data-phone-fullscreen={wide ? "" : undefined}
       className={`flex max-w-full flex-col overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 ${
         wide
-          ? "w-full max-sm:h-dvh max-sm:pt-[env(safe-area-inset-top)] sm:max-h-[min(90dvh,calc(100dvh-2rem))]"
+          ? "w-full max-sm:h-[var(--app-h,100dvh)] max-sm:pt-[env(safe-area-inset-top)] sm:max-h-[min(90dvh,calc(100dvh-2rem))]"
           : "max-h-[min(90dvh,calc(100dvh-2rem))] w-96"
       }`}
     >

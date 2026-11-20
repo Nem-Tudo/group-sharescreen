@@ -17,6 +17,7 @@ import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/AuthContext";
 import { openDirectMessages, useDirectMessagesWindow } from "@/lib/dmWindow";
 import { haptic } from "@/lib/nativeApp";
+import { useAppHeight } from "@/lib/appHeight";
 import { isTabBarRoute, useDmUnreadTotal, useSoftKeyboardOpen, useTabBarEnabled } from "@/lib/mobileShell";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { refreshGroups, useGroupsSlice } from "@/lib/useGroups";
@@ -43,6 +44,8 @@ export function MobileTabBar() {
   const enabled = useTabBarEnabled();
   const wide = useMediaQuery(LG_BREAKPOINT_QUERY);
   const keyboard = useSoftKeyboardOpen();
+  // Mounted on every page (see app/layout.tsx), which is what this needs.
+  useAppHeight();
   const onRoute = enabled && isTabBarRoute(pathname);
   const visible = onRoute && !keyboard;
 
