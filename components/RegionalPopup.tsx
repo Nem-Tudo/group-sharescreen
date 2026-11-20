@@ -11,7 +11,6 @@ import {
   REGIONAL_FEATURE,
   REGIONAL_HQ,
   REGIONAL_RADIUS_KM,
-  REGIONAL_TOWNS,
   distanceKm,
   locateVisitor,
   markRegionalPopupSeen,
@@ -44,7 +43,8 @@ const RETRY_MS = 2000;
 /** Pages it never opens on: sign-in, and the ones OBS or another window shows. */
 const EXCLUDED = ["/login", "/obs", "/stream", "/oauth", "/oauth2", "/cam", "/admin", "/ad", "/3-meses", "/redeem", "/gift"];
 
-const PREVIEW_SPOT: RegionalSpot = { lat: REGIONAL_TOWNS[0].lat + 0.01, lng: REGIONAL_TOWNS[0].lng - 0.01 };
+/** Pouso Alegre, give or take. */
+const PREVIEW_SPOT: RegionalSpot = { lat: -22.22, lng: -45.95 };
 
 export function RegionalPopup() {
   const pathname = usePathname();
@@ -146,7 +146,7 @@ export function RegionalPopup() {
   return (
     <RegionalPopupCard
       spot={spot}
-      username={account?.username ?? null}
+      signedIn={Boolean(account)}
       returnTo={pathname ?? "/"}
       preview={preview}
       onClose={() => setOpen(false)}

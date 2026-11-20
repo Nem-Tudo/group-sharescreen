@@ -35,6 +35,8 @@ export const REGIONAL_EVENTS = {
   pro: "regional_popup_pro",
   /** Sign in / create an account, from the gift ticket. */
   login: "regional_popup_login",
+  /** The creator's Instagram (@onemtudo). */
+  instagram: "regional_popup_ig",
   /** A location lookup's outcome: where it came from, or that it failed. */
   geoCf: "regional_geo.cf",
   geoPublic: "regional_geo.geojs",
@@ -53,35 +55,7 @@ export function trackRegional(name: string, value?: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Towns on the popup's map (and the "cê é de Pouso Alegre?" guess)
-
-export type RegionalTown = { name: string; lat: number; lng: number };
-
-export const REGIONAL_TOWNS: RegionalTown[] = [
-  { name: "Pouso Alegre", lat: -22.23, lng: -45.9364 },
-  { name: "Itajubá", lat: -22.4256, lng: -45.4528 },
-  { name: "Natércia", lat: -22.1156, lng: -45.5114 },
-  { name: "Cambuí", lat: -22.6119, lng: -46.0575 },
-  { name: "Campos do Jordão", lat: -22.7394, lng: -45.5914 },
-  { name: "São Lourenço", lat: -22.1164, lng: -45.0544 },
-  { name: "Ouro Fino", lat: -22.2828, lng: -46.3689 },
-  { name: "Machado", lat: -21.6747, lng: -45.9219 },
-  { name: "Três Corações", lat: -21.6956, lng: -45.2556 },
-  { name: "Varginha", lat: -21.5514, lng: -45.4303 },
-  { name: "Caxambu", lat: -21.9767, lng: -44.9331 },
-  { name: "Guaratinguetá", lat: -22.8164, lng: -45.1928 },
-  { name: "Taubaté", lat: -23.0264, lng: -45.5556 },
-  { name: "Extrema", lat: -22.8547, lng: -46.3181 },
-  { name: "Alfenas", lat: -21.4292, lng: -45.9472 },
-  { name: "Três Pontas", lat: -21.3669, lng: -45.5122 },
-  { name: "Poços de Caldas", lat: -21.7878, lng: -46.5614 },
-  { name: "São José dos Campos", lat: -23.1794, lng: -45.8869 },
-  { name: "Bragança Paulista", lat: -22.9528, lng: -46.5419 },
-  { name: "Lavras", lat: -21.2453, lng: -45.0 },
-];
-
-/** Within this of a town, the title guesses it ("Uai, cê é de Itajubá?"). */
-const TOWN_GUESS_KM = 10;
+// Distance
 
 export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const rad = Math.PI / 180;
@@ -89,20 +63,6 @@ export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; ln
   const dLng = (b.lng - a.lng) * rad;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
   return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-/** The map town this spot is in, if it is close enough to one to say so. */
-export function guessTown(spot: { lat: number; lng: number }): RegionalTown | null {
-  let best: RegionalTown | null = null;
-  let bestKm = TOWN_GUESS_KM;
-  for (const town of REGIONAL_TOWNS) {
-    const km = distanceKm(spot, town);
-    if (km < bestKm) {
-      best = town;
-      bestKm = km;
-    }
-  }
-  return best;
 }
 
 // ---------------------------------------------------------------------------
