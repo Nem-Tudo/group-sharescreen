@@ -13,6 +13,7 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { EventPromoWidget } from "@/components/EventPromoWidget";
 import { AnniversaryPopup } from "@/components/AnniversaryPopup";
 import { AnniversaryBanner } from "@/components/AnniversaryBanner";
+import { RegionalPopup } from "@/components/RegionalPopup";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
@@ -442,6 +443,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {/* "Go Live fez 3 meses", once, for people around for a few
                     days who are in the experiment — see components/AnniversaryPopup. */}
                 <AnniversaryPopup />
+                {/* "Uai, cê é aqui da região!" — once, for people near Santa Rita do
+                    Sapucaí who are in the experiment; see components/RegionalPopup. */}
+                <RegionalPopup />
               </NtPopups>
             </AuthProvider>
           </SupressErrors>
