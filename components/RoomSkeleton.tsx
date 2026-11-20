@@ -1,3 +1,7 @@
+"use client";
+
+import { useRoomShellHosted } from "@/lib/roomShell";
+
 // What a room looks like while it is still arriving.
 //
 // It replaced a centred spinner with the word "Entrando na sala..." under it.
@@ -50,7 +54,14 @@ function ChatRow({ width }: { width: string }) {
   );
 }
 
-export function RoomSkeleton() {
+export function RoomSkeleton({ hosted: hostedProp }: { hosted?: boolean } = {}) {
+  // Framed by the group shell (experiment "room-shell", xl up only): the bar
+  // on top is the shell's, already on screen, and so is the padding around the
+  // columns — the skeleton leaves both of its own out while framed. Read from the
+  // shell's context on the room's page; the room itself, mounted at the root
+  // of the app and so outside that context, says so with the prop.
+  const hostedFromShell = useRoomShellHosted();
+  const hosted = hostedProp ?? hostedFromShell;
   return (
     <div
       // The same marker the real room carries, because globals.css pins the
@@ -67,7 +78,11 @@ export function RoomSkeleton() {
       // none of the thirty grey rectangles standing in for it.
       aria-hidden="true"
     >
-      <header className="shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4">
+      <header
+        className={`shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4 ${
+          hosted ? "lg:hidden" : ""
+        }`}
+      >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:flex-nowrap lg:gap-3">
           {/* Where you are: home, the room's name, its public/private badge. */}
           <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none">
@@ -94,7 +109,7 @@ export function RoomSkeleton() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 lg:p-3">
+      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${hosted ? "" : "lg:p-3"}`}>
         {/* Participants, then the partner card under it. */}
         <aside className="hidden h-full w-64 shrink-0 flex-col gap-3 lg:flex 2xl:w-72">
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">

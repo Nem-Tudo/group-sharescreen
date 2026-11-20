@@ -91,7 +91,7 @@ import {
 } from "@/lib/roomsApi";
 import { rememberRecentRoom } from "@/lib/recentRoomsSync";
 import { openDirectMessages } from "@/lib/dmWindow";
-import type { CallDockPhase } from "@/lib/callSession";
+import type { CallDockPhase, RoomHeaderSlots } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
 import { useAndroidCallService } from "@/lib/androidCallService";
@@ -299,6 +299,12 @@ import {
 import { useIOSBackgroundCall } from "@/lib/iosBackgroundCall";
 import { STREAM_PREVIEW_FEATURE, useStreamPreviewUploader } from "@/lib/streamPreview";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
+import {
+  setRoomShellSwitchedOff,
+  trackRoomShellFold,
+  useRoomShell,
+  useRoomShellCallMinutes,
+} from "@/lib/roomShell";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
@@ -1951,11 +1957,12 @@ function WatchRoomView({
   /**
    * The slots of whatever top bar is lending itself to the call — a group's,
    * while the group's pages are on screen, whether the call is that group's or
-   * one carried in from an ordinary room. The call controls are portalled into
-   * it, and the room's page buttons too while the room is the page shown (see
-   * inHeaderSlot). Null anywhere else.
+   * one carried in from an ordinary room; and the same bar around an ordinary
+   * room's own page, in the experiment "room-shell" (see lib/roomShell). The
+   * call controls are portalled into it, and the room's page buttons too while
+   * the room is the page shown (see inHeaderSlot). Null anywhere else.
    */
-  headerSlots?: { center: HTMLElement | null; right: HTMLElement | null; end: HTMLElement | null } | null;
+  headerSlots?: RoomHeaderSlots | null;
   /**
    * The strip under a group's header that a group voice room draws its music
    * bars into (see CallChrome.musicSlot). Used only when this room *is* a
@@ -1978,6 +1985,16 @@ function WatchRoomView({
   const router = useRouter();
   // The room stripped down to the call itself. See the `dm` prop.
   const callLayout = Boolean(dm);
+  // An ordinary room's own page, framed by the group shell (experiment
+  // "room-shell", see lib/roomShell): the rail of groups on its left and the
+  // shell's bar on top. The room keeps everything that is its own — its
+  // participant column and ad, its chat, its menus, its theme — but its header
+  // is the shell's: the name and description go to the bar's left (inHeaderSlot
+  // "start"), the call controls to its middle, the page buttons to its right
+  // and "⋯" to its corner, the way a group's voice room already does. Only
+  // while the page is the one on screen: carried around the site, the call is
+  // docked like any other.
+  const hostedPage = Boolean(headerSlots) && visible && !group && !callLayout;
   const state = useSignalingSelector(selectWatchRoom, shallow);
   const { hasMusic, musicPlaying, musicAddedById } = useSignalingSelector(selectMusicSummary, shallow);
   // The room's tools and raised hands (see lib/roomTools).
@@ -2038,7 +2055,9 @@ function WatchRoomView({
   // element, so the redesign's layer in globals.css finds them through this
   // mark on <html> — only while the room is the page on screen, so a docked
   // call does not restyle whatever page somebody walked off to.
-  const redesignInGroup = Boolean(group);
+  // A page framed by the group shell wears the shell's colours the same way:
+  // the rail and the bar around it are not the redesign's.
+  const redesignInGroup = Boolean(group) || hostedPage;
   useEffect(() => {
     if (!roomRedesign || !visible) return;
     const root = document.documentElement;
@@ -2049,6 +2068,11 @@ function WatchRoomView({
   // The "Configurações" dialog: from here on the room's menu keeps the room's
   // own things, and the switches about a running call go to the dialog's spot.
   const settingsHub = useFeature(SETTINGS_HUB_FEATURE, { track: visible }).enabled;
+  // Experiment "room-shell" (see lib/roomShell): read here for the switch in
+  // "⋯" and for the time-in-call count; its exposure is the shell's, which is
+  // where the frame is drawn. Never for a group's room or a direct call.
+  const roomShell = useRoomShell(group || callLayout ? null : handle, { track: false });
+  useRoomShellCallMinutes(roomShell.eligible && state.room === handle);
   // "Silenciar fontes": the headphones split in two - voices, and the room's
   // videos and music (see lib/mediaSourcesMute). Exposure wherever the room
   // is on screen, since its switch under the headphones' arrow always is.
@@ -3145,9 +3169,11 @@ function WatchRoomView({
       }
       trackEvent("left_sidebar_toggle", { collapsed: next });
       trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.sidebarToggle);
+      // Framed by the group shell, this folds the rail of groups too.
+      if (hostedPage) trackRoomShellFold(next);
       return next;
     });
-  }, [hasAnyMedia, rawActivePartner, activePartnerAd, partnerAdHidden]);
+  }, [hasAnyMedia, rawActivePartner, activePartnerAd, partnerAdHidden, hostedPage]);
 
   const toggleRightSidebar = useCallback(() => {
     setRightSidebarCollapsed((prev) => {
@@ -3171,7 +3197,9 @@ function WatchRoomView({
     toggleLeftSidebarRef.current = toggleLeftSidebar;
   }, [toggleLeftSidebar]);
   const stableToggleLeftSidebar = useCallback(() => toggleLeftSidebarRef.current(), []);
-  const publishesGroupColumns = Boolean(group);
+  // A page framed by the group shell publishes the same thing, for the one
+  // column of the shell's it folds with its own participants: the rail.
+  const publishesGroupColumns = Boolean(group) || hostedPage;
   useEffect(() => {
     if (!publishesGroupColumns) return;
     setGroupVoiceColumns({
@@ -4921,7 +4949,7 @@ function WatchRoomView({
   if (restoring) {
     return (
       <>
-        <RoomSkeleton />
+        <RoomSkeleton hosted={hostedPage} />
         <p className="sr-only" role="status">
           {translate("watch.watchRoom.joiningTheRoom")}
         </p>
@@ -5320,7 +5348,7 @@ function WatchRoomView({
   if (!state.room) {
     return (
       <>
-        <RoomSkeleton />
+        <RoomSkeleton hosted={hostedPage} />
         <p className="sr-only" role="status">
           {translate("watch.watchRoom.joiningTheRoom")}
         </p>
@@ -8027,6 +8055,25 @@ function WatchRoomView({
         </div>
       )}
 
+      {/* Experiment "room-shell": the room framed by the group shell — the
+          groups down the left, the conversations in the top bar. The way back
+          to the room as it always was, for whoever prefers it, on this
+          browser; and the way back in. The menu closes on the way: the bar it
+          hangs from is the one being swapped. */}
+      {roomShell.available && (
+        <MenuToggleRow
+          label={translate("watch.watchRoom.roomShellToggle")}
+          active={!roomShell.switchedOff}
+          onToggle={() => {
+            closeMenu();
+            setRoomShellSwitchedOff(!roomShell.switchedOff);
+          }}
+          activeIcon={<LuPanelLeftOpen className="h-4 w-4" />}
+          inactiveIcon={<LuPanelLeftClose className="h-4 w-4" />}
+          hint={translate("watch.watchRoom.roomShellHint")}
+        />
+      )}
+
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
       {!settingsHub && (
@@ -8932,11 +8979,11 @@ function WatchRoomView({
         )}
 
         {isWideLayout && hasAnyMedia && (
-          <Tooltip content={translate("watch.watchRoom.hideParticipants")}>
+          <Tooltip content={translate(hostedPage ? "watch.watchRoom.hideGroupsAndParticipants" : "watch.watchRoom.hideParticipants")}>
             <button
               type="button"
               onClick={toggleLeftSidebar}
-              aria-label={translate("watch.watchRoom.hideParticipants")}
+              aria-label={translate(hostedPage ? "watch.watchRoom.hideGroupsAndParticipants" : "watch.watchRoom.hideParticipants")}
               className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <LuPanelLeftClose className="h-4 w-4" />
@@ -9369,7 +9416,12 @@ function WatchRoomView({
   // "end" is the corner of the group's bar, after its own buttons, and only
   // exists there — outside a group that node stays in the room's own right
   // zone (see moreOptions).
-  function inHeaderSlot(slot: "center" | "right" | "end", node: ReactNode): ReactNode {
+  //
+  // "start" is the left of that bar, after "início" and the conversations:
+  // where an ordinary room's page framed by the group shell puts its name,
+  // code and description (see hostedPage). Without the bar it is the left of
+  // the room's own header, where it always was.
+  function inHeaderSlot(slot: "start" | "center" | "right" | "end", node: ReactNode): ReactNode {
     const barTarget = headerSlots?.[slot] ?? null;
     if (barTarget) {
       if (slot !== "center" && !visible) return null;
@@ -9677,8 +9729,9 @@ function WatchRoomView({
       data-room-page=""
       // The redesign's scope: every rule of it in globals.css hangs off this.
       data-room-redesign={roomRedesign ? "" : undefined}
-      // A group's room wears the group's colours, not the redesign's.
-      data-rr-group={roomRedesign && group ? "" : undefined}
+      // A group's room wears the group's colours, not the redesign's — and so
+      // does a page framed by the group shell (see hostedPage).
+      data-rr-group={roomRedesign && redesignInGroup ? "" : undefined}
       className={`flex min-h-0 flex-1 flex-col ${
         // The conversation's own card is what this is drawn on.
         callLayout ? "" : "bg-zinc-50 dark:bg-black"
@@ -9735,7 +9788,9 @@ function WatchRoomView({
           // to the bar of whatever page is showing it (see inHeaderSlot), and
           // the room's name, its link and its settings are not what a call
           // with one person is about.
-          group || callLayout
+          // Nor on a page framed by the group shell, whose bar carries all of
+          // it (see hostedPage).
+          group || callLayout || hostedPage
             ? "hidden"
             : "shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4"
         }
@@ -9794,8 +9849,17 @@ function WatchRoomView({
 
             {/* The room's own identity — name, access code, public/private —
                 held together in one group, so the description beside it is
-                the only thing that gives space up as the window narrows. */}
-            <div className={group ? "hidden" : "flex min-w-0 items-center gap-2"}>
+                the only thing that gives space up as the window narrows.
+                Framed by the group shell, all of it goes to the left of the
+                shell's bar instead, after a rule of its own (see inHeaderSlot
+                "start"). Never for a group's room or a direct call, whose bar
+                says where you are in its own way. */}
+            {!group && !callLayout && inHeaderSlot("start", (
+            <>
+            {headerSlots?.start && hostedPage && (
+              <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />
+            )}
+            <div className="flex min-w-0 items-center gap-2">
               {/* For a private room the code is split out of the handle and
                   shown on its own: it's the room's whole secret now (see
                   roomsApi's toPrivateRoomHandle), so it's the thing someone
@@ -9863,13 +9927,15 @@ function WatchRoomView({
                 menuItems), which is where the rest of the once-per-visit
                 controls already are. */}
             {/* Public rooms only — see the same gate on the phone copy above. */}
-            {isWideLayout && !isPrivateRoomHandle(handle) && !group && (
+            {isWideLayout && !isPrivateRoomHandle(handle) && (
               <RoomInfoControls
                 description={state.roomDescription}
                 category={state.roomCategory}
                 canEdit={isRoomManager}
               />
             )}
+            </>
+            ))}
           </div>
 
           {/* What you do in the call: mic, what you hear, screen, camera and
@@ -10087,7 +10153,8 @@ function WatchRoomView({
               </Tooltip>
             )}
 
-            {!group && <UpdateAppButton />}
+            {/* Not in a host bar, which has its own (the group shell's). */}
+            {!group && !headerSlots?.right && <UpdateAppButton />}
 
             {/* On a phone the same menu is a bottom sheet: fixed to the
                 screen rather than hung off the button, closed by a drag, a tap
@@ -10446,8 +10513,9 @@ function WatchRoomView({
         />
       )}
 
-      {/* In a group the shell around this already pads it (see GroupAppShell). */}
-      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group || callLayout ? "" : "lg:p-3"}`}>
+      {/* In a group the shell around this already pads it (see GroupAppShell),
+          and on a page it frames as well. */}
+      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group || callLayout || hostedPage ? "" : "lg:p-3"}`}>
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. A card of
             its own rather than loose text on the page background: the room is
@@ -10496,13 +10564,13 @@ function WatchRoomView({
           {isWideLayout && leftSidebarCollapsed && !callLayout && (
             <div className="absolute left-2 top-2 z-20">
               <Tooltip
-                content={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
+                content={translate(group ? "watch.watchRoom.showGroupsAndRooms" : hostedPage ? "watch.watchRoom.showGroupsAndParticipants" : "watch.watchRoom.showParticipants")}
                 placement="right"
               >
                 <button
                   type="button"
                   onClick={toggleLeftSidebar}
-                  aria-label={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
+                  aria-label={translate(group ? "watch.watchRoom.showGroupsAndRooms" : hostedPage ? "watch.watchRoom.showGroupsAndParticipants" : "watch.watchRoom.showParticipants")}
                   className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
                 >
                   <LuPanelLeftOpen className="h-4 w-4" />

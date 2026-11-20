@@ -55,7 +55,9 @@ import {
   useGroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
+import { parseWatchPath, RoomShellHostContext, useRoomShell, useRoomShellPageEvents } from "@/lib/roomShell";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
+import { selectRoom } from "@/lib/signalingSelectors";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
 import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useHeaderFit } from "@/lib/headerFit";
@@ -66,6 +68,7 @@ import { haptic } from "@/lib/nativeApp";
 
 // The rooms column's gap-3, between the rooms and the ad under them.
 const ASIDE_GAP_PX = 12;
+
 
 // The two side columns, each dragged wider or narrower from its inner edge (see
 // components/ColumnResize). 300px is the width they always had, and what a
@@ -108,8 +111,18 @@ const MEMBERS_COLUMN: ColumnWidthSpec = {
 // And it is what draws the page, too: the view in the middle is picked from
 // the address here (GroupsView), not handed down by the route. Moving between
 // rooms and groups is a pushState (see lib/groupNavigation), which changes the
-// address without a server round trip — the pages under app/groups render
-// nothing, and exist so that a reload or a shared link resolves.
+// address without a server round trip — the pages under app/(shell)/groups
+// render nothing, and exist so that a reload or a shared link resolves.
+//
+// An ordinary room's page (/watch/:handle) is under this shell as well (see
+// app/(shell)/layout.tsx), and there the page *is* the room: it renders the
+// room itself (WatchRoomStage), and this shell only frames it — the rail on
+// the left, this bar on top with the room's name, controls and buttons
+// portalled into it — in the experiment "room-shell" (see lib/roomShell).
+// Outside it, or below xl, the shell draws nothing at all around the room,
+// which then has its own header and columns exactly as it always had. The
+// page stays at the same place in the tree either way, so the frame coming or
+// going (a resize, the experiment's answer arriving) never re-mounts it.
 
 export function GroupAppShell({ children }: { children: ReactNode }) {
   const t = useT();
@@ -117,6 +130,13 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // describe whichever page the server last rendered.
   const pathname = usePathname();
   const route = parseGroupsPath(pathname);
+  // Not a group page: the only other page under this shell is a room's.
+  const roomHandle = route ? null : parseWatchPath(pathname);
+  // The exposure is counted here, the one place the frame is drawn.
+  const roomShell = useRoomShell(roomHandle, { track: true });
+  // Whether this shell draws its frame — the bar, the rail, the columns. On
+  // every group page; on a room's page only in the experiment (xl up).
+  const framed = route !== null || roomShell.on;
   // The expanded private messages are a page of their own: no group behind them.
   const groupId = route && (route.kind === "group" || route.kind === "room") ? route.groupId : null;
   const roomId = route?.kind === "room" ? route.roomId : null;
@@ -126,7 +146,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // pages (see ContextMenuHost's stand-in for the browser's menu), and text
   // only selects where there is something worth copying — the messages, and
   // whatever is typed (see the select-text on those, and globals.css).
-  useBlockNativeContextMenu();
+  // Not on a room's page, framed or not: the room keeps the browser's menu it
+  // has always had.
+  useBlockNativeContextMenu(route !== null);
   const { openPopup } = useNtPopups();
   const { detail } = useGroupDetail(groupId);
   // The group's look, painted here once for every page of it: the group's own
@@ -134,7 +156,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // at the scale of the group (the call inside paints nothing of its own; see
   // WatchRoom). Undefined while the group loads, so the viewer's colours do not
   // flash first. On /groups itself there is no group: your own theme.
-  useRoomTheme(groupId ? (detail ? detail.group.theme ?? null : undefined) : null);
+  // A room's page paints its own (the room's theme, see WatchRoom), framed or
+  // not: two painters on one page would fight over it.
+  useRoomTheme(groupId ? (detail ? detail.group.theme ?? null : undefined) : null, null, route !== null);
   const session = useGroupVoiceSession();
   // Any call this tab is in — a group's, or an ordinary room's carried in from
   // elsewhere on the site. Both get the same place in this bar.
@@ -151,6 +175,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const [roomsMinHeight, setRoomsMinHeight] = useState(0);
   // Where the call's header controls are portalled to — see WatchRoom's
   // headerSlots. State rather than refs, so the room re-renders once they exist.
+  // `start` is where an ordinary room's page puts its name and description.
+  const [startSlot, setStartSlot] = useState<HTMLDivElement | null>(null);
   const [centerSlot, setCenterSlot] = useState<HTMLDivElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLDivElement | null>(null);
   const [endSlot, setEndSlot] = useState<HTMLDivElement | null>(null);
@@ -197,14 +223,20 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
     trackFeatureEvent(SWIPE_ROOMS_EVENTS.swipe, { feature: SWIPE_ROOMS_FEATURE });
     navigation.push(groupPath(groupId));
   });
+  // Only while the frame is drawn: on an unframed room's page the room has its
+  // own header, and lending it this bar's (empty) slots would hide that one.
   useEffect(() => {
+    if (!framed) {
+      setCallChrome(null);
+      return;
+    }
     setCallChrome({
-      headerSlots: { center: centerSlot, right: rightSlot, end: endSlot },
+      headerSlots: { start: startSlot, center: centerSlot, right: rightSlot, end: endSlot },
       musicSlot,
       onOpenNav: openNav,
     });
     return () => setCallChrome(null);
-  }, [centerSlot, rightSlot, endSlot, musicSlot, openNav]);
+  }, [framed, startSlot, centerSlot, rightSlot, endSlot, musicSlot, openNav]);
 
   // A different person — logging in, out, or into another account — is a
   // different set of groups. Skipped on the first render, which is not a change.
@@ -347,7 +379,18 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const dmCallVisible = Boolean(
     route?.kind === "dms" && call?.dm && call.dm.userId === route.withUserId
   );
-  const callOnScreen = voiceVisible || dmCallVisible;
+  // A framed room's page drawing its own call (see WatchRoomStage, which draws
+  // it once the session is this room's): the call is the page, as above.
+  const roomOnScreen = Boolean(
+    roomShell.on && roomHandle && call && !call.group && !call.dm && call.handle === roomHandle
+  );
+  const callOnScreen = voiceVisible || dmCallVisible || roomOnScreen;
+  // Whether the call on screen is putting its own page buttons (Pro, "⋯") in
+  // this bar, so the bar's copies step aside. A framed room does only once it
+  // is in: until then — joining, an error to explain, a name to pick — it
+  // draws a screen of its own with no header at all, and the bar keeps its own.
+  const joinedRoom = useSignalingSelector(selectRoom);
+  const callButtonsInBar = voiceVisible || dmCallVisible || (roomOnScreen && joinedRoom === roomHandle);
   const voiceColumns = useGroupVoiceColumns();
   const columnsCollapsed = voiceVisible && isWide && Boolean(voiceColumns?.collapsed);
   const collapseColumns = voiceVisible && voiceColumns?.canCollapse ? voiceColumns.toggle : undefined;
@@ -356,7 +399,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // away is this rail and that list together (see lib/dmCallColumns, which is
   // also what puts them back when the call ends).
   const dmColumnsCollapsed = useDmCallColumnsCollapsed();
-  const railHidden = columnsCollapsed || (dmCallVisible && isWide && dmColumnsCollapsed);
+  // And for a framed room's page: its "ocultar participantes" folds its own
+  // participant column and this rail together (the room publishes it the way a
+  // group's voice room does — see WatchRoom's publishesGroupColumns).
+  const roomColumnsCollapsed = roomOnScreen && isWide && Boolean(voiceColumns?.collapsed);
+  const railHidden =
+    columnsCollapsed || (dmCallVisible && isWide && dmColumnsCollapsed) || roomColumnsCollapsed;
   const { setElement: setRoomsColumn, style: roomsColumnStyle, handle: roomsColumnHandle } =
     useColumnWidth(ROOMS_COLUMN);
   const { setElement: setMembersColumn, style: membersColumnStyle, handle: membersColumnHandle } =
@@ -369,12 +417,19 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   return (
     <GroupNavContext.Provider value={{ openNav: () => setNavOpen(true), openMembers: () => setMembersOpen(true) }}>
       {/* data-room-page: a group's voice room wears its theme inside this
-          shell, and this is the element painting the page behind it. */}
+          shell, and this is the element painting the page behind it.
+          Unframed (a room's page outside the experiment) it is a bare box:
+          no marks, no colour of its own — the room inside is the page, and
+          paints it, wallpapers included. */}
       <div
-        data-group-shell
-        data-room-page=""
-        className="flex min-h-0 flex-1 select-none flex-col bg-zinc-50 dark:bg-black"
+        data-group-shell={framed ? "" : undefined}
+        data-room-page={framed ? "" : undefined}
+        className={`flex min-h-0 flex-1 flex-col ${framed ? "bg-zinc-50 dark:bg-black" : ""} ${
+          // A framed room keeps its text selectable, as it always was.
+          route ? "select-none" : ""
+        }`}
       >
+        {framed && (
         <header
           data-header-compact={headerFit >= 1 ? "" : undefined}
           className={`shrink-0 border-b border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950 ${
@@ -423,8 +478,18 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               <span className="hidden h-6 w-px shrink-0 bg-zinc-200 sm:block dark:bg-zinc-800" />
               {/* The groups are the column down the left (see GroupRail), so
                   the switcher would only repeat it: its place goes to the
-                  private conversations. A phone has its own bar (GroupMobile). */}
-              <DmRecentStrip leading compact={headerFit >= 1} />
+                  private conversations. A phone has its own bar (GroupMobile).
+                  On a room's page they share the left with the room's name
+                  and description, so fewer faces there. */}
+              <DmRecentStrip
+                leading
+                compact={headerFit >= 1}
+                maxFaces={roomHandle !== null ? 3 : undefined}
+              />
+              {/* An ordinary room's name, code and description, portalled in
+                  by the room while its page is the one on screen (see
+                  WatchRoom's inHeaderSlot "start"). Empty everywhere else. */}
+              <div ref={setStartSlot} className="contents" />
             </div>
 
             {/* The middle: the call's own controls — mic, sound, screen,
@@ -452,7 +517,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               <div ref={setRightSlot} className="contents" />
               {/* With no voice room on screen, the bar's own copy — the room
                   puts its Pro button in the slot above while it is. */}
-              {!callOnScreen && <RoomProOfferButton />}
+              {!callButtonsInBar && <RoomProOfferButton />}
               {detail && <GroupActions detail={detail} />}
               {/* Private conversations, as faces. From lg up they sit on the
                   left instead, where the switcher was. */}
@@ -463,34 +528,42 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               {/* Last in the bar: "more options", in the corner — the voice
                   room's while it is on screen, the group bar's own otherwise. */}
               <div ref={setEndSlot} className="contents" />
-              {!callOnScreen && <GroupHeaderMenu />}
+              {!callButtonsInBar && <GroupHeaderMenu />}
             </div>
           </div>
           )}
         </header>
+        )}
 
         {/* The music of the voice room you are in, as one blue strip right
             under the group's bar — the same place whichever of the group's
             rooms is open, so the song never jumps around the page or out of
             view as you move between them. Empty, and so no height at all,
-            when nothing is playing. Filled by the room (see WatchRoom). */}
-        <div ref={setMusicSlot} className="flex shrink-0 flex-col" />
+            when nothing is playing. Filled by the room (see WatchRoom).
+            An ordinary room keeps its music under its own part of the page,
+            framed or not (see WatchRoom's groupMusicSlot). */}
+        {framed && <div ref={setMusicSlot} className="flex shrink-0 flex-col" />}
 
         {/* Below lg the call gets a strip of its own under the bar. */}
-        {call && !callOnScreen && (
+        {framed && call && !callOnScreen && (
           <div className="shrink-0 border-b border-black/10 bg-white px-3 py-1.5 lg:hidden dark:border-white/10 dark:bg-zinc-950">
             <VoiceControls className="w-full" />
           </div>
         )}
 
-        <div className="flex min-h-0 flex-1 lg:gap-3 lg:p-3">
+        <div className={`flex min-h-0 flex-1 ${framed ? "lg:gap-3 lg:p-3" : ""}`}>
           {/* Every group, down the left edge — from lg up; below that the
               switcher in the bar is the way between them. Hidden rather than
               unmounted while a call folds it away, so it comes back as it was
-              left, scrolled and all. */}
-          {isWide && (
+              left, scrolled and all. On a room's page no tile is the lit one:
+              the page is not one of the rail's. */}
+          {isWide && framed && (
             <div className={railHidden ? "hidden" : "contents"}>
-              <GroupRail activeGroupId={groupId} roomsActive={route?.kind === "rooms"} />
+              <GroupRail
+                activeGroupId={groupId}
+                roomsActive={route?.kind === "rooms"}
+                elsewhere={route === null}
+              />
             </div>
           )}
           {/* The expanded messages, beside the groups. Always there from lg
@@ -499,7 +572,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               screen first. The group's own columns step aside meanwhile but
               stay mounted: the text room keeps its scroll and its draft, and
               a call its picture. */}
-          {isWide && <div ref={setDmSlot} className={dmDocked ? "flex min-h-0 min-w-0 flex-1" : "hidden"} />}
+          {isWide && framed && (
+            <div ref={setDmSlot} className={dmDocked ? "flex min-h-0 min-w-0 flex-1" : "hidden"} />
+          )}
           {/* Folded away with the rail by a call on screen: hidden, so the
               rooms keep their scroll and a half-typed new room's name. */}
           {groupId && (
@@ -553,11 +628,15 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   even from an effect that runs before the shell has registered
                   (see lib/groupNavigation's GroupShellContext). */}
               <GroupShellContext.Provider value={true}>
-                <GroupsView route={route} />
+                {route && <GroupsView route={route} />}
               </GroupShellContext.Provider>
-              {/* The route's own page: empty (see app/groups), kept in the
-                  tree so anything Next hangs off it still has its place. */}
-              {children}
+              {/* The route's own page: empty for a group's (see
+                  app/(shell)/groups), kept in the tree so anything Next hangs
+                  off it still has its place — and the room itself for a
+                  room's (see app/(shell)/watch), told whether this shell is
+                  framing it. Always right here, framed or not, so the frame
+                  coming and going never re-mounts the page. */}
+              <RoomShellHostContext.Provider value={roomShell.on}>{children}</RoomShellHostContext.Provider>
             </div>
             {/* Where the call is drawn while its own room is the page being
                 looked at. The room is mounted at the root of the app and moved
@@ -613,20 +692,35 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
           </MobileSheet>
         )}
 
-        {/* The one profile dialog for everything in the group — see groupProfile. */}
-        <GroupProfileHost detail={detail ?? null} />
+        {/* The one profile dialog for everything in the group — see groupProfile.
+            Not on an unframed room's page, which has its own (see WatchRoom). */}
+        {framed && <GroupProfileHost detail={detail ?? null} />}
         {/* And the one right-click menu on a person — see GroupMemberActions. */}
-        <GroupMemberMenuHost detail={detail ?? null} />
+        {framed && <GroupMemberMenuHost detail={detail ?? null} />}
 
         {/* For your card's "criar conta" — the call has its own for its own card. */}
+        {framed && (
         <AccountModal
           mode={accountModal}
           onModeChange={setAccountModal}
           initialDisplayName={accountModal ? signalingClient.getSnapshot().name ?? "" : ""}
         />
+        )}
+
+        <RoomShellPageEvents pathname={pathname} eligibleRoom={roomShell.eligible} />
       </div>
     </GroupNavContext.Provider>
   );
+}
+
+/**
+ * The experiment "room-shell"'s page events (see lib/roomShell), on both of
+ * its sides. A component of its own so that what it listens to — the private
+ * messages opening and closing — redraws nothing but this.
+ */
+function RoomShellPageEvents({ pathname, eligibleRoom }: { pathname: string; eligibleRoom: boolean }) {
+  useRoomShellPageEvents(pathname, eligibleRoom);
+  return null;
 }
 
 /**
