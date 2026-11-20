@@ -725,8 +725,8 @@ html .ntpopups-main {
     width: 100dvw !important;
     min-width: 0 !important;
     max-width: 100dvw !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
+    height: var(--app-h, 100dvh) !important;
+    max-height: var(--app-h, 100dvh) !important;
     margin: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
@@ -910,7 +910,8 @@ html .ntpopups-main {
 @media (max-width: 63.999rem) {
   html:has([data-room-shell]),
   body:has([data-room-shell]) {
-    height: 100dvh;
+    /* --app-h is the height above the iOS keyboard, see lib/appHeight.ts. */
+    height: var(--app-h, 100dvh);
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -922,7 +923,7 @@ html .ntpopups-main {
    them must not. Same reasoning as the rule above, just unconditional. */
 html:has([data-group-shell]),
 body:has([data-group-shell]) {
-  height: 100dvh;
+  height: var(--app-h, 100dvh);
   overflow: hidden;
   overscroll-behavior: none;
 }

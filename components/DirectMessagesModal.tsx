@@ -3694,7 +3694,7 @@ export function DirectMessagesModal({
             // Full screen on a phone, where a floating card is mostly margin and
             // the keyboard would cover half of it; a card from `sm` up.
             // Only the messages and the box select text — see the select-text on them.
-            className="flex h-dvh w-full select-none flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(52rem,90dvh)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
+            className="flex h-[var(--app-h,100dvh)] w-full select-none flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(52rem,90dvh)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-black/10 dark:bg-zinc-950 sm:dark:border-white/10"
           >
             <div className={headerRow}>
               {activeId && (
