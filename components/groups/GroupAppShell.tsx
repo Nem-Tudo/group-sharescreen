@@ -37,7 +37,8 @@ import {
 } from "@/components/groups/GroupSidebar";
 import { useAccountToken } from "@/lib/accountApi";
 import { setCallChrome, useCallSession } from "@/lib/callSession";
-import { useFeature } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { useSwipeToOpen } from "@/lib/useSwipeToOpen";
 import { SETTINGS_HUB_FEATURE, useAccountCardOnScreen } from "@/lib/settingsHub";
 import { useGuestToken } from "@/lib/guestToken";
 import { groupPath, groupVoiceHandle, parseGroupsPath, type GroupsRoute } from "@/lib/groupLinks";
@@ -60,6 +61,8 @@ import { LG_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useHeaderFit } from "@/lib/headerFit";
 import { useRoomTheme } from "@/lib/useRoomTheme";
 import { useT } from "@/lib/useI18n";
+import { SWIPE_ROOMS_EVENTS, SWIPE_ROOMS_FEATURE } from "@/components/groups/GroupMobile";
+import { haptic } from "@/lib/nativeApp";
 
 // The rooms column's gap-3, between the rooms and the ad under them.
 const ASIDE_GAP_PX = 12;
@@ -179,6 +182,21 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // the host not to draw its floating call bar: from lg up this bar already
   // carries one (see GroupSidebar's VoiceCallLink and VoiceControls).
   const openNav = useCallback(() => setNavOpen(true), []);
+  // On a phone the group's own page is its list of rooms (see GroupPages'
+  // GroupMobileHome), one level above a room. A drag from left to right across
+  // a room goes there — what the bar's back arrow does — in the experiment
+  // SWIPE_ROOMS_FEATURE. Not over a call: its tiles pan and zoom under the
+  // finger, its own panels slide, and it has its own button for the rooms.
+  const [middleColumn, setMiddleColumn] = useState<HTMLDivElement | null>(null);
+  const swipeAvailable =
+    !isWide && Boolean(groupId && roomId) && !(session && session.groupId === groupId && session.channelId === roomId);
+  const swipeRooms = useFeature(SWIPE_ROOMS_FEATURE, { track: swipeAvailable }).enabled;
+  useSwipeToOpen(middleColumn, swipeAvailable && swipeRooms && !navOpen && !membersOpen, () => {
+    if (!groupId) return;
+    haptic("tap");
+    trackFeatureEvent(SWIPE_ROOMS_EVENTS.swipe, { feature: SWIPE_ROOMS_FEATURE });
+    navigation.push(groupPath(groupId));
+  });
   useEffect(() => {
     setCallChrome({
       headerSlots: { center: centerSlot, right: rightSlot, end: endSlot },
@@ -529,7 +547,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             </aside>
           )}
 
-          <div className={dmDocked ? "hidden" : "flex min-h-0 min-w-0 flex-1 flex-col"}>
+          <div ref={setMiddleColumn} className={dmDocked ? "hidden" : "flex min-h-0 min-w-0 flex-1 flex-col"}>
             <div className={voiceVisible ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
               {/* Marked as inside the shell, so what it draws navigates shallowly
                   even from an effect that runs before the shell has registered

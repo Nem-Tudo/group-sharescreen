@@ -25,6 +25,24 @@ export const NEVER_RESTORE = [
   "/download",
 ];
 
+// The same record as a cookie, so the server can answer the launch's "/" with
+// a redirect straight to it (see proxy.ts) — the home page is then never
+// downloaded at all. Written only inside an app shell, so its presence alone
+// means the request comes from one.
+export const LAST_SCREEN_COOKIE = "golive_last";
+// Set on every page load of an app shell, with no expiry: a session cookie,
+// gone when the app's process is. While it is there this is not a launch, and
+// "/" is the home page like anywhere else.
+export const LAST_SCREEN_SESSION_COOKIE = "golive_lsr";
+
+/** Whether a saved address may be reopened on launch. Shared with proxy.ts. */
+export function isRestorablePath(path: string): boolean {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return false;
+  const pathname = path.split(/[?#]/)[0];
+  if (pathname === "/") return false;
+  return !NEVER_RESTORE.some((prefix) => pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix));
+}
+
 // The same decision as takeScreenToRestore, taken before the home page paints
 // or hydrates. Done from an effect, a launch drew the whole home page, ran it,
 // and only then moved to the screen it was going to show all along. Here the
@@ -34,7 +52,9 @@ export const NEVER_RESTORE = [
 // before any page script, and Capacitor injects its bridge into <head> on
 // Android. The page stays hidden for at most a few seconds, in case the
 // navigation never happens.
-export const LAST_SCREEN_INIT_SCRIPT = `(function(){try{var w=window,C=w.Capacitor;if(!w.golive&&!(C&&C.getPlatform&&C.getPlatform()==="android"))return;var ss=sessionStorage,ls=localStorage;if(ss.getItem(${JSON.stringify(
+export const LAST_SCREEN_INIT_SCRIPT = `(function(){try{var w=window,C=w.Capacitor;if(!w.golive&&!(C&&C.getPlatform&&C.getPlatform()==="android"))return;document.cookie=${JSON.stringify(
+  LAST_SCREEN_SESSION_COOKIE
+)}+"=1;path=/;SameSite=Lax";var ss=sessionStorage,ls=localStorage;if(ss.getItem(${JSON.stringify(
   LAST_SCREEN_SESSION_KEY
 )}))return;ss.setItem(${JSON.stringify(LAST_SCREEN_SESSION_KEY)},"1");if(ls.getItem(${JSON.stringify(
   REOPEN_LAST_SCREEN_KEY

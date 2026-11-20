@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { rememberScreen, takeScreenToRestore } from "@/lib/lastScreen";
+import { markAppSessionStarted, rememberScreen, takeScreenToRestore } from "@/lib/lastScreen";
 
 // Mounted once in the root layout. Inside the desktop or Android app, reopens
 // the screen that was on show when the app was closed, and keeps that record
@@ -12,6 +12,7 @@ export function LastScreenRestorer() {
   const pathname = usePathname();
 
   useEffect(() => {
+    markAppSessionStarted();
     const target = takeScreenToRestore();
     if (target) router.replace(target);
   }, [router]);
