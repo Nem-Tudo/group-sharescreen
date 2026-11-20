@@ -21,7 +21,7 @@ registerHooks({
   },
 });
 
-const { qualityNegotiator } = await import("./qualityNegotiation.ts");
+const { qualityNegotiator, tileDensity } = await import("./qualityNegotiation.ts");
 const { retainStream } = await import("./streamUse.ts");
 
 let nextPeer = 0;
@@ -155,4 +155,18 @@ test("a decoder that cannot keep up steps down, and back up once it is clean", (
   t.mock.timers.tick(61_000);
   qualityNegotiator.noteDecoderDrops("screen", peer, 0, 0.3);
   assert.equal(asked(), "1080p120");
+});
+
+test("a camera tile on a phone is sized at a density of 2 at most", () => {
+  assert.equal(tileDensity("camera", 3, true), 2);
+  assert.equal(tileDensity("camera2", 3, true), 2);
+  assert.equal(tileDensity("camera3", 3, true), 2);
+  assert.equal(tileDensity("camera", 1.5, true), 1.5, "a lower density is left alone");
+  // A shared screen is text: it keeps every pixel the phone has.
+  assert.equal(tileDensity("screen", 3, true), 3);
+  assert.equal(tileDensity("file1", 3, true), 3);
+  // Nothing changes off a phone.
+  assert.equal(tileDensity("camera", 3, false), 3);
+  // Under node, which is no phone, the default is the screen's own density.
+  assert.equal(tileDensity("camera", 3), 3);
 });

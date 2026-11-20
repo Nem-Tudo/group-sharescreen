@@ -64,6 +64,7 @@ import {
   tierForRenderedSize,
   type QualityTier,
 } from "./videoQuality";
+import { isMobileDevice } from "./announcement";
 import {
   localMediaSources,
   LOCAL_MEDIA_SLOTS,
@@ -410,6 +411,26 @@ export function captureConstraints(
     height: { ideal: dims.height },
     frameRate: bounded ? { ideal: frameRate, max: frameRate } : { ideal: frameRate },
   };
+}
+
+// The dials a device's own camera runs at. On a phone that is 720p30 at most,
+// whatever the picker says: the picker's 1080p default is a screen-share
+// default, and in a mesh room a phone encodes its camera once per viewer while
+// decoding everyone else's. Three cameras on, each phone was capturing 1080p,
+// scaling it twice and decoding two more streams, on a tile a few centimetres
+// wide. Desktop keeps the dials exactly as picked.
+export function cameraDials(
+  resolution: ShareResolution,
+  fps: number,
+  mobile: boolean = isMobileDevice()
+): { resolution: ShareResolution; fps: number } {
+  if (!mobile) return { resolution, fps };
+  return { resolution: resolution === "576p" ? "576p" : "720p", fps: Math.min(fps, 30) };
+}
+
+function cameraCaptureConstraints(resolution: ShareResolution, fps: number): MediaTrackConstraints {
+  const dials = cameraDials(resolution, fps);
+  return captureConstraints(dials.resolution, dials.fps, false);
 }
 
 // The peer-count throttle tables that used to live here are gone on purpose.
@@ -3331,6 +3352,22 @@ export function useRoomMedia(room: string) {
     [screenQualityPreset]
   );
 
+  // The same, held to what this device's own camera opens at (see
+  // cameraDials). The ceiling moves with the capture: left at 1080p it would
+  // budget bitrate for pixels a 720p capture does not have.
+  const ownCameraQualityPreset = useMemo<QualityPreset>(() => {
+    const dials = cameraDials(shareResolution, shareFps);
+    if (dials.resolution === shareResolution && dials.fps === shareFps) return cameraQualityPreset;
+    const dims = RESOLUTION_DIMENSIONS[dials.resolution];
+    return {
+      ...cameraQualityPreset,
+      width: dims.width,
+      height: dims.height,
+      frameRate: dials.fps,
+      ceilingTier: ceilingTierFor(dials.resolution, dials.fps),
+    };
+  }, [cameraQualityPreset, shareResolution, shareFps]);
+
   // The camera the two camera-capturing paths below open: the camera
   // channel, and the screen channel's mobile fallback (a phone has no
   // getDisplayMedia, so "compartilhar tela" captures the camera there).
@@ -3849,9 +3886,10 @@ export function useRoomMedia(room: string) {
       // per-viewer tiers downscale each *sender* independently (see
       // peerQualityController), so capturing small would only put a hard
       // ceiling on the one or two people actually watching fullscreen while
-      // saving nothing for the many watching in a grid.
+      // saving nothing for the many watching in a grid. A phone is the one
+      // exception, and for its own sake rather than the room's: see cameraDials.
       const stream = await captureCamera(
-        captureConstraints(shareResolutionRef.current, shareFpsRef.current, false),
+        cameraCaptureConstraints(shareResolutionRef.current, shareFpsRef.current),
         cameraDeviceIdRef.current,
         cameraFacingRef.current
       );
@@ -3871,7 +3909,7 @@ export function useRoomMedia(room: string) {
     t("useRoomMedia.couldNotStartTheCameraCheck"),
     forceRelayIce,
     autoJoin,
-    cameraQualityPreset
+    ownCameraQualityPreset
   );
 
   // Front and rear at once: "camera2" opens the lens facing the other way from
@@ -3946,7 +3984,7 @@ export function useRoomMedia(room: string) {
       if (!mainTrack) throw new ShareStartError(t("useRoomMedia.dualCameraNeedsCamera"));
       const mainFacing = mainTrack.getSettings().facingMode ?? cameraFacingRef.current;
       const other: CameraFacing = mainFacing === "environment" ? "user" : "environment";
-      const video = captureConstraints(shareResolutionRef.current, shareFpsRef.current, false);
+      const video = cameraCaptureConstraints(shareResolutionRef.current, shareFpsRef.current);
       // What went wrong, as the browser said it, so the message tells a real
       // limit apart from something fixable — and so the numbers do too.
       // Every path into this is the device itself saying no (a permission
@@ -4011,7 +4049,7 @@ export function useRoomMedia(room: string) {
     t("useRoomMedia.couldNotStartTheCameraCheck"),
     forceRelayIce,
     autoJoin,
-    cameraQualityPreset,
+    ownCameraQualityPreset,
     // Back to one camera: if both were on the plugin, the main one returns to
     // the WebView (see revertNativeDual).
     () => revertNativeDualRef.current()
