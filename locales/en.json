@@ -3032,6 +3032,7 @@
   "roomPrejoin.micPermissionHint": "Your browser may ask for permission to use the microphone.",
   "roomPrejoin.back": "Back",
   "roomPrejoin.enter": "Join room",
+  "roomPrejoin.entering": "Joining...",
   "roomPrejoin.newRoom": "This room doesn't exist yet. It will be created when you join.",
   "roomPrejoin.privateHint": "You'll see who's inside once you join.",
   "roomPrejoin.empty": "Nobody is in the room right now.",

@@ -16,6 +16,7 @@ import {
 import { recentRoomPresentation } from "@/lib/recentRooms";
 import { fetchPublicRooms, roomActivity, roomExists, type PublicRoom } from "@/lib/roomsApi";
 import { getStoredName, signalingClient } from "@/lib/signalingClient";
+import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { useT } from "@/lib/useI18n";
 import { UserAvatar } from "./UserAvatar";
 import { HeadphonesOffIcon, MicIcon, MicOffIcon, SpeakerIcon } from "./icons";
@@ -59,6 +60,9 @@ export const ROOM_PREJOIN_EVENTS = {
   logout: "prejoin_logout",
 } as const;
 
+// How long a new guest name may wait for the server before the room opens anyway.
+const REGISTER_WAIT_MS = 8000;
+
 function track(name: string, value?: number) {
   trackFeatureEvent(name, { feature: ROOM_PREJOIN_FEATURE, ...(value ? { value } : {}) });
 }
@@ -81,6 +85,32 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
   const [soundOn, setSoundOn] = useState(() => !getStoredMicsMuted());
   const [storedName] = useState(() => getStoredName() ?? "");
   const [guestName, setGuestName] = useState(storedName);
+
+  // A guest name is only ours once the server has said yes: it is stored, and
+  // the room treats somebody as named, when "registered" comes back. Opening
+  // the room on the click put the room's own "escolha um nome" screen up for
+  // that moment — a second name form right after this one — and a name the
+  // server refused was explained only there. So a new name waits here: in on
+  // the answer, or the refusal shown on this screen.
+  const registeredName = useSignalingSelector((state) => state.name);
+  const nameError = useSignalingSelector((state) => state.nameError);
+  // The name registered when the request went out (null for none), or
+  // undefined while nothing is waiting.
+  const [waitingFrom, setWaitingFrom] = useState<string | null | undefined>(undefined);
+  const waiting = waitingFrom !== undefined;
+  const refused = waiting ? nameError : null;
+  const busy = waiting && !refused;
+  useEffect(() => {
+    if (!waiting || refused) return;
+    if (registeredName && registeredName !== waitingFrom) {
+      onEnter();
+      return;
+    }
+    // The answer is not coming (a socket that cannot connect right now): in
+    // anyway, where the room has its own reconnecting and naming screens.
+    const timer = setTimeout(onEnter, REGISTER_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [waiting, refused, registeredName, waitingFrom, onEnter]);
 
   // What can be known about the room from outside it. Never in the way: the
   // screen is usable before this answers, and a failure just says less.
@@ -110,7 +140,7 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
   }, [handle, presentation.isPrivate]);
 
   const trimmedGuestName = guestName.trim();
-  const canEnter = Boolean(account) || trimmedGuestName.length > 0;
+  const canEnter = (Boolean(account) || trimmedGuestName.length > 0) && !busy;
 
   function enter(event: FormEvent) {
     event.preventDefault();
@@ -121,13 +151,17 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
     void ensureSharedAudioContextRunning();
     setStoredMicOn(micOn);
     setStoredMicsMuted(!soundOn);
-    if (!account && trimmedGuestName !== storedName.trim()) {
-      signalingClient.register(trimmedGuestName);
-      track(ROOM_PREJOIN_EVENTS.rename);
-    }
     track(micOn ? ROOM_PREJOIN_EVENTS.micOn : ROOM_PREJOIN_EVENTS.micOff);
     if (!soundOn) track(ROOM_PREJOIN_EVENTS.deafened);
     track(ROOM_PREJOIN_EVENTS.enter, Math.max(1, Date.now() - shownAt));
+    // A guest with a new name (a first visit has none at all): register it and
+    // go in on the answer (see waitingFrom above).
+    if (!account && trimmedGuestName !== (registeredName ?? storedName).trim()) {
+      if (storedName) track(ROOM_PREJOIN_EVENTS.rename);
+      setWaitingFrom(registeredName);
+      signalingClient.register(trimmedGuestName);
+      return;
+    }
     onEnter();
   }
 
@@ -197,8 +231,10 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
                 maxLength={32}
                 placeholder={t("roomPrejoin.yourName")}
                 autoComplete="nickname"
+                aria-invalid={Boolean(refused)}
                 className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               />
+              {refused && <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{refused}</p>}
               <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                 {t("roomPrejoin.guestHint")}{" "}
                 <Link
@@ -246,7 +282,7 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
             disabled={!canEnter}
             className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {t("roomPrejoin.enter")}
+            {busy ? t("roomPrejoin.entering") : t("roomPrejoin.enter")}
           </button>
         </div>
       </form>

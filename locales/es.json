@@ -3032,6 +3032,7 @@
   "roomPrejoin.micPermissionHint": "El navegador puede pedir permiso para usar el micrófono.",
   "roomPrejoin.back": "Volver",
   "roomPrejoin.enter": "Entrar a la sala",
+  "roomPrejoin.entering": "Entrando...",
   "roomPrejoin.newRoom": "Esta sala aún no existe. Se creará cuando entres.",
   "roomPrejoin.privateHint": "Verás quién está dentro cuando entres.",
   "roomPrejoin.empty": "No hay nadie en la sala ahora.",
