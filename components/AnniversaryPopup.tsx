@@ -16,13 +16,15 @@ import { ANNIVERSARY_EVENTS, ANNIVERSARY_FEATURE, trackAnniversary } from "@/lib
 // This part only decides; the card itself (and its CSS) is a separate chunk,
 // downloaded only by the few who will see it.
 
-const AnniversaryPopupCard = dynamic(() => import("./AnniversaryPopupCard").then((m) => m.AnniversaryPopupCard), {
+const loadCard = () => import("./AnniversaryPopupCard");
+const AnniversaryPopupCard = dynamic(() => loadCard().then((m) => m.AnniversaryPopupCard), {
   ssr: false,
 });
 
 const SEEN_KEY = "sharescreen:anniversary:popup";
 const VETERAN_MS = 2 * 24 * 60 * 60 * 1000;
-const SHOW_AFTER_MS = 2500;
+/** A beat after the page appears, so it does not cover the first paint. */
+const SHOW_AFTER_MS = 700;
 /** Pages it never opens on: the anniversary itself, sign-in, and the ones OBS or another window shows. */
 const EXCLUDED = ["/3-meses", "/login", "/obs", "/stream", "/oauth", "/oauth2", "/cam", "/admin", "/ad"];
 
@@ -59,16 +61,18 @@ export function AnniversaryPopup() {
   }, []);
 
   const routeOk = pathname !== null && !EXCLUDED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  // This browser's own first visit answers without waiting for the account to load.
   const veteran =
     now !== null &&
-    !loading &&
-    ((account ? now - account.createdAt > VETERAN_MS : false) || arrivedBefore(now - VETERAN_MS));
+    (arrivedBefore(now - VETERAN_MS) || (!loading && account !== null && now - account.createdAt > VETERAN_MS));
   const candidate = !seen && !open && routeOk && veteran;
   // An exposure only for somebody who would actually get the popup.
   const { enabled } = useFeature(ANNIVERSARY_FEATURE, { track: candidate });
 
   useEffect(() => {
     if (!candidate || !enabled) return;
+    // The card's chunk (mascot, page CSS) downloads during the wait, not after it.
+    void loadCard();
     const timer = setTimeout(() => {
       // Not on top of another dialog already open; the next page will try again.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
