@@ -25,7 +25,7 @@ import { OnceUponSection } from "./sections/OnceUpon";
 import { First72Section } from "./sections/First72";
 import { OutageSection } from "./sections/Outage";
 import { NumbersSection } from "./sections/Numbers";
-import { RecapSection, type RecapCardDrawer } from "./sections/Recap";
+import { RecapSection, type RecapCardDrawer, type RecapShareText } from "./sections/Recap";
 import { GiftSection } from "./sections/Gift";
 import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
@@ -79,8 +79,11 @@ export function AnniversaryContent() {
   // gift and the finale share it instead of the generic one.
   const recapDrawer = useRef<RecapCardDrawer | null>(null);
   const [hasRecapCard, setHasRecapCard] = useState(false);
-  const takeRecapCard = useCallback((draw: RecapCardDrawer) => {
+  const [recapText, setRecapText] = useState<RecapShareText | null>(null);
+  const takeRecapCard = useCallback((draw: RecapCardDrawer, share: RecapShareText) => {
     recapDrawer.current = draw;
+    // Handed over after every render of the recap: kept only when the words change.
+    setRecapText((prev) => (prev && prev.text === share.text && prev.xText === share.xText ? prev : share));
     setHasRecapCard(true);
   }, []);
   const recapCard: RecapCardDrawer | null = hasRecapCard ? (face) => recapDrawer.current!(face) : null;
@@ -373,7 +376,7 @@ export function AnniversaryContent() {
         />
         <TeamSection />
         <ThanksSection />
-        <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} stats={stats} recapCard={recapCard} />
+        <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} stats={stats} recapCard={recapCard} recapText={recapText} />
       </main>
 
       {!started && <StartGate onStart={(sound) => void start(sound)} />}

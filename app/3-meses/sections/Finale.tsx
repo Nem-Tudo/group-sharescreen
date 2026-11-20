@@ -8,7 +8,7 @@ import { HARD_FIGURES } from "../historyData";
 import { useNumberFormat } from "../shared";
 import { ShareSheet } from "../ShareSheet";
 import { drawPageCard } from "../shareCard";
-import type { RecapCardDrawer } from "./Recap";
+import type { RecapCardDrawer, RecapShareText } from "./Recap";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "../gsap";
 import { Mascot } from "../Mascot";
 
@@ -21,10 +21,13 @@ export function FinaleSection({
   onCelebrate,
   stats,
   recapCard,
+  recapText,
 }: {
   onCelebrate: () => void;
   stats: AnniversaryStats | null;
   recapCard: RecapCardDrawer | null;
+  /** The recap's words, so the finale shares exactly what the recap does. */
+  recapText: RecapShareText | null;
 }) {
   const t = useT();
   const fmt = useNumberFormat();
@@ -123,7 +126,8 @@ export function FinaleSection({
           <div data-reveal className="mt-10">
             <p className="anniv-mono mb-3 text-xs uppercase text-[var(--a-mute)]">{t("anniversary.finale.share")}</p>
             <ShareSheet
-              text={t("anniversary.finale.shareText")}
+              text={recapText?.text ?? t("anniversary.finale.shareText")}
+              xText={recapText?.xText}
               url={anniversaryShareUrl("share")}
               key={recapCard ? "recap" : "page"}
               card={recapCard ? () => recapCard() : drawCard}

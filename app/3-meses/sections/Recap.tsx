@@ -44,8 +44,11 @@ const TIER_LABEL: Record<string, string> = {
 
 /** Draws the signed-in person's recap picture; `face` swaps the look on it. */
 export type RecapCardDrawer = (face?: string | null) => Promise<Blob | null>;
+/** The recap's share words: for every network, and X's own version. */
+export type RecapShareText = { text: string; xText: string };
+type TakeRecapCard = (draw: RecapCardDrawer, share: RecapShareText) => void;
 
-export function RecapSection({ onCard }: { onCard?: (draw: RecapCardDrawer) => void }) {
+export function RecapSection({ onCard }: { onCard?: TakeRecapCard }) {
   const t = useT();
   const { account, loading } = useAuth();
   const token = useAccountToken();
@@ -139,7 +142,7 @@ function Avatar({ src, name, size = 64 }: { src: string | null; name: string; si
   );
 }
 
-function RecapStory({ recap, onCard }: { recap: AnniversaryRecap; onCard?: (draw: RecapCardDrawer) => void }) {
+function RecapStory({ recap, onCard }: { recap: AnniversaryRecap; onCard?: TakeRecapCard }) {
   const t = useT();
   const tc = useTCount();
   const locale = useLocale();
@@ -390,7 +393,7 @@ function RecapStory({ recap, onCard }: { recap: AnniversaryRecap; onCard?: (draw
 
   // The rest of the page (the gift, the finale) shares this picture too.
   useEffect(() => {
-    onCard?.(drawCard);
+    onCard?.(drawCard, { text: shareText, xText: shareTextX });
   });
 
   const summary = [
