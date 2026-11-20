@@ -351,7 +351,6 @@ function RecapStory({ recap, onCard }: { recap: AnniversaryRecap; onCard?: TakeR
   // The story picture: everything worth posting, Wrapped-style.
   // `face`: another look to draw (the gift shows the frame just won).
   const drawCard = (face?: string | null) => {
-    trackAnniversary(ANNIVERSARY_EVENTS.recapCard);
     const stats = [
       { value: `${fmt(recap.shareHours, hoursDigits(recap.shareHours))}h`, label: t("anniversary.recap.card.streaming") },
       { value: `${fmt(recap.micHours, hoursDigits(recap.micHours))}h`, label: t("anniversary.recap.card.mic") },
@@ -447,7 +446,11 @@ function RecapStory({ recap, onCard }: { recap: AnniversaryRecap; onCard?: TakeR
             card={drawCard}
             cardName="meu-recap-go-live.png"
             compact
-            onShare={() => trackAnniversary(ANNIVERSARY_EVENTS.recapShare)}
+            onShare={(target) => {
+              trackAnniversary(ANNIVERSARY_EVENTS.recapShare);
+              // The picture actually used (not merely drawn ahead of the click).
+              if (target === "instagram" || target === "image" || target === "download" || target === "x") trackAnniversary(ANNIVERSARY_EVENTS.recapCard);
+            }}
           />
         </div>
       </>
