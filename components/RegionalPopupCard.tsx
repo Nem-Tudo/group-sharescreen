@@ -157,6 +157,23 @@ function bezier(p0: Pt, c: Pt, p1: Pt, t: number): Pt {
 }
 
 /** The closest town seat, when the visitor is basically in it. */
+/**
+ * "region_city.pouso-alegre": the town as a feature event name. The prefix is
+ * short on purpose: events stop at 40 characters, and the longest seat
+ * ("sao-sebastiao-da-bela-vista") needs 27 of them. Every name is in the
+ * feature's site events (the list was generated from REGIONAL_TOWNS_ALL).
+ */
+export function regionalCityEvent(town: string | null): string {
+  if (!town) return "region_city.unknown";
+  const slug = town
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `region_city.${slug}`;
+}
+
 function guessTown(spot: RegionalSpot): string | null {
   let best: string | null = null;
   let bestKm = TOWN_GUESS_KM;
@@ -664,6 +681,15 @@ export function RegionalPopupCard({
   const track = (name: string) => {
     if (!preview) trackRegional(name);
   };
+
+  // Which town saw it: the same guess as the title (Santa Rita when home,
+  // "unknown" when no seat is close enough). Once per opening.
+  const cityEvent = regionalCityEvent(home ? "Santa Rita do Sapucaí" : town);
+  useEffect(() => {
+    if (!preview) trackRegional(cityEvent);
+    // Counted for the popup's one opening, not on re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
