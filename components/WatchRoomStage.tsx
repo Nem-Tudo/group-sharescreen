@@ -3,13 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { CallOutlet } from "@/components/CallOutlet";
 import { RoomSkeleton } from "@/components/RoomSkeleton";
-import { RoomPrejoin, ROOM_PREJOIN_EVENTS, ROOM_PREJOIN_FEATURE } from "@/components/RoomPrejoin";
+import {
+  RoomPrejoin,
+  ROOM_PREJOIN_EVENTS,
+  ROOM_PREJOIN_FEATURE,
+  clearPrejoinSkip,
+  markPrejoinSkip,
+  readPrejoinSkip,
+} from "@/components/RoomPrejoin";
 import { useAuth } from "@/lib/AuthContext";
 import { getCallSession, setCallSession, useCallSession } from "@/lib/callSession";
 import { isAppShell } from "@/lib/desktop";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { GROUP_VOICE_PREFIX } from "@/lib/groupLinks";
 import { isCallRoomHandle, isThemeRoomHandle } from "@/lib/roomsApi";
+import { getStoredName } from "@/lib/signalingClient";
 
 // What /watch/[handle] renders instead of the room itself.
 //
@@ -27,6 +35,15 @@ import { isCallRoomHandle, isThemeRoomHandle } from "@/lib/roomsApi";
 //   - a group's voice room ("grp-…"), which belongs to its group;
 //   - a private call's room ("priv-call-…"), which belongs to its conversation;
 //   - the rooms the theme pages open, which are a tool, not a place to arrive.
+//
+// One confirmation, never two. The room already has a screen of its own for
+// somebody who arrives as nobody — no account, no guest name — where they make
+// an account, sign in or pick a guest name, and that screen *is* their door. So
+// the prejoin is only for somebody who arrives already being someone, decided
+// once on arrival; signing in afterwards does not bring it up. And signing in
+// can leave the page (Google, Discord, the login page) and come back to it, a
+// fresh load with an account: a mark in this tab's sessionStorage (see
+// markPrejoinSkip) carries "already went through a door" across that trip.
 
 function prejoinApplies(handle: string): boolean {
   return !handle.startsWith(GROUP_VOICE_PREFIX) && !isCallRoomHandle(handle) && !isThemeRoomHandle(handle);
@@ -46,20 +63,46 @@ export function WatchRoomStage({
     const current = getCallSession();
     return Boolean(current && current.handle === handle && !current.group);
   });
-  // The apps have no guest mode (see WatchRoom's appShell): signed out there,
-  // the room's own screen asks for an account, and a door offering a guest
-  // name would be offering something the app then refuses.
+  // Back from signing in that started at a door (this page's own name screen,
+  // or the prejoin's "Entrar com sua conta"). Read here, cleared in an effect.
+  const [skipMarked] = useState(() => readPrejoinSkip(handle));
   const [appShell] = useState(() => isAppShell());
   const { account, loading: resolvingAccount } = useAuth();
-  const guestInApp = appShell && !resolvingAccount && !account;
-  const eligible = prejoinApplies(handle) && !alreadyIn && !guestInApp;
+
+  // Who this person was when they got here: an account, or a guest name saved
+  // from before. Latched the first time the account is known (React's "store
+  // what you saw" pattern — set during render, once), so that signing in on
+  // the room's own name screen never turns this page into one with a prejoin.
+  const [arrivedAsSomeone, setArrivedAsSomeone] = useState<boolean | null>(null);
+  if (arrivedAsSomeone === null && !resolvingAccount) {
+    // The apps have no guest mode (see WatchRoom's appShell): a saved guest
+    // name means nothing there without an account.
+    setArrivedAsSomeone(Boolean(account) || (!appShell && getStoredName() !== null));
+  }
+
+  const applies = prejoinApplies(handle) && !alreadyIn && !skipMarked;
+  const eligible = applies && arrivedAsSomeone === true;
   const prejoin = useFeature(ROOM_PREJOIN_FEATURE, { track: eligible });
   const [entered, setEntered] = useState(false);
   const enter = useCallback(() => setEntered(true), []);
-  // Until the experiment has an answer, nobody joins: going in and then being
-  // shown the door would be the worst of both.
-  const canJoin = !eligible || (prejoin.ready && (!prejoin.enabled || entered));
+  // Until both answers are in — who they are, and which side of the experiment
+  // — nobody joins: going in and then being shown the door would be the worst
+  // of both.
+  const canJoin =
+    !applies || (arrivedAsSomeone !== null && (!eligible || (prejoin.ready && (!prejoin.enabled || entered))));
   const showPrejoin = eligible && prejoin.ready && prejoin.enabled && !entered;
+
+  // The mark is spent by the visit it was left for.
+  useEffect(() => {
+    if (skipMarked) clearPrejoinSkip();
+  }, [skipMarked]);
+
+  // Arrived as nobody: the room's own screen is this person's door. If signing
+  // in there leaves the page and comes back, the prejoin must not greet them
+  // as if they had not just been through one.
+  useEffect(() => {
+    if (applies && arrivedAsSomeone === false) markPrejoinSkip(handle);
+  }, [applies, arrivedAsSomeone, handle]);
 
   useEffect(() => {
     if (!canJoin) return;
@@ -77,7 +120,7 @@ export function WatchRoomStage({
   }, [canJoin, handle, viewThemeId, eligible, prejoin.enabled]);
 
   const session = useCallSession();
-  if (showPrejoin) return <RoomPrejoin handle={handle} onEnter={enter} />;
+  if (showPrejoin) return <RoomPrejoin handle={handle} onEnter={enter} onSkip={enter} />;
   // One frame, between this page mounting and the effect above running — and
   // the same shape the room lands in, which is what this skeleton is for.
   if (session?.handle !== handle) return <RoomSkeleton />;

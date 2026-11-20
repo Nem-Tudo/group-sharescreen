@@ -60,6 +60,40 @@ export const ROOM_PREJOIN_EVENTS = {
   logout: "prejoin_logout",
 } as const;
 
+// "Already went through a door" for one room, in this tab — see WatchRoomStage.
+// Left when somebody arrives as nobody (the room's own name/account screen is
+// their door) and when the prejoin sends them to sign in; read by the next load
+// of that room's page, which is where a sign-in that left the page comes back
+// to. Short-lived, so it only ever covers that round trip.
+const SKIP_KEY = "golive.prejoinSkip";
+const SKIP_TTL_MS = 15 * 60_000;
+
+export function markPrejoinSkip(handle: string) {
+  try {
+    window.sessionStorage.setItem(SKIP_KEY, JSON.stringify({ handle, at: Date.now() }));
+  } catch {
+    // Storage refused: the worst case is one prejoin after a sign-in.
+  }
+}
+
+export function readPrejoinSkip(handle: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const mark = JSON.parse(window.sessionStorage.getItem(SKIP_KEY) ?? "null") as { handle?: unknown; at?: unknown } | null;
+    return Boolean(mark && mark.handle === handle && typeof mark.at === "number" && Date.now() - mark.at < SKIP_TTL_MS);
+  } catch {
+    return false;
+  }
+}
+
+export function clearPrejoinSkip() {
+  try {
+    window.sessionStorage.removeItem(SKIP_KEY);
+  } catch {
+    // As above.
+  }
+}
+
 // How long a new guest name may wait for the server before the room opens anyway.
 const REGISTER_WAIT_MS = 8000;
 
@@ -74,7 +108,20 @@ type RoomInfo =
   | { state: "private" }
   | { state: "public"; room: PublicRoom | null };
 
-export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () => void }) {
+export function RoomPrejoin({
+  handle,
+  onEnter,
+  onSkip,
+}: {
+  handle: string;
+  onEnter: () => void;
+  /**
+   * Straight into the room, past this screen, without counting as going in:
+   * after "Não é você? Sair" the person is nobody, and the room's own
+   * name/account screen is the one door they get — never this one as well.
+   */
+  onSkip: () => void;
+}) {
   const t = useT();
   const router = useRouter();
   const { account, logout } = useAuth();
@@ -213,6 +260,7 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
                 onClick={() => {
                   track(ROOM_PREJOIN_EVENTS.logout);
                   logout();
+                  onSkip();
                 }}
                 className="shrink-0 text-xs font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
               >
@@ -239,7 +287,12 @@ export function RoomPrejoin({ handle, onEnter }: { handle: string; onEnter: () =
                 {t("roomPrejoin.guestHint")}{" "}
                 <Link
                   href={`/login?next=${encodeURIComponent(`/watch/${handle}`)}`}
-                  onClick={() => track(ROOM_PREJOIN_EVENTS.login)}
+                  onClick={() => {
+                    track(ROOM_PREJOIN_EVENTS.login);
+                    // Coming back signed in is coming back through a door
+                    // already: the room opens without this screen again.
+                    markPrejoinSkip(handle);
+                  }}
                   className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100"
                 >
                   {t("roomPrejoin.signIn")}
