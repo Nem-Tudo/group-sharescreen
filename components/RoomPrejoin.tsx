@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { MdLockOutline, MdOutlineMeetingRoom } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
 import { ensureSharedAudioContextRunning } from "@/lib/audioContext";
@@ -18,6 +18,7 @@ import { fetchPublicRooms, roomActivity, roomExists, type PublicRoom } from "@/l
 import { getStoredName, signalingClient } from "@/lib/signalingClient";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { useT } from "@/lib/useI18n";
+import { ROOM_PREJOIN_FEATURE } from "@/lib/prejoinMetrics";
 import { UserAvatar } from "./UserAvatar";
 import { HeadphonesOffIcon, MicIcon, MicOffIcon, SpeakerIcon } from "./icons";
 
@@ -41,10 +42,18 @@ import { HeadphonesOffIcon, MicIcon, MicOffIcon, SpeakerIcon } from "./icons";
  * group's voice room and a private call are entered from their own places and
  * never come through here.
  */
-export const ROOM_PREJOIN_FEATURE = "room-prejoin";
+export { ROOM_PREJOIN_FEATURE };
 export const ROOM_PREJOIN_EVENTS = {
-  /** Went in. Both groups; on this screen, value = ms spent on it. */
+  /** Went in. Both groups (see WatchRoomStage); value = ms from the page opening. */
   enter: "prejoin_enter",
+  /** Opened an eligible room's page but the screen was skipped: reloaded. Both groups. */
+  skipReload: "prejoin_skip_reload",
+  /** Arrived as nobody, so the room's own name screen was the door. Both groups. */
+  skipNobody: "prejoin_skip_nobody",
+  /** Left this screen some other way than its buttons (another page); value = ms on it. */
+  abandon: "prejoin_abandon",
+  /** Switched tab or closed it while this screen was up (once per screen). */
+  hidden: "prejoin_hidden",
   /** Left from this screen without going in. */
   back: "prejoin_back",
   /** Went in with the mic on / off. */
@@ -127,6 +136,26 @@ export function RoomPrejoin({
   const { account, logout } = useAuth();
   const presentation = recentRoomPresentation(handle);
   const [shownAt] = useState(() => Date.now());
+  // Whether one of this screen's own ways out was taken. Anything else that
+  // takes it away — the header, a link in another panel, the back button — is
+  // somebody who opened a room and did not go in, which is the cost this
+  // experiment exists to measure.
+  const acted = useRef(false);
+  useEffect(() => {
+    let hiddenOnce = false;
+    function onVisibility() {
+      // Sent from "hidden" rather than on the way out: a tab being closed
+      // fires this first, and the batch that goes on pagehide carries it.
+      if (document.visibilityState !== "hidden" || hiddenOnce || acted.current) return;
+      hiddenOnce = true;
+      track(ROOM_PREJOIN_EVENTS.hidden, Math.max(1, Date.now() - shownAt));
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (!acted.current) track(ROOM_PREJOIN_EVENTS.abandon, Math.max(1, Date.now() - shownAt));
+    };
+  }, [shownAt]);
 
   const [micOn, setMicOn] = useState(() => getStoredMicOn());
   const [soundOn, setSoundOn] = useState(() => !getStoredMicsMuted());
@@ -198,9 +227,9 @@ export function RoomPrejoin({
     void ensureSharedAudioContextRunning();
     setStoredMicOn(micOn);
     setStoredMicsMuted(!soundOn);
+    acted.current = true;
     track(micOn ? ROOM_PREJOIN_EVENTS.micOn : ROOM_PREJOIN_EVENTS.micOff);
     if (!soundOn) track(ROOM_PREJOIN_EVENTS.deafened);
-    track(ROOM_PREJOIN_EVENTS.enter, Math.max(1, Date.now() - shownAt));
     // A guest with a new name (a first visit has none at all): register it and
     // go in on the answer (see waitingFrom above).
     if (!account && trimmedGuestName !== (registeredName ?? storedName).trim()) {
@@ -213,7 +242,8 @@ export function RoomPrejoin({
   }
 
   function goBack() {
-    track(ROOM_PREJOIN_EVENTS.back);
+    acted.current = true;
+    track(ROOM_PREJOIN_EVENTS.back, Math.max(1, Date.now() - shownAt));
     if (window.history.length > 1) router.back();
     else router.push("/");
   }
@@ -258,6 +288,7 @@ export function RoomPrejoin({
               <button
                 type="button"
                 onClick={() => {
+                  acted.current = true;
                   track(ROOM_PREJOIN_EVENTS.logout);
                   logout();
                   onSkip();
@@ -288,6 +319,7 @@ export function RoomPrejoin({
                 <Link
                   href={`/login?next=${encodeURIComponent(`/watch/${handle}`)}`}
                   onClick={() => {
+                    acted.current = true;
                     track(ROOM_PREJOIN_EVENTS.login);
                     // Coming back signed in is coming back through a door
                     // already: the room opens without this screen again.

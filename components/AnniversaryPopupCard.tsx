@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/useI18n";
 import { ANNIVERSARY_EVENTS, anniversaryPath, trackAnniversary } from "@/lib/anniversary";
 import { Mascot } from "@/app/3-meses/Mascot";
@@ -12,6 +12,9 @@ import "@/app/3-meses/anniversary.css";
 // colour bars come up, the "on air" slate slides in, the mascot waves.
 
 const BARS = ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"];
+
+/** The first moments it cannot be closed: a click aimed at the page underneath, or a reflex Esc, would. */
+const CLOSE_LOCK_MS = 1200;
 
 const KEYFRAMES = `
 @keyframes anniv-pop-in { from { opacity: 0; transform: translateY(24px) scale(0.97); } to { opacity: 1; transform: none; } }
@@ -27,8 +30,19 @@ const KEYFRAMES = `
 export function AnniversaryPopupCard({ signedIn, onClose }: { signedIn: boolean; onClose: () => void }) {
   const t = useT();
   const cta = useRef<HTMLAnchorElement>(null);
+  const [armed, setArmed] = useState(false);
+  const armedRef = useRef(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      armedRef.current = true;
+      setArmed(true);
+    }, CLOSE_LOCK_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const close = () => {
+    if (!armedRef.current) return;
     trackAnniversary(ANNIVERSARY_EVENTS.popupClose);
     onClose();
   };
@@ -95,7 +109,8 @@ export function AnniversaryPopupCard({ signedIn, onClose }: { signedIn: boolean;
             <button
               type="button"
               onClick={close}
-              className="anniv-mono rounded-sm border border-white/15 px-4 py-3 text-xs font-semibold uppercase text-[var(--a-ink)] transition hover:border-white/40"
+              disabled={!armed}
+              className="anniv-mono rounded-sm border disabled:cursor-default disabled:opacity-40 border-white/15 px-4 py-3 text-xs font-semibold uppercase text-[var(--a-ink)] transition hover:border-white/40"
             >
               {t("anniversary.popup.later")}
             </button>
@@ -105,8 +120,9 @@ export function AnniversaryPopupCard({ signedIn, onClose }: { signedIn: boolean;
         <button
           type="button"
           onClick={close}
+          disabled={!armed}
           aria-label={t("anniversary.popup.close")}
-          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-sm bg-black/70 text-white transition hover:bg-black"
+          className="disabled:cursor-default disabled:opacity-40 absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-sm bg-black/70 text-white transition hover:bg-black"
         >
           <span aria-hidden="true">×</span>
         </button>

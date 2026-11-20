@@ -18,6 +18,7 @@ import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { GROUP_VOICE_PREFIX } from "@/lib/groupLinks";
 import { isCallRoomHandle, isThemeRoomHandle } from "@/lib/roomsApi";
 import { getStoredName } from "@/lib/signalingClient";
+import { startRoomVisitMetrics } from "@/lib/prejoinMetrics";
 
 // What /watch/[handle] renders instead of the room itself.
 //
@@ -45,6 +46,24 @@ import { getStoredName } from "@/lib/signalingClient";
 // fresh load with an account: a mark in this tab's sessionStorage (see
 // markPrejoinSkip) carries "already went through a door" across that trip.
 
+// Whether this page load is a reload of this very room. Reloading is already
+// being in the room — a refresh to fix something, the app reloading itself for
+// an update — and a door then is a question nobody asked. Only for the room the
+// document was loaded on, and only once: the navigation entry keeps saying
+// "reload" for the life of the document, including later rooms reached from
+// here without a reload of their own.
+let reloadClaimed = false;
+function openedByReload(handle: string): boolean {
+  if (reloadClaimed || typeof performance === "undefined") return false;
+  try {
+    const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    if (entry?.type !== "reload") return false;
+    return decodeURIComponent(new URL(entry.name).pathname) === `/watch/${handle}`;
+  } catch {
+    return false;
+  }
+}
+
 function prejoinApplies(handle: string): boolean {
   return !handle.startsWith(GROUP_VOICE_PREFIX) && !isCallRoomHandle(handle) && !isThemeRoomHandle(handle);
 }
@@ -66,6 +85,9 @@ export function WatchRoomStage({
   // Back from signing in that started at a door (this page's own name screen,
   // or the prejoin's "Entrar com sua conta"). Read here, cleared in an effect.
   const [skipMarked] = useState(() => readPrejoinSkip(handle));
+  const [reloaded] = useState(() => openedByReload(handle));
+  // For "tempo até entrar", the same clock on both sides of the experiment.
+  const [openedAt] = useState(() => Date.now());
   const [appShell] = useState(() => isAppShell());
   const { account, loading: resolvingAccount } = useAuth();
 
@@ -80,7 +102,7 @@ export function WatchRoomStage({
     setArrivedAsSomeone(Boolean(account) || (!appShell && getStoredName() !== null));
   }
 
-  const applies = prejoinApplies(handle) && !alreadyIn && !skipMarked;
+  const applies = prejoinApplies(handle) && !alreadyIn && !skipMarked && !reloaded;
   const eligible = applies && arrivedAsSomeone === true;
   const prejoin = useFeature(ROOM_PREJOIN_FEATURE, { track: eligible });
   const [entered, setEntered] = useState(false);
@@ -92,10 +114,24 @@ export function WatchRoomStage({
     !applies || (arrivedAsSomeone !== null && (!eligible || (prejoin.ready && (!prejoin.enabled || entered))));
   const showPrejoin = eligible && prejoin.ready && prejoin.enabled && !entered;
 
-  // The mark is spent by the visit it was left for.
+  // The mark is spent by the visit it was left for; the reload, by the first
+  // room to look at it.
   useEffect(() => {
+    reloadClaimed = true;
     if (skipMarked) clearPrejoinSkip();
   }, [skipMarked]);
+
+  // Why a room's page opened without the screen, for sizing who it reaches.
+  // Both groups: these are facts about the visit, not about the screen.
+  useEffect(() => {
+    if (!prejoinApplies(handle) || alreadyIn) return;
+    if (reloaded) trackFeatureEvent(ROOM_PREJOIN_EVENTS.skipReload, { feature: ROOM_PREJOIN_FEATURE });
+  }, [handle, alreadyIn, reloaded]);
+  useEffect(() => {
+    if (applies && arrivedAsSomeone === false) {
+      trackFeatureEvent(ROOM_PREJOIN_EVENTS.skipNobody, { feature: ROOM_PREJOIN_FEATURE });
+    }
+  }, [applies, arrivedAsSomeone]);
 
   // Arrived as nobody: the room's own screen is this person's door. If signing
   // in there leaves the page and comes back, the prejoin must not greet them
@@ -112,12 +148,20 @@ export function WatchRoomStage({
     // belonged to the page.
     if (current && current.handle === handle && !current.group) return;
     setCallSession({ handle, viewThemeId, group: null });
-    // The control side of "how many of the people who opened a room went in":
-    // the screen counts its own (with the time spent on it) in RoomPrejoin.
-    if (eligible && !prejoin.enabled) {
-      trackFeatureEvent(ROOM_PREJOIN_EVENTS.enter, { feature: ROOM_PREJOIN_FEATURE });
+    // "Of the people who opened a room, how many went in, and how fast" — the
+    // same event on both sides, counted only for visits that could have shown
+    // the screen, so the two groups are the same kind of visit.
+    if (eligible) {
+      trackFeatureEvent(ROOM_PREJOIN_EVENTS.enter, {
+        feature: ROOM_PREJOIN_FEATURE,
+        value: Math.max(1, Date.now() - openedAt),
+      });
     }
-  }, [canJoin, handle, viewThemeId, eligible, prejoin.enabled]);
+    // And what the visit was used for (see lib/prejoinMetrics): fewer people
+    // walking in is only half of the question, the other half is whether
+    // those who do use rooms less.
+    if (eligible) startRoomVisitMetrics(handle);
+  }, [canJoin, handle, viewThemeId, eligible, openedAt]);
 
   const session = useCallSession();
   if (showPrejoin) return <RoomPrejoin handle={handle} onEnter={enter} onSkip={enter} />;
