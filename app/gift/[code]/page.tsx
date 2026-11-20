@@ -58,9 +58,13 @@ async function loadGift(code: string): Promise<GiftCard | null> {
       days?: number;
       hours?: number;
       from?: { displayName?: string } | null;
+      cosmetic?: { label?: string };
     };
     return {
-      planTitle: data.planTitle ?? translate("common.golivePro"),
+      // An avatar frame minted from the admin page: "a moldura Natal".
+      planTitle: data.cosmetic
+        ? translate("gift.aFrame", { name: data.cosmetic.label ?? data.planTitle ?? "" })
+        : data.planTitle ?? translate("common.golivePro"),
       days: typeof data.days === "number" ? data.days : 0,
       hours: typeof data.hours === "number" ? data.hours : 0,
       fromName: data.from?.displayName ?? null,

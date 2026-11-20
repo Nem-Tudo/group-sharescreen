@@ -15,6 +15,7 @@ import type { Supporter } from "./supporter";
 import type { EventPromo, EventPromoInput } from "./eventPromo";
 import { translate } from "@/lib/i18n";
 import type { BadgeDefinition } from "./badges";
+import type { CosmeticProduct } from "./cosmetics";
 import { updateCachedAdsEnabled } from "./useAdsEnabled";
 
 
@@ -1467,6 +1468,16 @@ export interface AdminGift {
   trialOnly?: boolean;
   /** A "gift de experimentar": 2h, once per account (TEST_GIFT_REDEEM). */
   testGift?: boolean;
+  /** An item (an avatar frame) instead of plan time; planId is then "cosmetic". */
+  cosmetic?: AdminGiftCosmetic;
+}
+
+/** The item a cosmetic gift gives. `value` is the frame's picture. */
+export interface AdminGiftCosmetic {
+  id: string;
+  type: string;
+  label: string;
+  value: string;
 }
 
 /**
@@ -1498,6 +1509,23 @@ export async function createAdminGift(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ planId, ...duration, expiresAt, ...access, trialOnly, testGift }),
+  });
+}
+
+/**
+ * Mints a gift link for an item (an avatar frame) instead of plan time: the
+ * same link, expiry and allow/block lists as a plan gift; whoever redeems it
+ * owns the item and wears it.
+ */
+export async function createAdminCosmeticGift(
+  cosmeticId: string,
+  expiresAt: number | null = null,
+  access: AdminGiftAccess = {}
+): Promise<AdminGift> {
+  return adminFetch<AdminGift>("/admin/premium/gift", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cosmeticId, expiresAt, ...access }),
   });
 }
 
@@ -2001,4 +2029,60 @@ export interface SalesAnalytics {
 
 export async function fetchSalesAnalytics(days: number, fresh = false): Promise<SalesAnalytics> {
   return adminFetch<SalesAnalytics>(`/admin/sales/analytics?days=${days}${fresh ? "&fresh=1" : ""}`);
+}
+
+// ─── Avatar frames (admin page "Molduras") ──────────────────────────────────
+
+/** The editable fields of a frame. `value` is its picture (path or CDN URL). */
+export type AdminDecorationInput = {
+  label?: string;
+  price?: number;
+  value?: string;
+  collection?: string | null;
+  forSale?: boolean;
+};
+
+/** Every store product (frames and the rest), for the frames panel and the gift picker. */
+export async function fetchAdminCosmetics(): Promise<CosmeticProduct[]> {
+  const data = await adminFetch<{ products: CosmeticProduct[] }>("/admin/cosmetics");
+  return data.products;
+}
+
+export async function createAdminDecoration(id: string, input: AdminDecorationInput): Promise<CosmeticProduct> {
+  const data = await adminFetch<{ product: CosmeticProduct }>("/admin/cosmetics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, ...input }),
+  });
+  return data.product;
+}
+
+/** Changes a frame. `moved`: accounts that were wearing its old picture and now wear the new one. */
+export async function updateAdminDecoration(
+  id: string,
+  input: AdminDecorationInput
+): Promise<{ product: CosmeticProduct; moved: number }> {
+  return adminFetch<{ product: CosmeticProduct; moved: number }>(`/admin/cosmetics/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Deletes a frame for good: off the shop, out of everybody's inventory, off
+ * everybody wearing it. `removed`: accounts that had it.
+ */
+export async function deleteAdminDecoration(id: string): Promise<{ removed: number }> {
+  return adminFetch<{ removed: number }>(`/admin/cosmetics/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Uploads a frame's picture (a data: URL) to the CDN; answers the URL to save as `value`. */
+export async function uploadAdminDecorationPicture(dataUrl: string): Promise<string> {
+  const data = await adminFetch<{ url: string }>("/admin/cosmetics/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataUrl }),
+  });
+  return data.url;
 }

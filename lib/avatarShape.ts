@@ -25,7 +25,11 @@ export type AvatarShape = (typeof AVATAR_SHAPES)[number];
 const DEFAULT_FACE = "/assets/default_avatars/01.png";
 
 /** A decoration is a picture the site itself serves; nothing else is ever drawn. */
-const DECORATION_PATH = /^\/assets\/decorations\/[a-z0-9_-]+\.(svg|png|webp|gif)$/;
+// A picture the site serves (the first frames, in public/assets/decorations),
+// or one uploaded from the admin page to the CDN (see the API's
+// adminCosmeticRoutes.ts). Only those two places, never any other host.
+const DECORATION_PATH =
+  /^(?:\/assets\/decorations\/[a-z0-9_-]+|https:\/\/(?:blob\.squarecloud\.dev|public-blob\.squarecloud\.dev|cdn\.nemtudo\.me)\/(?!.*\.\.)[A-Za-z0-9_\-./]+)\.(svg|png|webp|gif)$/;
 
 const FRAGMENT_KEYS = ["#shape=", "#deco=", "#none="];
 

@@ -18,6 +18,7 @@ export const ADMIN_PERMISSIONS = [
   "cancellations",
   "account_flags",
   "badges",
+  "cosmetics",
   "usernames",
   "points",
   "auto_flags",

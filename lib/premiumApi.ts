@@ -527,6 +527,11 @@ export type GiftCodeInfo = {
   /** What the card is charged monthly once the trial ends. */
   trialPriceCents?: number;
   currency?: string;
+  /**
+   * An item (an avatar frame) instead of plan time — minted from the admin
+   * page. Then planId is "cosmetic", days 0, and `value` is the frame picture.
+   */
+  cosmetic?: { id: string; type: string; label: string; value: string };
 };
 
 /**
@@ -569,6 +574,7 @@ export type RedeemFailure =
   | "not_allowed"
   | "has_plan"
   | "test_used"
+  | "owned"
   | "unknown";
 
 export type RedeemGiftResult =
