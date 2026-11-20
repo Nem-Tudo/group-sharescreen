@@ -167,14 +167,12 @@
   transform: translate(-2px, 0);
   clip-path: inset(0 0 55% 0);
   animation: anniv-glitch-a 2.2s steps(1) infinite;
-  mix-blend-mode: screen;
 }
 .anniv-glitch::after {
   color: #f43f5e;
   transform: translate(2px, 0);
   clip-path: inset(50% 0 0 0);
   animation: anniv-glitch-b 1.7s steps(1) infinite;
-  mix-blend-mode: screen;
 }
 @keyframes anniv-glitch-a {
   0%, 82%, 100% { transform: translate(-2px, 0); clip-path: inset(0 0 55% 0); }
@@ -187,21 +185,36 @@
   85% { transform: translate(-4px, -1px); clip-path: inset(30% 0 45% 0); }
 }
 
+/* TV static: a small tile, repeated, nudged a few pixels at a time. It used to
+   be one layer twice the size of the scene, which phones choked on. */
 .anniv-static {
   position: absolute;
-  inset: -50%;
+  inset: -12px;
   background-image:
-    repeating-radial-gradient(circle at 17% 32%, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px),
-    repeating-radial-gradient(circle at 73% 61%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px);
+    radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1.4px),
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1.4px);
+  background-size: 7px 7px, 11px 11px;
+  background-position: 0 0, 3px 5px;
   animation: anniv-static 0.35s steps(4) infinite;
+  will-change: transform;
   pointer-events: none;
 }
 @keyframes anniv-static {
   0% { transform: translate(0, 0); }
-  25% { transform: translate(-3%, 2%); }
-  50% { transform: translate(2%, -3%); }
-  75% { transform: translate(-1%, 3%); }
-  100% { transform: translate(3%, -1%); }
+  25% { transform: translate(-5px, 3px); }
+  50% { transform: translate(4px, -5px); }
+  75% { transform: translate(-2px, 6px); }
+  100% { transform: translate(5px, -2px); }
+}
+/* Phones get the static still: the motion is not worth the frames. */
+@media (pointer: coarse), (max-width: 640px) {
+  .anniv-static { animation: none; will-change: auto; }
+}
+/* A scene off screen keeps nothing running (see AnniversaryContent). */
+.anniv-offscreen *,
+.anniv-offscreen *::before,
+.anniv-offscreen *::after {
+  animation-play-state: paused !important;
 }
 .anniv-scanlines {
   position: absolute;

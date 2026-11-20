@@ -20,6 +20,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { SceneTitle } from "../shared";
 import { ShareSheet, type ShareTarget } from "../ShareSheet";
 import { drawGiftCard } from "../shareCard";
+import type { RecapCardDrawer } from "./Recap";
 
 // "Temos um presente pra você": an avatar decoration (see the API's
 // anniversaryGift.ts). Three steps, each one waiting for the one before:
@@ -37,7 +38,7 @@ function spinDelays(): number[] {
   return Array.from({ length: steps }, (_, i) => 60 + Math.pow(i / (steps - 1), 2.4) * 460);
 }
 
-export function GiftSection({ onCelebrate }: { onCelebrate: () => void }) {
+export function GiftSection({ onCelebrate, recapCard }: { onCelebrate: () => void; recapCard: RecapCardDrawer | null }) {
   const t = useT();
   const { account, loading, refresh } = useAuth();
   const token = useAccountToken();
@@ -139,6 +140,37 @@ export function GiftSection({ onCelebrate }: { onCelebrate: () => void }) {
   const optionName = (id: string) => t(`anniversary.gift.option.${id}`);
   const step = !gift?.pick ? 1 : !gift.claimed ? 2 : 3;
 
+  // The same sheet before and after the frame is given: sharing more is still welcome.
+  const shareSheet = gift?.pick ? (
+                    <ShareSheet
+                      key={`${gift.pick.id}-${recapCard ? "recap" : "gift"}`}
+                      text={t("anniversary.gift.shareText")}
+                      url={anniversaryShareUrl("gift")}
+                      cardName="meu-presente-go-live.png"
+                      card={() =>
+                        recapCard
+                          ? recapCard(withAvatarDecoration(account?.avatarUrl, gift.pick!.value))
+                          : drawGiftCard(
+                          {
+                            kicker: t("anniversary.gift.cardKicker"),
+                            name,
+                            face: account?.avatarUrl ?? null,
+                            decoration: gift.pick!.value,
+                            title: optionName(gift.pick!.id),
+                            text: t("anniversary.gift.cardText"),
+                          },
+                          {
+                            live: t("anniversary.card.live"),
+                            brand: t("anniversary.card.brand"),
+                            hashtag: "#GoLive3Meses",
+                            url: "golive.nemtudo.me/3-meses",
+                          }
+                        )
+                      }
+                      onShare={(target) => void claim(target)}
+                    />
+  ) : null;
+
   return (
     <section id={GIFT_ANCHOR} data-scene="gift" className="relative overflow-hidden px-4 py-28 sm:px-8 sm:py-36">
       <SceneTitle kicker={t("anniversary.gift.kicker")} title={t("anniversary.gift.title")} sub={t("anniversary.gift.sub")} color="var(--a-tally)" />
@@ -230,33 +262,7 @@ export function GiftSection({ onCelebrate }: { onCelebrate: () => void }) {
                   <p className="anniv-display text-5xl sm:text-6xl">{t("anniversary.gift.landed", { name: optionName(gift.pick.id) })}</p>
                   <p className="mt-3 text-[15px] text-[var(--a-mute)]">{t("anniversary.gift.once")}</p>
                   <p className="mt-7 text-lg font-bold">{t("anniversary.gift.shareLead")}</p>
-                  <div className="mt-4">
-                    <ShareSheet
-                      key={gift.pick.id}
-                      text={t("anniversary.gift.shareText")}
-                      url={anniversaryShareUrl("gift")}
-                      cardName="meu-presente-go-live.png"
-                      card={() =>
-                        drawGiftCard(
-                          {
-                            kicker: t("anniversary.gift.cardKicker"),
-                            name,
-                            face: account?.avatarUrl ?? null,
-                            decoration: gift.pick!.value,
-                            title: optionName(gift.pick!.id),
-                            text: t("anniversary.gift.cardText"),
-                          },
-                          {
-                            live: t("anniversary.card.live"),
-                            brand: t("anniversary.card.brand"),
-                            hashtag: "#GoLive3Meses",
-                            url: "golive.nemtudo.me/3-meses",
-                          }
-                        )
-                      }
-                      onShare={(target) => void claim(target)}
-                    />
-                  </div>
+                  <div className="mt-4">{shareSheet}</div>
                 </>
               )}
 
@@ -305,6 +311,8 @@ export function GiftSection({ onCelebrate }: { onCelebrate: () => void }) {
                     )}
                   </div>
                   <p className="mt-5 text-sm text-[var(--a-mute)]">{t("anniversary.gift.later")}</p>
+                  <p className="mt-8 text-lg font-bold">{t("anniversary.gift.shareMore")}</p>
+                  <div className="mt-4">{shareSheet}</div>
                 </>
               )}
             </>

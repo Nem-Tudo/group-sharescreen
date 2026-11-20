@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/useI18n";
-import { onNextUserGesture } from "@/lib/audioContext";
 import { markFeatureUsed } from "@/components/NewBadge";
 import {
   ANNIVERSARY_EVENTS,
@@ -19,13 +18,14 @@ import {
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "./gsap";
 import { Chiptune, type MusicMood } from "./chiptune";
 import { Confetti } from "./shared";
+import { StartGate } from "./StartGate";
 import { IntroSection } from "./sections/Intro";
 import { DayZeroSection } from "./sections/DayZero";
 import { OnceUponSection } from "./sections/OnceUpon";
 import { First72Section } from "./sections/First72";
 import { OutageSection } from "./sections/Outage";
 import { NumbersSection } from "./sections/Numbers";
-import { RecapSection } from "./sections/Recap";
+import { RecapSection, type RecapCardDrawer } from "./sections/Recap";
 import { GiftSection } from "./sections/Gift";
 import { TimelineSection } from "./sections/Timeline";
 import { BackstageSection } from "./sections/Backstage";
@@ -58,13 +58,6 @@ const SCENES: Record<Scene, { music: MusicMood }> = {
 const MUSIC_PREF_KEY = "sharescreen:anniversary:music";
 const STATS_POLL_MS = 60_000;
 
-function readMusicPref(): boolean {
-  try {
-    return window.localStorage.getItem(MUSIC_PREF_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
 function writeMusicPref(on: boolean) {
   try {
     window.localStorage.setItem(MUSIC_PREF_KEY, on ? "1" : "0");
@@ -80,6 +73,17 @@ export function AnniversaryContent() {
   const music = useRef<Chiptune | null>(null);
   const [scene, setScene] = useState<Scene>("intro");
   const [playing, setPlaying] = useState(false);
+  /** The opening click (see StartGate): the intro and the music wait for it. */
+  const [started, setStarted] = useState(false);
+  // The signed-in person's recap picture, once their recap has loaded: the
+  // gift and the finale share it instead of the generic one.
+  const recapDrawer = useRef<RecapCardDrawer | null>(null);
+  const [hasRecapCard, setHasRecapCard] = useState(false);
+  const takeRecapCard = useCallback((draw: RecapCardDrawer) => {
+    recapDrawer.current = draw;
+    setHasRecapCard(true);
+  }, []);
+  const recapCard: RecapCardDrawer | null = hasRecapCard ? (face) => recapDrawer.current!(face) : null;
   const [stats, setStats] = useState<AnniversaryStats | null>(null);
   const [failed, setFailed] = useState(false);
   const [chartDays, setChartDays] = useState<number[] | null>(null);
@@ -202,21 +206,27 @@ export function AnniversaryContent() {
     });
   }, [stats, failed]);
 
-  // Music: off until asked for. Somebody who turned it on before gets it back
-  // on their first click, which is the earliest a browser allows sound.
+  // Music: started (or not) by the opening click — a browser allows sound only
+  // after one. Stopped when the page goes away.
   useEffect(() => {
     const player = getMusic();
-    let cancel: (() => void) | null = null;
-    if (readMusicPref()) {
-      cancel = onNextUserGesture(() => {
-        void player.start().then((ok) => setPlaying(ok));
-      });
-    }
-    return () => {
-      cancel?.();
-      player.stop();
-    };
+    return () => player.stop();
   }, []);
+
+  const start = async (sound: boolean) => {
+    setStarted(true);
+    trackAnniversary(sound ? ANNIVERSARY_EVENTS.startSound : ANNIVERSARY_EVENTS.startSilent);
+    if (!sound) {
+      writeMusicPref(false);
+      return;
+    }
+    const player = getMusic();
+    player.setMood(SCENES[scene].music);
+    const ok = await player.start();
+    setPlaying(ok);
+    writeMusicPref(ok);
+    if (ok) trackAnniversary(ANNIVERSARY_EVENTS.musicOn);
+  };
 
   useEffect(() => {
     music.current?.setMood(SCENES[scene].music);
@@ -259,6 +269,16 @@ export function AnniversaryContent() {
         });
       }
 
+      // Scenes off screen pause their CSS loops (static, glitch, mascot, stars):
+      // a phone otherwise keeps painting all of them at once.
+      const offscreen = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) entry.target.classList.toggle("anniv-offscreen", !entry.isIntersecting);
+        },
+        { rootMargin: "200px 0px" }
+      );
+      for (const el of gsap.utils.toArray<HTMLElement>("[data-scene]")) offscreen.observe(el);
+
       // Progress bar + how far people get.
       let half = false;
       let end = false;
@@ -290,7 +310,9 @@ export function AnniversaryContent() {
       });
 
       // Pinned scenes are measured once fonts have settled.
+      // (The observer above goes with the page.)
       void document.fonts?.ready.then(() => ScrollTrigger.refresh());
+      return () => offscreen.disconnect();
     },
     { scope: root }
   );
@@ -329,14 +351,14 @@ export function AnniversaryContent() {
       </div>
 
       <main>
-        <IntroSection />
+        <IntroSection started={started} />
         <DayZeroSection />
         <OnceUponSection />
         <First72Section />
         <OutageSection peak={stats?.peakSockets ?? HARD_FIGURES.sockets} />
         <NumbersSection stats={stats} failed={failed} chartDays={chartDays} />
-        <RecapSection />
-        <GiftSection onCelebrate={() => setBurst((b) => b + 1)} />
+        <RecapSection onCard={takeRecapCard} />
+        <GiftSection onCelebrate={() => setBurst((b) => b + 1)} recapCard={recapCard} />
         <TimelineSection />
         <BackstageSection />
         <BugsSection
@@ -351,8 +373,10 @@ export function AnniversaryContent() {
         />
         <TeamSection />
         <ThanksSection />
-        <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} stats={stats} />
+        <FinaleSection onCelebrate={() => setBurst((b) => b + 1)} stats={stats} recapCard={recapCard} />
       </main>
+
+      {!started && <StartGate onStart={(sound) => void start(sound)} />}
 
       <Confetti burst={burst} />
     </div>

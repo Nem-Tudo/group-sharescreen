@@ -51,6 +51,8 @@ import { MdCheck, MdContentCopy, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDele
 import { copyText } from "@/lib/clipboard";
 import {
   AVATAR_SHAPES,
+  avatarDecorationOf,
+  avatarImageOf,
   avatarShapeOf,
   shapeRoundingClass,
   stripAvatarShape,
@@ -1227,7 +1229,7 @@ function ProfileContent({
           {/* No empty case left to handle: currentAvatar falls back to the
               first default, so there is always a picture here. */}
           <img
-            src={currentAvatar}
+            src={avatarImageOf(currentAvatar) ?? currentAvatar}
             alt={account.displayName}
             className="h-full w-full object-cover"
           />
@@ -1253,6 +1255,20 @@ function ProfileContent({
             </button>
           )}
         </div>
+
+        {/* The avatar decoration (see lib/avatarShape), outside the avatar's
+            overflow-hidden box so it can hang over its edge: 1.2× the box,
+            centred on it, in the row's coordinates (px-5 + w-24, px-6 + w-28). */}
+        {avatarDecorationOf(currentAvatar) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarDecorationOf(currentAvatar)!}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="pointer-events-none absolute -bottom-[10px] left-[10px] z-[5] h-[115px] w-[115px] max-w-none select-none sm:-bottom-[11px] sm:left-[13px] sm:h-[134px] sm:w-[134px]"
+          />
+        )}
 
         {/* Outside the avatar's box for the same reason the picker below is:
             that box is overflow-hidden to round the picture, so a dot

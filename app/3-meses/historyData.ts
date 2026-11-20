@@ -108,7 +108,7 @@ export const TEAM: { id: string; name: string; handle: string; role: TeamRole; p
   { id: "commandbat", name: "Tiago", handle: "Commandbat", role: "dev", place: "São José do Rio Preto, São Paulo", instagram: "tiagonl.bat", photo: "/aniversario/equipe/commandbat.jpg" },
   { id: "g4buh", name: "Gabriela", handle: "G4buh", role: "support", place: "Porto, Portugal", instagram: "g4buh_", photo: "/aniversario/equipe/g4buh.jpg" },
   { id: "aeeryin", name: "Izzabella", handle: "Aeeryin", role: "support", place: "Içara, Santa Catarina", instagram: null, photo: "/aniversario/equipe/aeeryin.jpg" },
-  { id: "copy", name: "José Leandro", handle: "Copy", role: "support", place: "Natércia, Minas Gerais", instagram: null, photo: "/aniversario/equipe/copy.jpg" },
+  { id: "copy", name: "José Leandro", handle: "Copy", role: "support", place: "Natércia, Minas Gerais", instagram: "juniorntc_", photo: "/aniversario/equipe/copy.jpg" },
   { id: "jake", name: "Renato", handle: "Jake", role: "support", place: "Caldas Novas, Goiás", instagram: "renatoyzy", photo: "/aniversario/equipe/renato.jpg" },
 ];
 

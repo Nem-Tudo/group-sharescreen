@@ -182,14 +182,17 @@ function frame(ctx: CanvasRenderingContext2D, f: CardFrame, fonts: Fonts) {
   // Foot: the hashtag, the address, the bars again.
   ctx.fillStyle = "rgba(255,255,255,0.12)";
   ctx.fillRect(72, CARD_H - 210, CARD_W - 144, 2);
-  setFont(ctx, `800 64px ${fonts.display}`, true);
-  ctx.fillStyle = AMBER;
-  ctx.fillText(f.hashtag.toUpperCase(), 72, CARD_H - 120);
+  // The address first, measured, then the hashtag in whatever room is left —
+  // a browser without condensed canvas text (Safari, Firefox) draws it wider.
   setFont(ctx, `500 30px ${fonts.mono}`);
+  const urlW = ctx.measureText(f.url).width;
   ctx.fillStyle = INK;
   ctx.textAlign = "right";
   ctx.fillText(f.url, CARD_W - 72, CARD_H - 128);
   ctx.textAlign = "left";
+  fit(ctx, f.hashtag.toUpperCase(), "800", 64, fonts.display, CARD_W - 144 - urlW - 32, true);
+  ctx.fillStyle = AMBER;
+  ctx.fillText(f.hashtag.toUpperCase(), 72, CARD_H - 120);
   bars(ctx, CARD_H - 18, 18);
 }
 
@@ -261,54 +264,54 @@ export async function drawRecapCard(data: RecapCardData, f: CardFrame): Promise<
   setFont(ctx, `600 30px ${fonts.mono}`);
   ctx.fillStyle = AMBER;
   ctx.textAlign = "center";
-  ctx.fillText(data.kicker.toUpperCase(), center, 232);
+  ctx.fillText(data.kicker.toUpperCase(), center, 222);
   ctx.textAlign = "left";
 
-  await face(ctx, data.face, avatarDecorationOf(data.face), data.name, center, 400, 220, fonts);
+  await face(ctx, data.face, avatarDecorationOf(data.face), data.name, center, 385, 200, fonts);
 
   ctx.textAlign = "center";
   fit(ctx, data.name.toUpperCase(), "800", 96, fonts.display, CARD_W - 160, true);
   ctx.fillStyle = INK;
-  ctx.fillText(data.name.toUpperCase(), center, 620);
+  ctx.fillText(data.name.toUpperCase(), center, 590);
   setFont(ctx, `500 32px ${fonts.mono}`);
   ctx.fillStyle = MUTE;
-  ctx.fillText(data.handle, center, 668);
+  ctx.fillText(data.handle, center, 636);
 
   // The headline figure.
   setFont(ctx, `600 32px ${fonts.mono}`);
   ctx.fillStyle = TALLY;
-  ctx.fillText(data.bigLabel.toUpperCase(), center, 760);
-  fit(ctx, data.bigValue, "800", 230, fonts.display, CARD_W - 160, true);
+  ctx.fillText(data.bigLabel.toUpperCase(), center, 718);
+  fit(ctx, data.bigValue, "800", 200, fonts.display, CARD_W - 160, true);
   ctx.fillStyle = INK;
-  ctx.fillText(data.bigValue, center, 960);
-  let y = 975;
+  ctx.fillText(data.bigValue, center, 885);
+  let y = 900;
   if (data.comparison) {
     setFont(ctx, `700 40px ${fonts.body}`);
     ctx.fillStyle = INK;
-    y = paragraph(ctx, data.comparison, center, 1030, CARD_W - 220, 50);
+    y = paragraph(ctx, data.comparison, center, 948, CARD_W - 220, 48);
   }
   ctx.textAlign = "left";
 
   // The rest, three to a row.
-  const top = Math.max(y + 20, 1080);
+  const top = Math.max(y + 12, 1000);
   const cols = 3;
-  const gap = 18;
+  const gap = 14;
   const cellW = (CARD_W - 144 - gap * (cols - 1)) / cols;
-  const cellH = 140;
-  data.stats.slice(0, 6).forEach((s, i) => {
+  const cellH = 118;
+  data.stats.slice(0, 9).forEach((s, i) => {
     const x = 72 + (i % cols) * (cellW + gap);
     const cy = top + Math.floor(i / cols) * (cellH + gap);
     ctx.fillStyle = "rgba(255,255,255,0.06)";
     ctx.fillRect(x, cy, cellW, cellH);
     ctx.fillStyle = INK;
-    fit(ctx, s.value, "800", 72, fonts.display, cellW - 40, true);
-    ctx.fillText(s.value, x + 22, cy + 78);
-    setFont(ctx, `500 24px ${fonts.mono}`);
+    fit(ctx, s.value, "800", 62, fonts.display, cellW - 40, true);
+    ctx.fillText(s.value, x + 22, cy + 66);
+    setFont(ctx, `500 22px ${fonts.mono}`);
     ctx.fillStyle = MUTE;
-    ctx.fillText(s.label.toUpperCase(), x + 22, cy + 116);
+    ctx.fillText(s.label.toUpperCase(), x + 22, cy + 100);
   });
-  const rows = Math.ceil(Math.min(6, data.stats.length) / cols);
-  const styleTop = top + rows * (cellH + gap) + 12;
+  const rows = Math.ceil(Math.min(9, data.stats.length) / cols);
+  const styleTop = top + rows * (cellH + gap) + 10;
 
   // The style, in a lower third.
   setFont(ctx, `600 28px ${fonts.mono}`);
@@ -317,16 +320,19 @@ export async function drawRecapCard(data: RecapCardData, f: CardFrame): Promise<
   ctx.fillRect(72, styleTop, leadW, 50);
   ctx.fillStyle = "#fff";
   ctx.fillText(data.styleLead.toUpperCase(), 92, styleTop + 35);
-  const styleSize = fit(ctx, data.style.toUpperCase(), "800", 96, fonts.display, CARD_W - 184, true);
+  const styleSize = fit(ctx, data.style.toUpperCase(), "800", 84, fonts.display, CARD_W - 184, true);
   ctx.fillStyle = INK;
   ctx.fillRect(72, styleTop + 50, ctx.measureText(data.style.toUpperCase()).width + 40, styleSize + 24);
   ctx.fillStyle = BG;
   ctx.fillText(data.style.toUpperCase(), 92, styleTop + 50 + styleSize * 0.92);
 
-  setFont(ctx, `500 30px ${fonts.body}`);
+  setFont(ctx, `500 28px ${fonts.body}`);
   ctx.fillStyle = MUTE;
-  // Under the style's box (its top label, then the name with its padding).
-  paragraph(ctx, data.footnote, 72, styleTop + 50 + styleSize + 24 + 50, CARD_W - 144, 40);
+  // Under the style's box (its top label, then the name with its padding),
+  // and never into the foot: whatever does not fit is left off.
+  const footTop = styleTop + 50 + styleSize + 24 + 44;
+  const lines = wrap(ctx, data.footnote, CARD_W - 144).slice(0, Math.max(0, Math.floor((CARD_H - 230 - footTop) / 36) + 1));
+  lines.forEach((line, i) => ctx.fillText(line, 72, footTop + i * 36));
 
   return toBlob(canvas);
 }

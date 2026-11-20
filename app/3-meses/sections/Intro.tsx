@@ -20,11 +20,12 @@ function timecode(ms: number): string {
 
 // The opener: a test card (colour bars) counts down 3-2-1, cuts to air, and
 // the page's title comes up as a lower third, with the station clock running
-// since the first commit.
-export function IntroSection() {
+// since the first commit. The countdown waits for the opening click (StartGate).
+export function IntroSection({ started }: { started: boolean }) {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const clock = useRef<HTMLSpanElement>(null);
+  const opener = useRef<gsap.core.Timeline | null>(null);
 
   // The running timecode. Filled on the client only (it is "now").
   useEffect(() => {
@@ -43,8 +44,9 @@ export function IntroSection() {
       mm.add(MOTION_OK, () => {
         gsap.set(".i-show", { autoAlpha: 1 });
         gsap.set([".i-tag", ".i-line", ".i-sub", ".i-mascot", ".i-meta", ".i-hint"], { autoAlpha: 0 });
-        const tl = gsap.timeline({ delay: 0.2 });
-        tl.set(".i-card", { autoAlpha: 1 });
+        gsap.set(".i-card", { autoAlpha: 1 });
+        const tl = gsap.timeline({ delay: 0.2, paused: true });
+        opener.current = tl;
         for (const el of gsap.utils.toArray<HTMLElement>(".i-count")) {
           tl.set(el, { autoAlpha: 1 }).to({}, { duration: 0.5 }).set(el, { autoAlpha: 0 });
         }
@@ -77,6 +79,10 @@ export function IntroSection() {
     },
     { scope: ref }
   );
+
+  useEffect(() => {
+    if (started) opener.current?.play();
+  }, [started]);
 
   const lines = [t("anniversary.intro.threeMonthsOf"), "Go Live"];
 

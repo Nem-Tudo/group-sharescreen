@@ -8,6 +8,7 @@ import { HARD_FIGURES } from "../historyData";
 import { useNumberFormat } from "../shared";
 import { ShareSheet } from "../ShareSheet";
 import { drawPageCard } from "../shareCard";
+import type { RecapCardDrawer } from "./Recap";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "../gsap";
 import { Mascot } from "../Mascot";
 
@@ -16,7 +17,15 @@ const THANKS = ["obrigado", "thank you", "gracias", "valeu", "obrigada", "merci"
 
 // Sign-off: the thank-you, the three ways out, and a news crawl along the
 // bottom like the end of a broadcast.
-export function FinaleSection({ onCelebrate, stats }: { onCelebrate: () => void; stats: AnniversaryStats | null }) {
+export function FinaleSection({
+  onCelebrate,
+  stats,
+  recapCard,
+}: {
+  onCelebrate: () => void;
+  stats: AnniversaryStats | null;
+  recapCard: RecapCardDrawer | null;
+}) {
   const t = useT();
   const fmt = useNumberFormat();
   const ref = useRef<HTMLElement>(null);
@@ -116,7 +125,8 @@ export function FinaleSection({ onCelebrate, stats }: { onCelebrate: () => void;
             <ShareSheet
               text={t("anniversary.finale.shareText")}
               url={anniversaryShareUrl("share")}
-              card={drawCard}
+              key={recapCard ? "recap" : "page"}
+              card={recapCard ? () => recapCard() : drawCard}
               onShare={() => trackAnniversary(ANNIVERSARY_EVENTS.share)}
             />
           </div>

@@ -42,7 +42,10 @@ const TIER_LABEL: Record<string, string> = {
   pro_ultra: "Go Live Pro Ultra",
 };
 
-export function RecapSection() {
+/** Draws the signed-in person's recap picture; `face` swaps the look on it. */
+export type RecapCardDrawer = (face?: string | null) => Promise<Blob | null>;
+
+export function RecapSection({ onCard }: { onCard?: (draw: RecapCardDrawer) => void }) {
   const t = useT();
   const { account, loading } = useAuth();
   const token = useAccountToken();
@@ -67,7 +70,7 @@ export function RecapSection() {
   return (
     <section id={RECAP_ANCHOR} data-scene="recap" className="relative">
       {recap ? (
-        <RecapStory recap={recap} />
+        <RecapStory recap={recap} onCard={onCard} />
       ) : (
         <div className="px-4 py-28 sm:py-36">
           <SceneTitle kicker={t("anniversary.recap.kicker")} title={t("anniversary.recap.title")} color="var(--a-green)" />
@@ -136,7 +139,7 @@ function Avatar({ src, name, size = 64 }: { src: string | null; name: string; si
   );
 }
 
-function RecapStory({ recap }: { recap: AnniversaryRecap }) {
+function RecapStory({ recap, onCard }: { recap: AnniversaryRecap; onCard?: (draw: RecapCardDrawer) => void }) {
   const t = useT();
   const tc = useTCount();
   const locale = useLocale();
@@ -336,23 +339,33 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
     share: fmt(recap.shareHours, hoursDigits(recap.shareHours)),
     style: t(`anniversary.recap.style.${style}`),
   });
+  const shareTextX = t("anniversary.recap.shareTextX", {
+    call: fmt(recap.callHours, hoursDigits(recap.callHours)),
+    share: fmt(recap.shareHours, hoursDigits(recap.shareHours)),
+    style: t(`anniversary.recap.style.${style}`),
+  });
 
   // The story picture: everything worth posting, Wrapped-style.
-  const drawCard = () => {
+  // `face`: another look to draw (the gift shows the frame just won).
+  const drawCard = (face?: string | null) => {
     trackAnniversary(ANNIVERSARY_EVENTS.recapCard);
     const stats = [
-      { value: `${fmt(recap.shareHours, hoursDigits(recap.shareHours))}h`, label: t("anniversary.recap.summary.streaming") },
-      { value: `${fmt(recap.micHours, hoursDigits(recap.micHours))}h`, label: t("anniversary.recap.summary.mic") },
-      ...(hasMessages ? [{ value: fmt(messages), label: t("anniversary.recap.summary.messages") }] : []),
-      { value: fmt(recap.friends), label: t("anniversary.recap.summary.friends") },
-      { value: fmt(recap.groups), label: t("anniversary.recap.summary.groups") },
+      { value: `${fmt(recap.shareHours, hoursDigits(recap.shareHours))}h`, label: t("anniversary.recap.card.streaming") },
+      { value: `${fmt(recap.micHours, hoursDigits(recap.micHours))}h`, label: t("anniversary.recap.card.mic") },
+      ...(hasMessages ? [{ value: fmt(messages), label: t("anniversary.recap.card.messages") }] : []),
       ...(recap.calls ? [{ value: fmt(recap.calls), label: t("anniversary.recap.card.calls") }] : []),
+      { value: fmt(recap.friends), label: t("anniversary.recap.card.friends") },
+      { value: fmt(recap.groups), label: t("anniversary.recap.card.groups") },
       { value: fmt(recap.daysWithUs), label: t("anniversary.recap.card.days") },
-    ].slice(0, 6);
+      { value: `#${fmt(recap.accountNumber)}`, label: t("anniversary.recap.card.number") },
+      ...(recap.points > 0 ? [{ value: fmt(recap.points), label: t("anniversary.recap.card.points") }] : []),
+    ].slice(0, 9);
     const footnote = [
       t("anniversary.recap.hello.joined", { date: joined }),
       earlier > 0 ? t("anniversary.recap.hello.earlier", { pct: earlier }) : null,
       recap.topGroup ? t("anniversary.recap.card.topGroup", { name: recap.topGroup.name }) : null,
+      recap.topFriend ? t("anniversary.recap.card.topFriend", { name: recap.topFriend.displayName }) : null,
+      TIER_LABEL[recap.tier] ?? null,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -362,8 +375,8 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
         name: recap.displayName,
         handle: `@${recap.username}`,
         // The face as the site shows it now: with the decoration, if one is on.
-        face: account?.avatarUrl ?? recap.avatarUrl,
-        bigLabel: t("anniversary.recap.summary.call"),
+        face: face !== undefined ? face : account?.avatarUrl ?? recap.avatarUrl,
+        bigLabel: t("anniversary.recap.card.call"),
         bigValue: `${fmt(recap.callHours, hoursDigits(recap.callHours))}h`,
         comparison: recap.callHours > 0 ? cmp(compareCall(recap.callHours)) : null,
         stats,
@@ -374,6 +387,11 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
       { live: t("anniversary.card.live"), brand: t("anniversary.card.brand"), hashtag: ANNIVERSARY_HASHTAG, url: "golive.nemtudo.me/3-meses" }
     );
   };
+
+  // The rest of the page (the gift, the finale) shares this picture too.
+  useEffect(() => {
+    onCard?.(drawCard);
+  });
 
   const summary = [
     { v: `${fmt(recap.callHours, hoursDigits(recap.callHours))}h`, l: t("anniversary.recap.summary.call") },
@@ -421,6 +439,7 @@ function RecapStory({ recap }: { recap: AnniversaryRecap }) {
         <div className="mt-2">
           <ShareSheet
             text={shareText}
+            xText={shareTextX}
             url={anniversaryShareUrl("recap")}
             card={drawCard}
             cardName="meu-recap-go-live.png"

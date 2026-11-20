@@ -25,6 +25,9 @@ export const ANNIVERSARY_EVENTS = {
   scrollHalf: "anniv_scroll_half",
   scrollEnd: "anniv_scroll_end",
   musicOn: "anniv_music_on",
+  /** The opening click: with the music, or without. */
+  startSound: "anniv_start_sound",
+  startSilent: "anniv_start_silent",
   share: "anniv_share",
   ctaRoom: "anniv_cta_room",
   ctaDiscord: "anniv_cta_discord",
@@ -55,7 +58,7 @@ export const ANNIVERSARY_EVENTS = {
 } as const;
 
 /** Where a share went: anniv_share.<target> (see app/3-meses/ShareSheet). */
-export const ANNIVERSARY_SHARE_TARGETS = ["native", "x", "whatsapp", "instagram", "discord", "telegram", "facebook", "threads", "copy", "download"] as const;
+export const ANNIVERSARY_SHARE_TARGETS = ["native", "x", "whatsapp", "instagram", "discord", "telegram", "facebook", "threads", "copy", "image", "download"] as const;
 
 /** Where a visit came from: anniv_from.<source>, once per page load. */
 export const ANNIVERSARY_SOURCES = ["pill", "popup", "share", "recap", "gift", "site", "external", "direct"] as const;
@@ -105,11 +108,14 @@ export function trackAnniversary(name: string, value?: number) {
 /** The page's hashtag, on every share. */
 export const ANNIVERSARY_HASHTAG = "#GoLive3Meses";
 
-/** The page's link, tagged with where it is being opened or shared from. */
-
-export function anniversaryShareUrl(from: AnniversarySource, hash = ""): string {
+/**
+ * The page's link as it is posted on a network: clean, no ?from= tag (asked
+ * for on 2026-11-19), so a visit from a shared post counts as "external".
+ * `_from` stays in the signature for the callers that still name their spot.
+ */
+export function anniversaryShareUrl(_from: AnniversarySource, hash = ""): string {
   const origin = typeof window === "undefined" ? "https://golive.nemtudo.me" : window.location.origin;
-  return `${origin}${anniversaryPath(from, hash)}`;
+  return `${origin}${ANNIVERSARY_PATH}${hash ? `#${hash}` : ""}`;
 }
 
 /** The same, as a path on this site (for a Link). */

@@ -72,7 +72,7 @@ export function OutageSection({ peak }: { peak: number }) {
       />
 
       <div className="out-crt-wrap relative mx-auto mt-12 max-w-6xl">
-        <div className="out-crt relative max-w-2xl rounded-[28px] border-[10px] border-[#1f2230] bg-[#0b0b0b] p-6 shadow-[0_0_120px_rgba(244,63,94,0.25)] sm:p-9">
+        <div className="out-crt relative max-w-2xl rounded-[28px] border-[10px] border-[#1f2230] bg-[#0b0b0b] p-6 shadow-[0_0_50px_rgba(244,63,94,0.25)] sm:shadow-[0_0_120px_rgba(244,63,94,0.25)] sm:p-9">
           <div className="anniv-scanlines rounded-[18px]" />
           <div className="relative space-y-3 font-[family-name:var(--font-geist-sans)] text-lg font-bold leading-snug sm:text-2xl">
             <h3 className="out-line" style={{ color: "#ff2828", fontSize: "1.3em" }}>

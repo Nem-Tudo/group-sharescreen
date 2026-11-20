@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FaDiscord, FaFacebookF, FaInstagram, FaTelegram, FaThreads, FaWhatsapp, FaXTwitter } from "react-icons/fa6";
-import { MdDownload, MdIosShare, MdLink } from "react-icons/md";
+import { MdContentCopy, MdDownload, MdIosShare, MdLink } from "react-icons/md";
 import { useT } from "@/lib/useI18n";
 import { ANNIVERSARY_HASHTAG, trackAnniversary } from "@/lib/anniversary";
 
@@ -16,10 +16,11 @@ import { ANNIVERSARY_HASHTAG, trackAnniversary } from "@/lib/anniversary";
 // Nothing here can tell whether a post was really made: a network's page
 // opening, a picture saved or a message copied is the share.
 
-export type ShareTarget = "native" | "x" | "whatsapp" | "instagram" | "discord" | "telegram" | "facebook" | "threads" | "copy" | "download";
+export type ShareTarget = "native" | "x" | "whatsapp" | "instagram" | "discord" | "telegram" | "facebook" | "threads" | "copy" | "image" | "download";
 
 export function ShareSheet({
   text,
+  xText,
   url,
   card,
   cardName = "go-live-3-meses.png",
@@ -29,6 +30,8 @@ export function ShareSheet({
 }: {
   /** The words; the hashtag is added if they lack it. */
   text: string;
+  /** X's own version of the words, if it differs (the hashtag goes on its own paragraph). */
+  xText?: string;
   url: string;
   /** The story picture (1080×1920) for Instagram and the download button. */
   card?: () => Promise<Blob | null>;
@@ -43,8 +46,17 @@ export function ShareSheet({
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [canNative, setCanNative] = useState(false);
+  const [canCopyImage, setCanCopyImage] = useState(false);
+  // A text written in lines (the recap's) keeps them: hashtag and link each
+  // get a paragraph of their own. A one-line text stays one line.
+  // The hashtag ends the last line; a text written in lines (the recap's)
+  // gets the link a paragraph below. X may have its own version (`xText`), with
+  // the hashtag on a paragraph of its own too.
+  const NL = String.fromCharCode(10);
+  const multiline = text.includes(NL);
   const words = text.includes(ANNIVERSARY_HASHTAG) ? text : `${text} ${ANNIVERSARY_HASHTAG}`;
-  const full = `${words} ${url}`;
+  const full = `${words}${multiline ? NL + NL : " "}${url}`;
+  const xFull = xText ? `${xText}${NL}${NL}${ANNIVERSARY_HASHTAG}${NL}${NL}${url}` : null;
 
   // The picture is drawn ahead of the click: a phone only opens its share
   // sheet while the tap is fresh, and drawing (fonts, avatar) takes a moment.
@@ -62,6 +74,7 @@ export function ShareSheet({
     // After hydration: the server cannot know.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCanNative(typeof navigator !== "undefined" && typeof navigator.share === "function");
+    setCanCopyImage(typeof ClipboardItem !== "undefined" && Boolean(navigator.clipboard?.write));
   }, []);
 
   const done = (target: ShareTarget, message?: string) => {
@@ -117,6 +130,58 @@ export function ShareSheet({
     }
   };
 
+  /**
+   * The picture onto the clipboard, inside the click (a browser only allows it
+   * there): handed over as a promise, so the drawing may still be finishing.
+   */
+  const copyPicture = (): Promise<boolean> => {
+    if (!card || typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) return Promise.resolve(false);
+    try {
+      const png = getPicture().then((blob) => {
+        if (!blob) throw new Error("no picture");
+        return blob;
+      });
+      return navigator.clipboard.write([new ClipboardItem({ "image/png": png })]).then(
+        () => true,
+        () => false
+      );
+    } catch {
+      return Promise.resolve(false);
+    }
+  };
+
+  /**
+   * X takes no picture through a link. On a phone the picture goes through the
+   * share sheet (X is in it); on a computer it goes onto the clipboard and the
+   * post opens, ready for a paste.
+   */
+  const shareOnX = async () => {
+    // With lines, the link goes inside the text (X's own `url` would join it to the hashtag's line).
+    const intent =
+      xFull || multiline
+        ? `https://x.com/intent/post?text=${encodeURIComponent(xFull ?? full)}`
+        : `https://x.com/intent/post?text=${encodeURIComponent(words)}&url=${encodeURIComponent(url)}`;
+    if (card) {
+      const blob = await Promise.race([getPicture(), new Promise<null>((r) => setTimeout(() => r(null), 50))]);
+      const file = blob ? new File([blob], cardName, { type: "image/png" }) : null;
+      if (file && navigator.canShare?.({ files: [file] }) && window.matchMedia("(pointer: coarse)").matches) {
+        try {
+          await navigator.share({ files: [file], text: xFull ?? full });
+          done("x");
+          return;
+        } catch (err) {
+          if ((err as Error).name === "AbortError") return;
+        }
+      }
+      const copied = copyPicture();
+      window.open(intent, "_blank", "noopener,noreferrer");
+      done("x", (await copied) ? t("anniversary.shareSheet.xImage") : undefined);
+      return;
+    }
+    window.open(intent, "_blank", "noopener,noreferrer");
+    done("x");
+  };
+
   const native = async () => {
     try {
       await navigator.share({ title: "Go Live", text: words, url });
@@ -134,7 +199,7 @@ export function ShareSheet({
   const enc = encodeURIComponent;
   const buttons: { target: ShareTarget; label: string; icon: ReactNode; color: string; run: () => void; show?: boolean }[] = [
     { target: "native", label: t("anniversary.shareSheet.native"), icon: <MdIosShare />, color: "#ece9e2", run: native, show: canNative },
-    { target: "x", label: "X", icon: <FaXTwitter />, color: "#000000", run: () => open("x", `https://x.com/intent/post?text=${enc(words)}&url=${enc(url)}`) },
+    { target: "x", label: "X", icon: <FaXTwitter />, color: "#000000", run: () => void shareOnX() },
     { target: "whatsapp", label: "WhatsApp", icon: <FaWhatsapp />, color: "#25d366", run: () => open("whatsapp", `https://wa.me/?text=${enc(full)}`) },
     { target: "instagram", label: t("anniversary.shareSheet.stories"), icon: <FaInstagram />, color: "#e1306c", run: () => void givePicture("instagram"), show: Boolean(card) },
     {
@@ -160,6 +225,17 @@ export function ShareSheet({
         const ok = await copy(full);
         if (ok) done("copy", t("anniversary.shareSheet.copied"));
       },
+    },
+    {
+      target: "image",
+      label: t("anniversary.shareSheet.copyImage"),
+      icon: <MdContentCopy />,
+      color: "#3f4250",
+      run: async () => {
+        if (await copyPicture()) done("image", t("anniversary.shareSheet.imageCopied"));
+        else setStatus(t("anniversary.shareSheet.imageCopyFailed"));
+      },
+      show: Boolean(card) && canCopyImage,
     },
     { target: "download", label: t("anniversary.shareSheet.download"), icon: <MdDownload />, color: "#3f4250", run: () => void givePicture("download"), show: Boolean(card) },
   ];

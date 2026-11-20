@@ -11,7 +11,9 @@ import {
   type Supporter,
   type SupporterTier,
 } from "@/lib/anniversary";
+import { MdCampaign } from "react-icons/md";
 import { UserAvatar } from "@/components/UserAvatar";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { SceneTitle, useNumberFormat } from "../shared";
 import { Ticker } from "../Ticker";
 
@@ -23,13 +25,37 @@ import { Ticker } from "../Ticker";
 // a row asks for the next page as it comes round to the end of what it has,
 // so all of them pass by without anyone downloading thousands at once.
 
-const SQUARE_CLOUD_URL = "https://squarecloud.app";
+// The same link and logo the site's header and footer use for the partner.
+const SQUARE_CLOUD_URL = "https://go.nemtudo.me/square-link";
+const SQUARE_CLOUD_LOGO = "https://cdn.squarecloud.app/assets/logo.svg";
 const PAGE = 40;
-const TIERS: { tier: SupporterTier; label: string; color: string; speed: number }[] = [
-  { tier: "pro_ultra", label: "Pro Ultra", color: "var(--a-amber)", speed: 34 },
-  { tier: "premium_max", label: "Pro Max", color: "#c084fc", speed: 42 },
-  { tier: "premium", label: "Pro", color: "var(--a-blue)", speed: 50 },
+/** Width of one face in a row, gap included (Ticker's GAP + the w-24 card). */
+const FACE_W = 96 + 16;
+/** However many people a plan has, the whole row goes by in at most this long. */
+const ROW_MAX_S = 180;
+// Each plan in the colour of its verified mark: ruby, gold, blue. The flags
+// are what VerifiedBadge reads to draw that mark after each name.
+const TIERS: { tier: SupporterTier; label: string; color: string; speed: number; flags: string[] }[] = [
+  { tier: "pro_ultra", label: "Pro Ultra", color: "#ef4444", speed: 34, flags: ["PRO_ULTRA"] },
+  { tier: "premium_max", label: "Pro Max", color: "#f2b705", speed: 42, flags: ["PRO_MAX"] },
+  { tier: "premium", label: "Pro", color: "#4c86ff", speed: 50, flags: ["PRO"] },
 ];
+/** The site's own "advertise here" slot is not an advertiser. */
+const NOT_AN_ADVERTISER = /anuncie aqui|advertise here|anuncia aqu[ií]/i;
+
+/** An advertiser's mark, or the default one when it has none or it fails to load. */
+function AdMark({ src }: { src: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-[var(--a-tally)] text-lg text-white" aria-hidden="true">
+        <MdCampaign />
+      </span>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className="h-8 w-8 shrink-0 rounded-sm object-cover" loading="lazy" onError={() => setFailed(true)} />;
+}
 
 /** One plan's subscribers, loaded a page at a time once the wall is near. */
 function useSupporters(tier: SupporterTier, active: boolean) {
@@ -91,7 +117,7 @@ export function ThanksSection() {
   useEffect(() => {
     if (!near) return;
     fetchAdvertisers()
-      .then(setAds)
+      .then((list) => setAds(list.filter((a) => !NOT_AN_ADVERTISER.test(a.name))))
       .catch(() => setAds([]));
   }, [near]);
 
@@ -115,13 +141,17 @@ export function ThanksSection() {
           onClick={() => trackAnniversary(ANNIVERSARY_EVENTS.thanksPartner)}
           className="group mx-auto mt-14 flex max-w-6xl flex-col gap-5 border border-[var(--a-line)] bg-[var(--a-card)] p-7 transition-colors hover:border-[var(--a-ink)] sm:flex-row sm:items-center sm:justify-between sm:p-9"
         >
-          <div>
+          <div className="flex items-start gap-5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SQUARE_CLOUD_LOGO} alt="" className="h-16 w-16 shrink-0 sm:h-20 sm:w-20" />
+            <div>
             <p className={`${label} text-[var(--a-green)]`}>
               <span className="h-2 w-2 bg-[var(--a-green)]" aria-hidden="true" />
               {t("anniversary.thanks.partnerKicker")}
             </p>
             <p className="anniv-display mt-3 text-6xl sm:text-7xl">Square Cloud</p>
             <p className="mt-3 max-w-2xl text-lg leading-relaxed text-[var(--a-mute)]">{t("anniversary.thanks.partnerText")}</p>
+            </div>
           </div>
           <span className="anniv-mono shrink-0 self-start bg-[var(--a-ink)] px-5 py-3 text-xs font-semibold uppercase text-[var(--a-bg)] transition group-hover:bg-white sm:self-center">
             {t("anniversary.thanks.partnerCta")} ↗
@@ -149,12 +179,7 @@ export function ThanksSection() {
               render={(a) => {
                 const chip = (
                   <span className="flex h-14 items-center gap-3 border border-[var(--a-line)] bg-[var(--a-card)] px-4 pr-5">
-                    {a.iconUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={a.iconUrl} alt="" className="h-8 w-8 shrink-0 rounded-sm object-cover" loading="lazy" />
-                    ) : (
-                      <span className="anniv-display flex h-8 w-8 items-center justify-center bg-white/10 text-lg">{a.name.slice(0, 1)}</span>
-                    )}
+                    <AdMark src={a.iconUrl} />
                     <span className="max-w-[16rem] truncate text-base font-bold">{a.name}</span>
                   </span>
                 );
@@ -187,7 +212,7 @@ export function ThanksSection() {
                 <Ticker
                   items={data.people}
                   itemKey={(p) => p.id}
-                  speed={row.speed}
+                  speed={Math.max(row.speed, ((data.total ?? 0) * FACE_W) / ROW_MAX_S)}
                   onNeedMore={data.more}
                   render={(p) => (
                     <a
@@ -201,7 +226,10 @@ export function ThanksSection() {
                       <span className="flex transition-transform group-hover:scale-110">
                         <UserAvatar src={p.avatarUrl} name={p.name} size={56} />
                       </span>
-                      <span className="w-full truncate text-center text-xs font-semibold text-[var(--a-ink)]/85 group-hover:text-[var(--a-ink)]">{p.name}</span>
+                      <span className="flex w-full items-center justify-center gap-1 text-xs font-semibold text-[var(--a-ink)]/85 group-hover:text-[var(--a-ink)]">
+                        <span className="min-w-0 truncate">{p.name}</span>
+                        <VerifiedBadge flags={row.flags} className="h-3.5 w-3.5 shrink-0" />
+                      </span>
                     </a>
                   )}
                 />
