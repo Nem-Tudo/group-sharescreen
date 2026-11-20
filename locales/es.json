@@ -1969,6 +1969,8 @@
   "memberActionsModal.unmuteMicrophone": "Permitir micrófono",
   "watch.watchRoom.adminMutedYou": "Un administrador silenció tu micrófono.",
   "participantRow.mutedByAdmin": "{name} fue silenciado por un administrador",
+  "participantRow.audioNotArrivingRetry": "Reconectar el audio de {name}",
+  "participantRow.audioNotArriving": "El audio de {name} no te está llegando. Haz clic para intentar reconectar.",
   "groupPermissions.canDoEverythingInEveryRoom": "Puede todo, en todas las salas, ignorando sus permisos. Dalo con cuidado.",
   "groupPermissions.connect": "Conectar",
   "groupPermissions.createAndEditRolesBelowYours": "Crear y editar roles por debajo del tuyo, dar y quitar esos roles a las personas y cambiar @everyone.",
@@ -4361,6 +4363,8 @@
   "watch.watchRoom.systemAudioPermissionBlocked": "El sonido no se está enviando: el micrófono de Go Live está bloqueado en Android. Permítelo en Permisos → Micrófono y vuelve a transmitir.",
   "watch.watchRoom.systemAudioPermissionDenied": "El sonido no se está enviando porque se denegó el permiso de audio. Go Live lo volverá a pedir en la próxima transmisión.",
   "watch.watchRoom.firefoxNoScreenAudio": "Firefox no permite transmitir el sonido de la pantalla: tu transmisión va sin audio. Para transmitir la pantalla con sonido, usa la app de Go Live u otro navegador.",
+  "watch.watchRoom.audioBlockedButton": "Activar sonido",
+  "watch.watchRoom.audioBlockedNotice": "Tu navegador bloqueó el sonido de la sala hasta que interactúes con la página. Haz clic en cualquier lugar para escuchar a quien está hablando.",
   "watch.watchRoom.firefoxNoScreenAudioDownload": "Descargar la app",
   "premiumApi.lowerPlanWhileHigherActive": "Ya tienes un plan superior activo. Puedes comprar este cuando termine el actual.",
   "pro.proPanel.lowerPlanDeferredHint": "Tienes {current} hasta el {date}. Si te suscribes a {plan} ahora, solo empieza cuando termine {current}.",
@@ -6671,5 +6675,12 @@
   "anniversary.popup.textRecap": "Mira la historia del sitio y tu resumen: cuánto tiempo pasaste en llamada, tus grupos, tus mensajes y tu estilo.",
   "anniversary.popup.cta": "Ver mi recap y reclamar regalo",
   "anniversary.popup.later": "Ahora no",
-  "anniversary.popup.close": "Cerrar"
+  "anniversary.popup.close": "Cerrar",
+  "anniversary.banner.label": "3 meses de Go Live",
+  "anniversary.banner.title": "¡Go Live cumplió 3 meses!",
+  "anniversary.banner.text": "Mira la historia del sitio y los números en vivo.",
+  "anniversary.banner.textRecap": "Tu recap está listo, y hay un marco de regalo.",
+  "anniversary.banner.cta": "Ver",
+  "anniversary.banner.ctaRecap": "Ver mi recap",
+  "anniversary.banner.close": "Cerrar aviso"
 }

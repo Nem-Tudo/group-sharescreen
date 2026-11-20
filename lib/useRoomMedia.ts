@@ -7,7 +7,7 @@ import { hasFeature, type Feature } from "./entitlements";
 import { useAuth } from "./AuthContext";
 import { trackEvent } from "./analytics";
 import { iceConfigFor, setTurnAllowed } from "./iceConfig";
-import { ensureIceServers, refreshIceServers } from "./iceServers";
+import { ensureIceServers, refreshIceServers, setAudioRelayWanted } from "./iceServers";
 import { reportUnreachablePeer, TURN_UPSELL_DELAY_MS } from "./turnUpsell";
 import { watchTurnRelay } from "./turnRoute";
 import {
@@ -17,13 +17,22 @@ import {
   graphSuppressionAvailable,
   clampMicGain,
   DEFAULT_MIC_GAIN,
+  detachGraphInputs,
+  attachGraphInputs,
   type MicNoiseGraph,
 } from "./rnnoise";
+import {
+  watchMicSendLinks,
+  MIC_SOFT_MUTE_FEATURE,
+  MIC_SOFT_MUTE_EVENTS,
+  MIC_TURN_FREE_FEATURE,
+} from "./micReliability";
 import {
   getStoredAutoJoin,
   getStoredForceRelayIce,
   setForceRelayAllowed,
   getStoredMicOn,
+  getStoredMicsMuted,
   getStoredNoiseSuppressionOn,
   getStoredCameraDeviceId,
   getStoredCameraFacing,
@@ -552,6 +561,14 @@ const REJOIN_RESUME_WINDOW_MS = 120_000;
 // for the last peer in a 50-person burst) plus normal ICE/TURN negotiation
 // time on a slow link.
 const CONNECT_TIMEOUT_MS = 15_000;
+
+// Soft mute's bounds (see turnMicOff). Up to this many other people, a muted
+// mic keeps its connections; above it each muted person would hold one to
+// everybody for nothing, and the old full stop is the better trade.
+const SOFT_MUTE_MAX_PEERS = 12;
+// Muted longer than this and the connections are let go for real: somebody
+// listening for the evening should not hold the room's mesh open.
+const SOFT_MUTE_HOLD_MS = 10 * 60_000;
 
 // Backoff for retrying a sendPC that failed or never connected — see
 // scheduleSendRetry. The first retry is as prompt as it always was, so an
@@ -1113,9 +1130,22 @@ function useBroadcastChannel(
   // switching input device is stop() immediately followed by start(): an
   // effect-driven teardown races the new capture being assigned and can
   // release the graph that just replaced the one it meant to release.
-  onStopped?: () => void
+  onStopped?: () => void,
+  // Mic only: whether the room should be told the mic is on while this channel
+  // is active. False while soft-muted (experiment "mic-soft-mute"): the channel
+  // and its connections stay up, but nobody is being transmitted to — so the
+  // re-announce after a signalling reconnect must not light the icon again.
+  micAnnounced?: () => boolean
 ) {
   const eventPrefix = channel === "mic" ? "mic" : `${channel}_share`;
+  const micAnnouncedRef = useRef(micAnnounced);
+  useEffect(() => {
+    micAnnouncedRef.current = micAnnounced;
+  }, [micAnnounced]);
+  // The send-side measurement of a mic that just came on (see
+  // lib/micReliability). Cancelled by stop(): the mic going off before every
+  // answer is in is not a failure.
+  const sendLinkWatch = useRef<(() => void) | null>(null);
   // What the screen share did, for the GPU capture experiment (see
   // SCREEN_SHARE_STATS). Per share; reset by start().
   const shareStatsRef = useRef<ShareStats | null>(null);
@@ -1595,7 +1625,7 @@ function useBroadcastChannel(
       // stand-in track, which needs the connection built for it (see
       // lib/nativeVideoCapture.ts).
       const nativeVideo = nativeVideoSourceFor(stream.getVideoTracks()[0]);
-      const iceConfig = iceConfigFor(forceRelayIceRef.current);
+      const iceConfig = iceConfigFor(forceRelayIceRef.current, channel);
       const pc = new RTCPeerConnection(nativeVideo ? nativeVideoPeerConfig(iceConfig) : iceConfig);
       sendPCs.current.set(peerId, pc);
       if (channel !== "mic") {
@@ -1848,6 +1878,17 @@ function useBroadcastChannel(
     [openSendPC]
   );
 
+  // Measures how long the connections to everyone in the room take to come up
+  // from now (see lib/micReliability). Called when the mic comes on — by
+  // start() below, and by a soft unmute, whose connections are already up.
+  const watchSendLinks = useCallback(() => {
+    sendLinkWatch.current?.();
+    const peerIds = signalingClient.state.peers
+      .filter((peer) => !peer.bot && !viewerPausedPeers.current.has(peer.id))
+      .map((peer) => peer.id);
+    sendLinkWatch.current = watchMicSendLinks(peerIds, (peerId) => sendPCs.current.get(peerId)?.connectionState);
+  }, []);
+
   // Lets the broadcaster change resolution/fps/bitrate mid-share to react to
   // a room bogging down, instead of having to stop and restart the whole
   // capture. Skipped while inactive — a change picked before starting is
@@ -2003,6 +2044,8 @@ function useBroadcastChannel(
     if (!activeRef.current) return;
     activeRef.current = false;
     setActive(false);
+    sendLinkWatch.current?.();
+    sendLinkWatch.current = null;
     if (shareStatsRef.current) {
       reportShareEnd(shareStatsRef.current);
       shareStatsRef.current = null;
@@ -2158,6 +2201,7 @@ function useBroadcastChannel(
       // already-large room is exactly the burst that used to overwhelm the
       // signaling rate limit and leave some viewers' connections stuck.
       openSendPCsStaggered(signalingClient.state.peers.map((peer) => peer.id));
+      if (channel === "mic") watchSendLinks();
     } catch (err) {
       // Nobody is waiting for this capture any more: failing is not news.
       if (pending.cancelled) return;
@@ -2205,6 +2249,7 @@ function useBroadcastChannel(
     openSendPCsStaggered,
     stop,
     holdStillScreenFloor,
+    watchSendLinks,
   ]);
 
   // Whether a swap is already in flight. Two flips in quick succession — a
@@ -2367,7 +2412,7 @@ function useBroadcastChannel(
 
   const openRecvPC = useCallback(
     (peerId: string) => {
-      const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current));
+      const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current, channel));
       recvPCs.current.set(peerId, pc);
       if (channel !== "mic") {
         connectionRegistry.register({ channel, direction: "recv", peerId, originId: peerId, pc });
@@ -2814,7 +2859,7 @@ function useBroadcastChannel(
       // re-announce our actual state so other peers' indicators don't go
       // stale.
       if (!activeRef.current) return;
-      if (channel === "mic") signalingClient.setMic(true);
+      if (channel === "mic") signalingClient.setMic(micAnnouncedRef.current?.() ?? true);
       else signalingClient.setSharing({ [channel]: true });
     });
 
@@ -2920,6 +2965,7 @@ function useBroadcastChannel(
     recvConnectionStates,
     stopWatchingPeer,
     resumeWatchingPeer,
+    watchSendLinks,
   };
 }
 
@@ -3108,6 +3154,18 @@ export function useRoomMedia(room: string) {
     setTurnAllowed(turnAllowed);
     refreshIceServers();
   }, [turnAllowed, resolvingAccount]);
+  // Experiment "mic-turn-free": the relay for the microphone only, for an
+  // account without the plan above. About 5.6% of pairs never connect without
+  // TURN (measured on video, 2026-11-19); a voice relayed costs ~40 kbps, so
+  // this is the cheap half of "TURN for everybody". Accounts only — the API
+  // decides by account id, which a guest does not have. Counted for everyone
+  // it could apply to: a signed-in account without TURN, in a room.
+  const eligibleForAudioRelay = !resolvingAccount && Boolean(account) && !turnAllowed;
+  const micTurnFree = useFeature(MIC_TURN_FREE_FEATURE, { track: eligibleForAudioRelay });
+  useEffect(() => {
+    if (resolvingAccount) return;
+    setAudioRelayWanted(eligibleForAudioRelay && micTurnFree.enabled);
+  }, [resolvingAccount, eligibleForAudioRelay, micTurnFree.enabled]);
   useEffect(() => {
     setRelayCapExempt(relayCapExempt);
   }, [relayCapExempt]);
@@ -4802,6 +4860,12 @@ export function useRoomMedia(room: string) {
   // however many of the paths that notice it get there in the same moment.
   const restartPhoneMicRef = useRef<(ask: boolean) => void>(() => {});
 
+  // Soft mute (experiment "mic-soft-mute", see the block after the channel):
+  // muted with the connections kept. Declared up here because the channel
+  // asks it what to announce after a signalling reconnect.
+  const micSoftMutedRef = useRef(false);
+  const micAnnounced = useCallback(() => !micSoftMutedRef.current, []);
+
   const mic = useBroadcastChannel(
     "mic",
     room,
@@ -4882,7 +4946,8 @@ export function useRoomMedia(room: string) {
     // here is what actually frees the raw microphone (browser indicator off,
     // device available to the next getUserMedia) and destroys the RNNoise
     // worklet, instead of leaking one running on the shared context per start.
-    releaseMicGraph
+    releaseMicGraph,
+    micAnnounced
   );
 
   const micStop = mic.stop;
@@ -4907,6 +4972,11 @@ export function useRoomMedia(room: string) {
         micRestartPendingRef.current = false;
         const m = micRef.current;
         if (!m.active) return;
+        // Muted (soft): the phone moving does not turn the mic back on.
+        if (micSoftMutedRef.current) {
+          m.stop();
+          return;
+        }
         askPhoneMicRef.current = ask;
         m.stop();
         void Promise.resolve(m.start()).finally(() => {
@@ -4986,14 +5056,156 @@ export function useRoomMedia(room: string) {
     };
   }, [releaseMicGraph]);
 
+  // "Mutar sem desconectar" (experiment "mic-soft-mute").
+  //
+  // Muting used to be mic.stop(): every connection carrying this mic closed,
+  // and unmuting was mic.start() — the device opened again, then a brand-new
+  // connection negotiated with every person in the room, 150 ms apart. The
+  // first second or three of whatever was said after unmuting reached nobody,
+  // and anybody whose negotiation failed that time heard nothing at all until
+  // CONNECT_TIMEOUT_MS and a retry later: "às vezes o áudio não sai", "um ouve
+  // e o outro não".
+  //
+  // In the experiment, muting lets go of the microphone (device released, the
+  // browser's indicator off — the privacy half of the old behaviour is kept)
+  // and leaves the graph and every connection up, sending silence. Unmuting
+  // opens the device into the same graph: nothing to negotiate.
+  //
+  // Bounded, because connections kept for a muted mic are connections every
+  // other person in the room keeps too: only in rooms up to
+  // SOFT_MUTE_MAX_PEERS, and let go for real after SOFT_MUTE_HOLD_MS muted.
+  // Anything the graph cannot do (no graph — the context never ran; a phone as
+  // the mic) falls back to the full stop, as before.
+  const micSoftMuteFeature = useFeature(MIC_SOFT_MUTE_FEATURE, { track: mic.active });
+  const micSoftMuteOnRef = useRef(micSoftMuteFeature.enabled);
+  useEffect(() => {
+    micSoftMuteOnRef.current = micSoftMuteFeature.enabled;
+  }, [micSoftMuteFeature.enabled]);
+  // Which capture is soft-muted. Tied to the stream rather than a plain flag so
+  // that the mic going off and on again (a new stream) is never read as muted.
+  const [softMutedStream, setSoftMutedStream] = useState<MediaStream | null>(null);
+  const micSoftMuted = mic.active && softMutedStream !== null && softMutedStream === mic.localStream;
+  const softMuteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by anything that makes a pending unmute stale: muting again, or the
+  // mic going off altogether, while the device was still opening.
+  const softUnmuteSeq = useRef(0);
+
+  const endSoftMute = useCallback(() => {
+    micSoftMutedRef.current = false;
+    setSoftMutedStream(null);
+    if (softMuteTimer.current) clearTimeout(softMuteTimer.current);
+    softMuteTimer.current = null;
+  }, []);
+
+  // The mic going off by any route — a stop, a room change, its input dying,
+  // the hold running out — ends a soft mute with it. Only the refs here: the
+  // state follows by itself (see softMutedStream).
+  useEffect(() => {
+    if (mic.active) return;
+    softUnmuteSeq.current += 1;
+    micSoftMutedRef.current = false;
+    if (softMuteTimer.current) clearTimeout(softMuteTimer.current);
+    softMuteTimer.current = null;
+  }, [mic.active]);
+
+  const turnMicOff = useCallback(() => {
+    if (micSoftMutedRef.current) return;
+    // Still opening: cancel the capture, there is nothing to keep.
+    if (!mic.active) {
+      mic.stop();
+      return;
+    }
+    if (micSoftMuteOnRef.current) {
+      const graph = micGraphRef.current;
+      const roomSize = signalingClient.state.peers.length;
+      if (graph && !micFromPhoneRef.current && roomSize <= SOFT_MUTE_MAX_PEERS && detachGraphInputs(graph)) {
+        softUnmuteSeq.current += 1;
+        micSoftMutedRef.current = true;
+        setSoftMutedStream(mic.localStream);
+        signalingClient.setMic(false);
+        if (softMuteTimer.current) clearTimeout(softMuteTimer.current);
+        softMuteTimer.current = setTimeout(() => {
+          softMuteTimer.current = null;
+          if (!micSoftMutedRef.current) return;
+          trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.expired, { feature: MIC_SOFT_MUTE_FEATURE });
+          micRef.current.stop();
+        }, SOFT_MUTE_HOLD_MS);
+        trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.mute, { feature: MIC_SOFT_MUTE_FEATURE });
+        return;
+      }
+      trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.fallback, { feature: MIC_SOFT_MUTE_FEATURE });
+    }
+    mic.stop();
+  }, [mic]);
+
+  const turnMicOn = useCallback(() => {
+    if (!micSoftMutedRef.current) {
+      mic.start();
+      return;
+    }
+    const graph = micGraphRef.current;
+    if (!graph || graph.disposed || !mic.active) {
+      softUnmuteSeq.current += 1;
+      endSoftMute();
+      mic.stop();
+      mic.start();
+      return;
+    }
+    // On at once for the button — the device opening is the only wait left —
+    // and announced to the room once there is actually something to hear.
+    endSoftMute();
+    const seq = ++softUnmuteSeq.current;
+    const startedAt = Date.now();
+    attachGraphInputs(graph, {
+      deviceId: micDeviceIdRef.current,
+      stereo: stereoMicRef.current,
+      extraDeviceIds: extraMicDeviceIdsRef.current,
+      suppressionEnabled: noiseSuppressionOnRef.current,
+    }).then(
+      () => {
+        if (seq !== softUnmuteSeq.current) {
+          // Muted again while the device opened: let it go again.
+          if (micSoftMutedRef.current) detachGraphInputs(graph);
+          return;
+        }
+        signalingClient.setMic(true);
+        micRef.current.watchSendLinks();
+        trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.unmute, {
+          feature: MIC_SOFT_MUTE_FEATURE,
+          value: Math.max(1, Date.now() - startedAt),
+        });
+      },
+      () => {
+        if (seq !== softUnmuteSeq.current) return;
+        // The device would not open again (unplugged, refused): off for real,
+        // rather than a lit button over a graph sending silence.
+        micRef.current.stop();
+      }
+    );
+  }, [mic, endSoftMute]);
+
+  // What a change to the capture's setup does to a mic that is on: stop and
+  // start on the new setup. A soft-muted mic is off as far as the person is
+  // concerned, so it just goes off properly — never back on behind their back.
+  const restartLiveMic = useCallback(() => {
+    const m = micRef.current;
+    if (!m.active) return;
+    if (micSoftMutedRef.current) {
+      m.stop();
+      return;
+    }
+    m.stop();
+    m.start();
+  }, []);
+
   const toggleMic = useCallback(() => {
     // Still opening counts as on: a click then is the person changing their
     // mind, so it cancels the capture rather than opening a second one.
-    const on = mic.active || mic.starting;
+    const on = (mic.active && !micSoftMutedRef.current) || mic.starting;
     setStoredMicOn(!on);
-    if (on) mic.stop();
-    else mic.start();
-  }, [mic]);
+    if (on) turnMicOff();
+    else turnMicOn();
+  }, [mic, turnMicOff, turnMicOn]);
 
   /**
    * Opens or closes the mic explicitly, **without** touching the stored
@@ -5016,11 +5228,11 @@ export function useRoomMedia(room: string) {
     (on: boolean) => {
       // Opening counts as on — deafening while the mic is still coming up
       // must cancel it, not wait for it to arrive and leave it open.
-      if ((mic.active || mic.starting) === on) return;
-      if (on) mic.start();
-      else mic.stop();
+      if (((mic.active && !micSoftMutedRef.current) || mic.starting) === on) return;
+      if (on) turnMicOn();
+      else turnMicOff();
     },
-    [mic]
+    [mic, turnMicOn, turnMicOff]
   );
 
   // Switches the input device the mic captures from. If the mic is live
@@ -5039,7 +5251,8 @@ export function useRoomMedia(room: string) {
       micDeviceIdRef.current = deviceId;
       setMicDeviceIdState(deviceId);
       setStoredMicDeviceId(deviceId);
-      if (mic.active) {
+      // Soft-muted: nothing to restart — the unmute opens the new device.
+      if (mic.active && !micSoftMutedRef.current) {
         mic.stop();
         mic.start();
       }
@@ -5054,7 +5267,8 @@ export function useRoomMedia(room: string) {
       setExtraMicDeviceIdsState(ids);
       setStoredExtraMicDeviceIds(ids);
       extraMicDeviceIdsRef.current = multiMic ? ids : [];
-      if (mic.active) {
+      // Soft-muted: the unmute opens the new set.
+      if (mic.active && !micSoftMutedRef.current) {
         mic.stop();
         mic.start();
       }
@@ -5069,7 +5283,7 @@ export function useRoomMedia(room: string) {
     extraMicDeviceIdsRef.current = multiMic ? extraMicDeviceIds : [];
     if (multiMicPrevRef.current === multiMic) return;
     multiMicPrevRef.current = multiMic;
-    if (mic.active && extraMicDeviceIds.length) {
+    if (mic.active && !micSoftMutedRef.current && extraMicDeviceIds.length) {
       mic.stop();
       mic.start();
     }
@@ -5083,10 +5297,9 @@ export function useRoomMedia(room: string) {
     setMicStereoEnabled(stereoMic);
     if (stereoMicRef.current === stereoMic) return;
     stereoMicRef.current = stereoMic;
-    if (mic.active) {
-      mic.stop();
-      mic.start();
-    }
+    // The graph's channel count changes too, so a soft-muted mic cannot keep
+    // it: restartLiveMic turns that one off properly instead.
+    restartLiveMic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stereoMic]);
 
@@ -5115,8 +5328,14 @@ export function useRoomMedia(room: string) {
   // stay off instead of carrying over like noise suppression/mute do).
   // Only ever reads the persisted value once per room; a manual toggle
   // afterwards is respected instead of being fought on the next render.
+  //
+  // Not while deafened ("silenciar microfones", also stored): that used to
+  // bring somebody back with the room silenced and their own mic open — heard
+  // by everyone, hearing no one, which is the one state deafening exists to
+  // rule out. The room remembers the mic was on (see WatchRoom's
+  // micBeforeDeafenRef) and undeafening opens it, as after a deafen made here.
   useEffect(() => {
-    if (getStoredMicOn()) mic.start();
+    if (getStoredMicOn() && !getStoredMicsMuted()) mic.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
 
@@ -5141,6 +5360,14 @@ export function useRoomMedia(room: string) {
     setMicGainState(clamped);
     setStoredMicGain(clamped);
     setGraphInputGain(micGraphRef.current, clamped);
+  }, []);
+
+  // "Tentar de novo" on a person whose audio is not reaching us (experiment
+  // "mic-link-status"). "resume" is the strongest thing a listener can say: the
+  // sender drops whatever connection it holds to us and builds a fresh one,
+  // whatever its own side believes (see the handler in useBroadcastChannel).
+  const retryMicFrom = useCallback((peerId: string) => {
+    signalingClient.sendSignal(peerId, { channel: "mic", role: "viewer", kind: "resume" });
   }, []);
 
   const toggleNoiseSuppression = useCallback(() => {
@@ -5236,11 +5463,13 @@ export function useRoomMedia(room: string) {
     autoJoin,
     toggleAutoJoin,
 
-    isMicOn: mic.active,
+    // A soft-muted mic is off for everything that asks: the buttons, the
+    // sounds, push-to-talk's gate, the speaking ring.
+    isMicOn: mic.active && !micSoftMuted,
     toggleMic,
     setMicOn,
     micError: mic.error,
-    localMicStream: mic.localStream,
+    localMicStream: micSoftMuted ? null : mic.localStream,
     remoteMicStreams: mic.remoteStreams,
     // Per-peer audio recvPC state (origin id -> RTCPeerConnectionState) — the
     // room isn't fully "connected" the instant signaling joins; each
@@ -5248,6 +5477,7 @@ export function useRoomMedia(room: string) {
     // first. Drives the "Conectando..." banner and the per-participant
     // connection-lost dot in WatchRoom.
     micConnectionStates: mic.recvConnectionStates,
+    retryMicFrom,
     micDeviceId,
     setMicDevice,
     extraMicDeviceIds,

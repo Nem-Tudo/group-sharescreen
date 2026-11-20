@@ -1969,6 +1969,8 @@
   "memberActionsModal.unmuteMicrophone": "Permitir microfone",
   "watch.watchRoom.adminMutedYou": "Um administrador silenciou seu microfone.",
   "participantRow.mutedByAdmin": "{name} foi silenciado por um administrador",
+  "participantRow.audioNotArrivingRetry": "Reconectar o áudio de {name}",
+  "participantRow.audioNotArriving": "O áudio de {name} não está chegando até você. Clique para tentar reconectar.",
   "groupPermissions.canDoEverythingInEveryRoom": "Pode tudo, em todas as salas, ignorando as permissões delas. Dê com cuidado.",
   "groupPermissions.connect": "Conectar",
   "groupPermissions.createAndEditRolesBelowYours": "Criar e editar cargos abaixo do seu, dar e tirar esses cargos das pessoas e mudar o @everyone.",
@@ -4361,6 +4363,8 @@
   "watch.watchRoom.systemAudioPermissionBlocked": "O som não está sendo enviado: o microfone do Go Live está bloqueado no Android. Libere em Permissões → Microfone e transmita de novo.",
   "watch.watchRoom.systemAudioPermissionDenied": "O som não está sendo enviado porque a permissão de áudio foi negada. Na próxima transmissão o Go Live pede de novo.",
   "watch.watchRoom.firefoxNoScreenAudio": "O Firefox não permite transmitir o som da tela: sua transmissão está indo sem áudio. Para transmitir a tela com som, use o app do Go Live ou outro navegador.",
+  "watch.watchRoom.audioBlockedButton": "Ativar som",
+  "watch.watchRoom.audioBlockedNotice": "O navegador bloqueou o som da sala até você interagir com a página. Clique em qualquer lugar para ouvir quem está falando.",
   "watch.watchRoom.firefoxNoScreenAudioDownload": "Baixar o app",
   "premiumApi.lowerPlanWhileHigherActive": "Você já tem um plano mais alto ativo. Dá para comprar este quando o atual terminar.",
   "pro.proPanel.lowerPlanDeferredHint": "Você tem o {current} até {date}. Se assinar o {plan} agora, ele só começa quando o {current} acabar.",
@@ -6671,5 +6675,12 @@
   "anniversary.popup.textRecap": "Veja a história do site e o seu recap: quanto tempo você passou em call, seus grupos, suas mensagens e o seu estilo.",
   "anniversary.popup.cta": "Ver meu recap e resgatar presente",
   "anniversary.popup.later": "Agora não",
-  "anniversary.popup.close": "Fechar"
+  "anniversary.popup.close": "Fechar",
+  "anniversary.banner.label": "3 meses de Go Live",
+  "anniversary.banner.title": "O Go Live fez 3 meses!",
+  "anniversary.banner.text": "Veja a história do site e os números ao vivo.",
+  "anniversary.banner.textRecap": "Seu recap está pronto, e tem uma moldura de presente.",
+  "anniversary.banner.cta": "Ver",
+  "anniversary.banner.ctaRecap": "Ver meu recap",
+  "anniversary.banner.close": "Fechar aviso"
 }

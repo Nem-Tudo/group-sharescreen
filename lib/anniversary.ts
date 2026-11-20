@@ -63,7 +63,7 @@ export const ANNIVERSARY_EVENTS = {
 export const ANNIVERSARY_SHARE_TARGETS = ["native", "x", "whatsapp", "instagram", "discord", "telegram", "facebook", "threads", "copy", "image", "download"] as const;
 
 /** Where a visit came from: anniv_from.<source>, once per page load. */
-export const ANNIVERSARY_SOURCES = ["pill", "popup", "share", "recap", "gift", "site", "external", "direct"] as const;
+export const ANNIVERSARY_SOURCES = ["pill", "popup", "banner", "share", "recap", "gift", "site", "external", "direct"] as const;
 export type AnniversarySource = (typeof ANNIVERSARY_SOURCES)[number];
 
 /** The team members with an Instagram (app/3-meses/historyData TEAM ids). */
@@ -105,6 +105,37 @@ export function anniversaryEventNames(): string[] {
     ...ANNIVERSARY_SHARE_TARGETS.map((s) => `anniv_share.${s}`),
     ...ANNIVERSARY_TEAM_IDS.map((id) => `anniv_team_ig.${id}`),
   ];
+}
+
+/**
+ * The top bar that calls whoever has not seen the page yet
+ * (components/AnniversaryBanner), its own experiment. Its events go to that
+ * feature; the visits it brings count on the page as anniv_from.banner.
+ */
+export const ANNIVERSARY_BANNER_FEATURE = "anniv-banner";
+export const ANNIVERSARY_BANNER_EVENTS = {
+  show: "anniv_banner_show",
+  click: "anniv_banner_click",
+  close: "anniv_banner_close",
+} as const;
+
+/** Set by the page on every load: this browser has seen it, so the bar stops calling. */
+const VISITED_KEY = "sharescreen:anniversary:visited";
+
+export function markAnniversaryVisited() {
+  try {
+    window.localStorage.setItem(VISITED_KEY, String(Date.now()));
+  } catch {
+    // Nowhere to remember it; the bar's own storage check keeps it away too.
+  }
+}
+
+export function hasVisitedAnniversary(): boolean {
+  try {
+    return window.localStorage.getItem(VISITED_KEY) !== null;
+  } catch {
+    return true;
+  }
 }
 
 export function trackAnniversary(name: string, value?: number) {

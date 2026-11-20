@@ -1969,6 +1969,8 @@
   "memberActionsModal.unmuteMicrophone": "Allow microphone",
   "watch.watchRoom.adminMutedYou": "An administrator muted your microphone.",
   "participantRow.mutedByAdmin": "{name} was muted by an administrator",
+  "participantRow.audioNotArrivingRetry": "Reconnect {name}'s audio",
+  "participantRow.audioNotArriving": "{name}'s audio isn't reaching you. Click to try reconnecting.",
   "groupPermissions.canDoEverythingInEveryRoom": "Can do everything, in every room, ignoring their permissions. Give it out carefully.",
   "groupPermissions.connect": "Connect",
   "groupPermissions.createAndEditRolesBelowYours": "Create and edit roles below yours, give and remove those roles from people and change @everyone.",
@@ -4361,6 +4363,8 @@
   "watch.watchRoom.systemAudioPermissionBlocked": "Sound is not being sent: Go Live's microphone is blocked on Android. Allow it under Permissions → Microphone and share again.",
   "watch.watchRoom.systemAudioPermissionDenied": "Sound is not being sent because the audio permission was denied. Go Live will ask again on your next share.",
   "watch.watchRoom.firefoxNoScreenAudio": "Firefox does not allow sharing screen audio: your share is going out without sound. To share your screen with sound, use the Go Live app or another browser.",
+  "watch.watchRoom.audioBlockedButton": "Turn on sound",
+  "watch.watchRoom.audioBlockedNotice": "Your browser blocked this room's sound until you interact with the page. Click anywhere to hear who's talking.",
   "watch.watchRoom.firefoxNoScreenAudioDownload": "Download the app",
   "premiumApi.lowerPlanWhileHigherActive": "You already have a higher plan active. You can buy this one once the current one ends.",
   "pro.proPanel.lowerPlanDeferredHint": "You have {current} until {date}. If you subscribe to {plan} now, it only starts when {current} ends.",
@@ -6671,5 +6675,12 @@
   "anniversary.popup.textRecap": "See the site's story and your recap: how long you spent in calls, your groups, your messages and your style.",
   "anniversary.popup.cta": "See my RECAP and claim gift",
   "anniversary.popup.later": "Not now",
-  "anniversary.popup.close": "Close"
+  "anniversary.popup.close": "Close",
+  "anniversary.banner.label": "Go Live turns 3 months",
+  "anniversary.banner.title": "Go Live turned 3 months!",
+  "anniversary.banner.text": "See the site's story and the live numbers.",
+  "anniversary.banner.textRecap": "Your recap is ready, and there's a frame for you as a gift.",
+  "anniversary.banner.cta": "Take a look",
+  "anniversary.banner.ctaRecap": "See my recap",
+  "anniversary.banner.close": "Close notice"
 }

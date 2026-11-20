@@ -111,6 +111,7 @@ import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { isTurnConfigured, subscribeIceServers, TURN_CONFIGURED } from "@/lib/iceConfig";
 import { useMediaDevices, type MediaDeviceOption } from "@/lib/useMediaDevices";
 import {
+  getStoredMicOn,
   getStoredMicsMuted,
   setStoredMicsMuted,
   getStoredPeerVolumes,
@@ -144,6 +145,13 @@ import { CONNECTING_TILE_FEATURE } from "@/lib/connectingTile";
 import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
+import { AudioUnblockBanner } from "@/components/AudioUnblockBanner";
+import {
+  MIC_LINK_STATUS_EVENTS,
+  MIC_LINK_STATUS_FEATURE,
+  useMicReceiveLinks,
+  useStuckShownEvents,
+} from "@/lib/micReliability";
 import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
 import { isMobileDevice } from "@/lib/announcement";
 import { enterAndroidPip, onAndroidPipModeChange } from "@/lib/androidPictureInPicture";
@@ -2179,6 +2187,7 @@ function WatchRoomView({
     localMicStream,
     remoteMicStreams,
     micConnectionStates,
+    retryMicFrom,
     micDeviceId,
     setMicDevice,
     extraMicDeviceIds,
@@ -2252,7 +2261,10 @@ function WatchRoomView({
   // What the mic was doing when the room was deafened, so undeafening can put
   // it back exactly there. Deafening with the mic already closed has nothing
   // to restore, which is the whole of the "fica apenas deafen" case.
-  const micBeforeDeafenRef = useRef(false);
+  //
+  // Seeded from storage for a deafen restored on entry: the mic did not open
+  // then (see useRoomMedia's restore), and undeafening is what brings it back.
+  const micBeforeDeafenRef = useRef(getStoredMicsMuted() && getStoredMicOn());
   // Set to the value a deafen/undeafen is about to move the mic to, so the
   // mic's own sound below stays quiet for that one change. Without it,
   // deafening plays two sounds at once — the deafen chime and the mic-off
@@ -4540,6 +4552,24 @@ function WatchRoomView({
   const visiblePeers = useMemo(
     () => tilePeers.filter((p) => !isAttachedScreenCompanion(p, presentPeerIds)),
     [tilePeers, presentPeerIds]
+  );
+  // Whether each person's audio is reaching us, measured for everyone (see
+  // lib/micReliability) — and, in the experiment "mic-link-status", said on
+  // their row with a retry, instead of the one "Conectando..." in the header
+  // that never says who. Not while our own signalling is down: everybody would
+  // look unreachable, and none of it would be about them.
+  const micLinksLive = state.status === "open" && state.room === handle && Boolean(state.name);
+  const micLinks = useMicReceiveLinks(visiblePeers, micConnectionStates, micLinksLive);
+  const micLinkStatusOn = useFeature(MIC_LINK_STATUS_FEATURE, { track: micLinks.stuck.size > 0 }).enabled;
+  useStuckShownEvents(micLinks.stuck, micLinkStatusOn);
+  const { noteRetry: noteMicRetry } = micLinks;
+  const retryPeerAudio = useCallback(
+    (peerId: string) => {
+      noteMicRetry(peerId);
+      retryMicFrom(peerId);
+      trackFeatureEvent(MIC_LINK_STATUS_EVENTS.retry, { feature: MIC_LINK_STATUS_FEATURE });
+    },
+    [noteMicRetry, retryMicFrom]
   );
   // People sharing their iPhone's screen right now, by identity — so their
   // row says "compartilhando tela" like anybody sharing from a computer, even
@@ -9010,6 +9040,8 @@ function WatchRoomView({
             onToggleMute={toggleParticipantMute}
             volume={peerVolumes[volumeKey] ?? 1}
             connectionLost={micConnectionStates[p.id] === "disconnected"}
+            audioMissing={micLinkStatusOn && micLinks.stuck.has(p.id)}
+            onRetryAudio={micLinkStatusOn ? retryPeerAudio : undefined}
           />
         );
       })}
@@ -10258,6 +10290,16 @@ function WatchRoomView({
           {micError}
         </p>
       )}
+      {/* The browser holding the room's audio back until a click (see the
+          component). Anything with sound in it counts: a voice, or a share. */}
+      <AudioUnblockBanner
+        hasAudio={
+          Object.keys(remoteMicStreams).length > 0 ||
+          [...Object.values(remoteStreams), ...Object.values(remoteCameraStreams)].some(
+            (stream) => stream.getAudioTracks().length > 0
+          )
+        }
+      />
       {/* "Celular como microfone" with the phone not there: the mic is on but
           silent until it connects (see useRoomMedia) — said here, with the
           steps, since there is no picture to put them on as the camera has. */}

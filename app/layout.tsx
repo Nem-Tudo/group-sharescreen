@@ -12,6 +12,7 @@ import { LastScreenRestorer } from "@/components/LastScreenRestorer";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { EventPromoWidget } from "@/components/EventPromoWidget";
 import { AnniversaryPopup } from "@/components/AnniversaryPopup";
+import { AnniversaryBanner } from "@/components/AnniversaryBanner";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
@@ -417,6 +418,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                     unless the status feed reports an outage. */}
                 <StatusBanner />
                 <AnnouncementBanner />
+                {/* "3 meses" bar for whoever has not seen the page yet —
+                    experiment, see components/AnniversaryBanner. */}
+                <AnniversaryBanner />
                 {/* Desktop app below the admin's minimum version: send it to
                     /download — see components/DesktopVersionGate. */}
                 <DesktopVersionGate />

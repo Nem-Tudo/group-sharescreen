@@ -102,6 +102,12 @@ export type MicNoiseGraph = {
   // against the next getUserMedia — and the RNNoise worklet kept running WASM
   // on the shared context, one leaked processor per mic start.
   stop: () => void;
+  // Set by the teardown; nothing is ever wired into a disposed graph again.
+  disposed: boolean;
+  // False between a soft mute and the unmute after it (see detachGraphInputs):
+  // the inputs above are then stopped captures, kept only so the graph's
+  // shape stays the same, and the destination is sending silence.
+  inputsAttached: boolean;
 };
 
 export type MicCaptureResult = {
@@ -397,15 +403,14 @@ export async function captureNoiseSuppressedMic(
     // backstop for the raw capture dying on its own — a device unplugged, a
     // permission revoked, another app seizing it — which is the one case
     // stop() is never called for.
-    let disposed = false;
+    //
+    // It reads the inputs off the graph rather than closing over them: a soft
+    // mute (see detachGraphInputs) replaces them while the graph lives on.
     const teardown = () => {
-      if (disposed) return;
-      disposed = true;
-      rawStream.getTracks().forEach((t) => t.stop());
-      releaseExtras();
+      if (graph.disposed) return;
+      graph.disposed = true;
+      stopInputs(graph);
       destination.stream.getTracks().forEach((t) => t.stop());
-      source.disconnect();
-      for (const extra of extraSources) extra.disconnect();
       compressor.disconnect();
       makeupGainNode.disconnect();
       gainNode.disconnect();
@@ -430,6 +435,8 @@ export async function captureNoiseSuppressedMic(
       gainNode,
       destination,
       stop: teardown,
+      disposed: false,
+      inputsAttached: true,
     };
     connectUpstream(graph, suppressionEnabled);
 
@@ -439,29 +446,7 @@ export async function captureNoiseSuppressedMic(
     // exposed directly on the graph.
     const outputTrack = destination.stream.getAudioTracks()[0];
     outputTrack.addEventListener("ended", teardown, { once: true });
-    // The raw capture ending is the failure this could not previously see at
-    // all: the destination node happily keeps emitting digital silence, which
-    // is then encoded and sent to the whole room while the UI still shows the
-    // mic on and every peer connection reports "connected". Nobody hears a
-    // word and nothing anywhere says why.
-    for (const track of rawStream.getAudioTracks()) {
-      track.addEventListener("ended", teardown, { once: true });
-    }
-    // An extra ending on its own is not the microphone ending: it just drops
-    // out of the mix, and the main input carries on.
-    extraRawStreams.forEach((stream, i) => {
-      for (const track of stream.getAudioTracks()) {
-        track.addEventListener(
-          "ended",
-          () => {
-            extraSources[i].disconnect();
-            const at = graph.extraSources.indexOf(extraSources[i]);
-            if (at !== -1) graph.extraSources.splice(at, 1);
-          },
-          { once: true }
-        );
-      }
-    });
+    watchInputs(graph);
 
     return { stream: destination.stream, graph, inputs: 1 + extraSources.length };
   } catch {
@@ -474,7 +459,9 @@ export async function captureNoiseSuppressedMic(
 // through" — toggling this never touches the broadcast track itself (it's
 // always the destination node's track), so peers never see a renegotiation.
 export function setGraphSuppressionEnabled(graph: MicNoiseGraph | null, enabled: boolean) {
-  if (!graph) return;
+  // Soft-muted: the inputs are stopped captures. attachGraphInputs wires the
+  // new ones with whatever the setting is by then.
+  if (!graph || graph.disposed || !graph.inputsAttached) return;
   connectUpstream(graph, enabled);
 }
 
@@ -485,4 +472,118 @@ export function setGraphSuppressionEnabled(graph: MicNoiseGraph | null, enabled:
 export function setGraphInputGain(graph: MicNoiseGraph | null, gain: number) {
   if (!graph) return;
   graph.gainNode.gain.value = clampMicGain(gain);
+}
+
+// Stops and unhooks every input of a graph — the main capture and the extras.
+// The graph itself (and the track it sends) is left alone.
+function stopInputs(graph: MicNoiseGraph) {
+  graph.rawStream.getTracks().forEach((t) => t.stop());
+  for (const stream of graph.extraRawStreams) stream.getTracks().forEach((t) => t.stop());
+  try {
+    graph.source.disconnect();
+  } catch {
+    // Already disconnected.
+  }
+  for (const extra of graph.extraSources) {
+    try {
+      extra.disconnect();
+    } catch {
+      // As above.
+    }
+  }
+}
+
+// The raw capture ending is the failure this could not previously see at all:
+// the destination node happily keeps emitting digital silence, which is then
+// encoded and sent to the whole room while the UI still shows the mic on and
+// every peer connection reports "connected". Nobody hears a word and nothing
+// anywhere says why. An extra ending on its own is not the microphone ending:
+// it just drops out of the mix, and the main input carries on.
+function watchInputs(graph: MicNoiseGraph) {
+  const raw = graph.rawStream;
+  for (const track of raw.getAudioTracks()) {
+    track.addEventListener(
+      "ended",
+      () => {
+        // Only while this capture is still the graph's input: one let go by a
+        // soft mute was stopped by us, and stop() never raises "ended" anyway.
+        if (graph.rawStream === raw) graph.stop();
+      },
+      { once: true }
+    );
+  }
+  graph.extraRawStreams.forEach((stream, i) => {
+    const node = graph.extraSources[i];
+    for (const track of stream.getAudioTracks()) {
+      track.addEventListener(
+        "ended",
+        () => {
+          try {
+            node.disconnect();
+          } catch {
+            // Already disconnected.
+          }
+          const at = graph.extraSources.indexOf(node);
+          if (at !== -1) graph.extraSources.splice(at, 1);
+        },
+        { once: true }
+      );
+    }
+  });
+}
+
+/**
+ * Soft mute (experiment "mic-soft-mute"): lets go of the microphone — the
+ * device is released and the browser's indicator goes off — while the graph,
+ * and with it the track every peer connection is sending, stays exactly as it
+ * is. What goes out meanwhile is digital silence on connections that are
+ * already up, so unmuting is opening the device again and nothing else: no
+ * renegotiation with anybody, no first words lost to it.
+ *
+ * Returns false when there was nothing to detach (a graph already torn down).
+ */
+export function detachGraphInputs(graph: MicNoiseGraph | null): boolean {
+  if (!graph || graph.disposed) return false;
+  if (!graph.inputsAttached) return true;
+  stopInputs(graph);
+  graph.inputsAttached = false;
+  return true;
+}
+
+/**
+ * The way back from detachGraphInputs: captures the microphone again (and any
+ * extra inputs) and feeds it into the same graph. Throws what the capture
+ * throws — the caller turns the mic off properly then, rather than leaving a
+ * graph that sends silence under a button showing it on.
+ */
+export async function attachGraphInputs(
+  graph: MicNoiseGraph,
+  options: { deviceId?: string | null; stereo?: boolean; extraDeviceIds?: string[]; suppressionEnabled: boolean }
+): Promise<void> {
+  const raw = await captureRawMic(options.deviceId, options.stereo ?? false);
+  const extras = options.extraDeviceIds?.length
+    ? await captureExtraMics(options.extraDeviceIds, raw, options.stereo ?? false)
+    : [];
+  const release = () => {
+    raw.getTracks().forEach((t) => t.stop());
+    for (const stream of extras) stream.getTracks().forEach((t) => t.stop());
+  };
+  // Torn down (the mic switched off for good), or re-attached by a call that
+  // got there first, while the device was opening.
+  if (graph.disposed || graph.inputsAttached) {
+    release();
+    throw new Error("graph-unavailable");
+  }
+  try {
+    graph.rawStream = raw;
+    graph.source = graph.audioCtx.createMediaStreamSource(raw);
+    graph.extraRawStreams = extras;
+    graph.extraSources = extras.map((stream) => graph.audioCtx.createMediaStreamSource(stream));
+  } catch (err) {
+    release();
+    throw err;
+  }
+  graph.inputsAttached = true;
+  connectUpstream(graph, options.suppressionEnabled);
+  watchInputs(graph);
 }

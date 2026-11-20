@@ -14,6 +14,7 @@ import {
   trackAnniversary,
   type AnniversarySource,
   type AnniversaryStats,
+  markAnniversaryVisited,
 } from "@/lib/anniversary";
 import { gsap, ScrollTrigger, useGSAP, MOTION_OK } from "./gsap";
 import { Chiptune, type MusicMood } from "./chiptune";
@@ -100,6 +101,7 @@ export function AnniversaryContent() {
   useEffect(() => {
     trackAnniversary(ANNIVERSARY_EVENTS.view);
     markFeatureUsed(ANNIVERSARY_FEATURE);
+    markAnniversaryVisited();
     const url = new URL(window.location.href);
     const tagged = url.searchParams.get(ANNIVERSARY_FROM_PARAM);
     let source: AnniversarySource;
