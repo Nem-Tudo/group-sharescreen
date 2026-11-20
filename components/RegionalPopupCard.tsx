@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/useI18n";
 import { RubyVerifiedBadgeIcon } from "@/components/icons";
 import { SITE_URL } from "@/lib/seo";
+import { currentAnnouncementDevice } from "@/lib/announcement";
 import {
   REGIONAL_EVENTS,
   REGIONAL_HOME_KM,
@@ -172,6 +173,27 @@ export function regionalCityEvent(town: string | null): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   return `region_city.${slug}`;
+}
+
+/** desktop-browser, desktop-app, mobile-browser, android-app or ios-app. */
+function safePlatform(): string {
+  try {
+    return currentAnnouncementDevice();
+  } catch {
+    return "unknown";
+  }
+}
+
+/** windows, mac, linux, android, ios or other, from the user agent. */
+function operatingSystem(): string {
+  const ua = navigator.userAgent;
+  if (/android/i.test(ua)) return "android";
+  // iPadOS reports itself as a Mac with a touch screen.
+  if (/iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+  if (/windows/i.test(ua)) return "windows";
+  if (/macintosh|mac os x/i.test(ua)) return "mac";
+  if (/linux|cros/i.test(ua)) return "linux";
+  return "other";
 }
 
 function guessTown(spot: RegionalSpot): string | null {
@@ -678,15 +700,50 @@ export function RegionalPopupCard({
   const home = km < REGIONAL_HOME_KM;
   const town = home ? null : guessTown(spot);
 
-  const track = (name: string) => {
-    if (!preview) trackRegional(name);
+  const track = (name: string, value?: number) => {
+    if (!preview) trackRegional(name, value);
   };
+
+  // How it ended, for the numbers: seconds open on every way out, a try to
+  // close during the lock, and leaving the page with it still open.
+  const openedAt = useRef(0);
+  const acted = useRef(false);
+  const triedEarly = useRef(false);
+  const secondsOpen = () => Math.max(1, Math.round((Date.now() - openedAt.current) / 1000));
+  const finish = (name: string) => {
+    acted.current = true;
+    track(name, secondsOpen());
+  };
+  const tooEarly = () => {
+    if (triedEarly.current) return;
+    triedEarly.current = true;
+    track(REGIONAL_EVENTS.early);
+  };
+  useEffect(() => {
+    // Capture: runs before lib/features' own pagehide flush, so this event
+    // still goes out with it.
+    const onHide = () => {
+      if (acted.current) return;
+      acted.current = true;
+      track(REGIONAL_EVENTS.left, secondsOpen());
+    };
+    openedAt.current = Date.now();
+    window.addEventListener("pagehide", onHide, { capture: true });
+    return () => window.removeEventListener("pagehide", onHide, { capture: true });
+    // Reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Which town saw it: the same guess as the title (Santa Rita when home,
   // "unknown" when no seat is close enough). Once per opening.
   const cityEvent = regionalCityEvent(home ? "Santa Rita do Sapucaí" : town);
   useEffect(() => {
-    if (!preview) trackRegional(cityEvent);
+    if (!preview) {
+      trackRegional(cityEvent);
+      // Where it was seen: the site's own platform split, and the system.
+      trackRegional(`regional_platform.${safePlatform()}`);
+      trackRegional(`regional_os.${operatingSystem()}`);
+    }
     // Counted for the popup's one opening, not on re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -700,8 +757,11 @@ export function RegionalPopupCard({
   }, []);
 
   const dismiss = () => {
-    if (!armedRef.current) return;
-    track(REGIONAL_EVENTS.close);
+    if (!armedRef.current) {
+      tooEarly();
+      return;
+    }
+    finish(REGIONAL_EVENTS.close);
     onClose();
   };
 
@@ -839,7 +899,7 @@ export function RegionalPopupCard({
                 <Link
                   href={`/login?next=${encodeURIComponent(returnTo)}`}
                   onClick={() => {
-                    track(REGIONAL_EVENTS.login);
+                    finish(REGIONAL_EVENTS.login);
                     onClose();
                   }}
                   className="font-semibold underline underline-offset-2"
@@ -854,13 +914,18 @@ export function RegionalPopupCard({
           <div className="mt-5 flex gap-2">
             <button
               type="button"
-              disabled={!armed}
+              // aria-disabled, not disabled: a disabled button swallows the
+              // click, and an early press is something worth counting.
+              aria-disabled={!armed}
               onClick={() => {
-                if (!armedRef.current) return;
-                track(REGIONAL_EVENTS.ok);
+                if (!armedRef.current) {
+                  tooEarly();
+                  return;
+                }
+                finish(REGIONAL_EVENTS.ok);
                 onClose();
               }}
-              className="relative flex-1 overflow-hidden rounded-xl px-4 py-3 text-sm font-bold text-white outline-offset-2 transition hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
+              className="relative flex-1 overflow-hidden rounded-xl px-4 py-3 text-sm font-bold text-white outline-offset-2 transition hover:opacity-90 aria-disabled:cursor-default aria-disabled:hover:opacity-100"
               style={{ background: armed ? INK : "#b9b09d" }}
             >
               {!armed && <span className="rg-lock rg-lock-fill absolute inset-0" style={{ background: INK }} aria-hidden="true" />}
@@ -879,7 +944,7 @@ export function RegionalPopupCard({
             <Link
               href="/pro"
               onClick={() => {
-                track(REGIONAL_EVENTS.pro);
+                finish(REGIONAL_EVENTS.pro);
                 onClose();
               }}
               className="text-[12.5px] underline-offset-2 transition hover:underline"
@@ -893,9 +958,9 @@ export function RegionalPopupCard({
         <button
           type="button"
           onClick={dismiss}
-          disabled={!armed}
+          aria-disabled={!armed}
           aria-label={t("regional.close")}
-          className="absolute right-2.5 top-2.5 z-[2] flex h-8 w-8 items-center justify-center rounded-full text-lg leading-none text-white transition hover:opacity-85 disabled:cursor-default disabled:hover:opacity-100"
+          className="absolute right-2.5 top-2.5 z-[2] flex h-8 w-8 items-center justify-center rounded-full text-lg leading-none text-white transition hover:opacity-85 aria-disabled:cursor-default aria-disabled:hover:opacity-100"
           style={{ background: INK }}
         >
           {!armed && (

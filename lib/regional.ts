@@ -27,6 +27,7 @@ export const REGIONAL_HOME_KM = 8;
 export const REGIONAL_EVENTS = {
   /** The popup opened; value = km to Santa Rita. */
   show: "regional_popup_show",
+  /** value (on ok, close, pro, login) = seconds it had been open. */
   ok: "regional_popup_ok",
   /** ✕, Esc or a click outside. */
   close: "regional_popup_close",
@@ -37,6 +38,10 @@ export const REGIONAL_EVENTS = {
   login: "regional_popup_login",
   /** The creator's Instagram (@onemtudo). */
   instagram: "regional_popup_ig",
+  /** Tried to close it during the first seconds' lock (once per opening). */
+  early: "regional_popup_early",
+  /** Left the page (tab closed, reload, another site) with it still open and nothing clicked; value = seconds open. */
+  left: "regional_popup_left",
   /** A location lookup's outcome: where it came from, or that it failed. */
   geoCf: "regional_geo.cf",
   geoPublic: "regional_geo.geojs",
@@ -46,8 +51,16 @@ export const REGIONAL_EVENTS = {
   far: "regional_geo.far",
 } as const;
 
+/** Sent once per opening by the card, besides region_city.<town>. */
+export const REGIONAL_PLATFORMS = ["desktop-browser", "desktop-app", "mobile-browser", "android-app", "ios-app", "unknown"] as const;
+export const REGIONAL_SYSTEMS = ["windows", "mac", "linux", "android", "ios", "other"] as const;
+
 export function regionalEventNames(): string[] {
-  return Object.values(REGIONAL_EVENTS);
+  return [
+    ...Object.values(REGIONAL_EVENTS),
+    ...REGIONAL_PLATFORMS.map((p) => `regional_platform.${p}`),
+    ...REGIONAL_SYSTEMS.map((o) => `regional_os.${o}`),
+  ];
 }
 
 export function trackRegional(name: string, value?: number) {
