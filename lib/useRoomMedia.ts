@@ -8,7 +8,7 @@ import { useAuth } from "./AuthContext";
 import { trackEvent } from "./analytics";
 import { iceConfigFor, setTurnAllowed } from "./iceConfig";
 import { ensureIceServers, refreshIceServers, setAudioRelayWanted } from "./iceServers";
-import { reportUnreachablePeer, TURN_UPSELL_DELAY_MS } from "./turnUpsell";
+import { reportPeerConnected, reportUnreachablePeer, TURN_UPSELL_DELAY_MS } from "./turnUpsell";
 import { watchTurnRelay } from "./turnRoute";
 import {
   captureNoiseSuppressedMic,
@@ -2531,6 +2531,8 @@ function useBroadcastChannel(
             }
           }, 4000);
         } else if (pc.connectionState === "connected") {
+          // Counts for turn-upsell-copy when the "Pro relays" notice was up.
+          reportPeerConnected();
           // Recovered, by whichever route. Drop the fallback so it cannot
           // later tear down a connection that is working again.
           const recovery = recvRecoveryTimers.current.get(peerId);
