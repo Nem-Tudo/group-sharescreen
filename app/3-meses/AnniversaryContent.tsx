@@ -363,7 +363,7 @@ export function AnniversaryContent() {
         <OutageSection peak={stats?.peakSockets ?? HARD_FIGURES.sockets} />
         <NumbersSection stats={stats} failed={failed} chartDays={chartDays} />
         <RecapSection onCard={takeRecapCard} />
-        <GiftSection onCelebrate={() => setBurst((b) => b + 1)} recapCard={recapCard} />
+        <GiftSection onCelebrate={() => setBurst((b) => b + 1)} recapCard={recapCard} recapText={recapText} />
         <TimelineSection />
         <BackstageSection />
         <BugsSection

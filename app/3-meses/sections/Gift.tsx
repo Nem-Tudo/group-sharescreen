@@ -20,7 +20,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { SceneTitle } from "../shared";
 import { ShareSheet, type ShareTarget } from "../ShareSheet";
 import { drawGiftCard } from "../shareCard";
-import type { RecapCardDrawer } from "./Recap";
+import type { RecapCardDrawer, RecapShareText } from "./Recap";
 
 // "Temos um presente pra você": an avatar decoration (see the API's
 // anniversaryGift.ts). Three steps, each one waiting for the one before:
@@ -38,7 +38,15 @@ function spinDelays(): number[] {
   return Array.from({ length: steps }, (_, i) => 60 + Math.pow(i / (steps - 1), 2.4) * 460);
 }
 
-export function GiftSection({ onCelebrate, recapCard }: { onCelebrate: () => void; recapCard: RecapCardDrawer | null }) {
+export function GiftSection({
+  onCelebrate,
+  recapCard,
+  recapText,
+}: {
+  onCelebrate: () => void;
+  recapCard: RecapCardDrawer | null;
+  recapText: RecapShareText | null;
+}) {
   const t = useT();
   const { account, loading, refresh } = useAuth();
   const token = useAccountToken();
@@ -141,15 +149,19 @@ export function GiftSection({ onCelebrate, recapCard }: { onCelebrate: () => voi
   const step = !gift?.pick ? 1 : !gift.claimed ? 2 : 3;
 
   // The same sheet before and after the frame is given: sharing more is still welcome.
+  // Signed in with a recap, it is the recap's own share (its words and its
+  // picture, with the drawn frame on the face); otherwise the gift's card.
+  const useRecap = Boolean(recapCard && recapText);
   const shareSheet = gift?.pick ? (
                     <ShareSheet
-                      key={`${gift.pick.id}-${recapCard ? "recap" : "gift"}`}
-                      text={t("anniversary.gift.shareText")}
+                      key={`${gift.pick.id}-${useRecap ? "recap" : "gift"}`}
+                      text={useRecap ? recapText!.text : t("anniversary.gift.shareText")}
+                      xText={useRecap ? recapText!.xText : undefined}
                       url={anniversaryShareUrl("gift")}
-                      cardName="meu-presente-go-live.png"
+                      cardName={useRecap ? "meu-recap-go-live.png" : "meu-presente-go-live.png"}
                       card={() =>
-                        recapCard
-                          ? recapCard(withAvatarDecoration(account?.avatarUrl, gift.pick!.value))
+                        useRecap
+                          ? recapCard!(withAvatarDecoration(account?.avatarUrl, gift.pick!.value))
                           : drawGiftCard(
                           {
                             kicker: t("anniversary.gift.cardKicker"),
