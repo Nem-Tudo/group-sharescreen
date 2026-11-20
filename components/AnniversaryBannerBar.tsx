@@ -50,7 +50,7 @@ export function AnniversaryBannerBar({
 }) {
   const t = useT();
   return (
-    <div className="anniv anniv-bn relative z-[60] overflow-hidden" role="region" aria-label={t("anniversary.banner.label")}>
+    <div className="anniv anniv-bn relative z-[60] shrink-0 overflow-hidden" role="region" aria-label={t("anniversary.banner.label")}>
       <style>{KEYFRAMES}</style>
       <div className="flex items-center gap-3 py-2 pl-[max(12px,env(safe-area-inset-left,0px))] pr-[max(8px,env(safe-area-inset-right,0px))] sm:gap-4">
         {/* Colour bars, rising then breathing like a level meter. */}
