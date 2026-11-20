@@ -57,7 +57,7 @@ export default async function WatchPage(props: PageProps<"/watch/[handle]">) {
   // around the site without leaving the call. See components/RoomCallHost.
   return (
     <RoomAppGate handle={handle}>
-      <WatchRoomStage handle={handle} viewThemeId={viewThemeId} />
+      <WatchRoomStage key={handle} handle={handle} viewThemeId={viewThemeId} />
     </RoomAppGate>
   );
 }
