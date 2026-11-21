@@ -38,6 +38,7 @@ import { CompleteOAuthSignupForm } from "@/components/CompleteOAuthSignupForm";
 import type { OAuthResult } from "@/lib/oauthApi";
 import { GlobeIcon } from "@/components/icons";
 import { DownloadAppButton } from "@/components/DownloadAppButton";
+import { AnniversaryPill } from "@/components/AnniversaryPill";
 import { RecentRooms } from "@/components/RecentRooms";
 import { HomeGroupsPanel } from "@/components/groups/HomeGroupsPanel";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
@@ -1011,6 +1012,7 @@ export default function Home() {
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             {tc("home.peopleInRoomsNow", peopleOnline)}
           </span>}
+          <AnniversaryPill />
           <DownloadAppButton source="home" />
         </div>
         {false && <>

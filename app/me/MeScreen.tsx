@@ -29,7 +29,7 @@ import {
 } from "react-icons/md";
 import { AccountConnections } from "@/components/AccountConnections";
 import { DiscordRpcSettingsModal } from "@/components/DiscordRpcSettingsModal";
-import { DISCORD_RPC_FEATURE, useDiscordRpcSettings } from "@/lib/discordRpc";
+import { DISCORD_RPC_FEATURE, isDiscordRpcSupported, useDiscordRpcSettings } from "@/lib/discordRpc";
 import { EmailVerification } from "@/components/EmailVerification";
 import { AuthorizedApps } from "@/components/oauth2/AuthorizedApps";
 import { DEVELOPERS_URL } from "@/lib/botsApi";
@@ -529,14 +529,15 @@ export function PartnerAdsSetting({ features }: { features: readonly string[] | 
 
 /**
  * The Discord status (see lib/discordRpc), and the way into its settings. Inside
- * the experiment only. `bare` is for a card that already holds other rows.
+ * the experiment and the PC app only. `bare` is for a card that already holds
+ * other rows.
  */
 export function DiscordRpcSetting({ bare = false }: { bare?: boolean }) {
   const t = useT();
   const { enabled } = useFeature(DISCORD_RPC_FEATURE, { track: false });
   const [settings] = useDiscordRpcSettings();
   const [open, setOpen] = useState(false);
-  if (!enabled) return null;
+  if (!enabled || !isDiscordRpcSupported()) return null;
   return (
     <>
       <button

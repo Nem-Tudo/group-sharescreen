@@ -11,6 +11,9 @@ import { ForkWatermark } from "@/components/ForkWatermark";
 import { LastScreenRestorer } from "@/components/LastScreenRestorer";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { EventPromoWidget } from "@/components/EventPromoWidget";
+import { AnniversaryPopup } from "@/components/AnniversaryPopup";
+import { AnniversaryBanner } from "@/components/AnniversaryBanner";
+import { RegionalPopup } from "@/components/RegionalPopup";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { PresenceReporter } from "@/components/PresenceReporter";
@@ -416,6 +419,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                     unless the status feed reports an outage. */}
                 <StatusBanner />
                 <AnnouncementBanner />
+                {/* "3 meses" bar for whoever has not seen the page yet —
+                    experiment, see components/AnniversaryBanner. */}
+                <AnniversaryBanner />
                 {/* Desktop app below the admin's minimum version: send it to
                     /download — see components/DesktopVersionGate. */}
                 <DesktopVersionGate />
@@ -434,6 +440,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {/* The "acontecendo agora" corner card, written from the
                     admin's Eventos tab — see components/EventPromoWidget. */}
                 <EventPromoWidget />
+                {/* "Go Live fez 3 meses", once, for people around for a few
+                    days who are in the experiment — see components/AnniversaryPopup. */}
+                <AnniversaryPopup />
+                {/* "Uai, cê é aqui da região!" — once, for people near Santa Rita do
+                    Sapucaí who are in the experiment; see components/RegionalPopup. */}
+                <RegionalPopup />
               </NtPopups>
             </AuthProvider>
           </SupressErrors>

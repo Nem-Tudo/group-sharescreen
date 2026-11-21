@@ -62,17 +62,21 @@ export interface CallSession {
 /**
  * What a page lends the call while it draws it.
  *
- * Only the group pages have any: a group room has no header of its own, so its
- * controls are portalled into the group's bar, and the group answers for the
- * "you are in a call" bar itself (see GroupSidebar's VoiceControls) — which is
- * how the host knows not to draw a second one.
+ * Only the group shell has any (the group pages, and an ordinary room's page
+ * in the experiment "room-shell" — see lib/roomShell): a room drawn there has
+ * no header of its own, so its controls are portalled into the shell's bar,
+ * and the shell answers for the "you are in a call" bar itself (see
+ * GroupSidebar's VoiceControls) — which is how the host knows not to draw a
+ * second one.
  */
 export interface CallChrome {
   /**
+   * `start` is the left of the bar, after "início" and the conversations —
+   * where an ordinary room's page puts its name, code and description.
    * `end` is the very last thing in the bar, after the group's own buttons —
    * where the room's "more options" goes, so the menu sits in the corner.
    */
-  headerSlots: { center: HTMLElement | null; right: HTMLElement | null; end: HTMLElement | null };
+  headerSlots: RoomHeaderSlots;
   /**
    * The strip right under the group's header where a group voice room's music
    * bars are drawn, so the song stays in one place — and in view — whichever
@@ -82,6 +86,14 @@ export interface CallChrome {
   musicSlot: HTMLElement | null;
   /** Opens the group's rooms drawer on a phone. */
   onOpenNav: () => void;
+}
+
+/** The places in a host bar a room's header can be drawn into. See CallChrome. */
+export interface RoomHeaderSlots {
+  start: HTMLElement | null;
+  center: HTMLElement | null;
+  right: HTMLElement | null;
+  end: HTMLElement | null;
 }
 
 /**
@@ -243,6 +255,7 @@ export function setCallChrome(next: CallChrome | null): void {
     (chrome !== null &&
       next !== null &&
       chrome.onOpenNav === next.onOpenNav &&
+      chrome.headerSlots.start === next.headerSlots.start &&
       chrome.headerSlots.center === next.headerSlots.center &&
       chrome.headerSlots.right === next.headerSlots.right &&
       chrome.headerSlots.end === next.headerSlots.end &&

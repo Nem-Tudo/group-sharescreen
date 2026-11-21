@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { errorText } from "@/lib/errorText";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
 import { MicIcon, ScreenIcon } from "@/components/icons";
@@ -12,6 +13,9 @@ import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
 import type { ProSource } from "@/lib/proSourceAttribution";
+import { trackFeatureEvent } from "@/lib/features";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import { AVATAR_FREE_BADGE, AVATAR_FREE_EVENTS } from "@/lib/avatarFree";
 import { ProfileLinksRow } from "@/components/ProfileLinksRow";
 import { ProfileLinksEditor } from "@/components/ProfileLinksEditor";
 import { MAX_PROFILE_LINKS, type ProfileLink } from "@/lib/profileLinks";
@@ -41,16 +45,20 @@ import {
   type ProfileThemeStyle,
 } from "@/lib/profileTheme";
 import { DEFAULT_AVATAR_PATH } from "@/components/UserAvatar";
-import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
+import { equipCosmetic, fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
 import { prepareAvatarImage, AVATAR_IMAGE_ACCEPT, AVATAR_IMAGE_MAX_BYTES } from "@/lib/avatarImage";
 import { canCropAnimatedGif } from "@/lib/gifCrop";
-import { MdCheck, MdContentCopy, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline, MdCircle, MdSquare } from "react-icons/md";
+import { MdBlock, MdCheck, MdContentCopy, MdEdit, MdGroups, MdLink, MdPhotoCamera, MdDeleteOutline, MdCircle, MdSquare, MdStorefront } from "react-icons/md";
 import { copyText } from "@/lib/clipboard";
 import {
   AVATAR_SHAPES,
+  avatarDecorationOf,
+  avatarImageOf,
   avatarShapeOf,
+  isDefaultFace,
   shapeRoundingClass,
   stripAvatarShape,
+  withAvatarDecoration,
   type AvatarShape,
 } from "@/lib/avatarShape";
 import { ImageCropDialog, type ImageCropKind } from "@/components/ImageCropDialog";
@@ -320,10 +328,13 @@ export function PlanLink({
   label,
   className = "",
   source = "profile_lock",
+  onOpen,
 }: {
   tier: PlanTier;
   /** The door the sale is credited to (see lib/proSourceAttribution). */
   source?: ProSource;
+  /** Also told about the click — for a stats event of the caller's own. */
+  onOpen?: () => void;
   /** Overrides the default sentence, for a label that already names the plan. */
   label?: string;
   className?: string;
@@ -344,6 +355,7 @@ export function PlanLink({
       type="button"
       onClick={(e) => {
         e.preventDefault();
+        onOpen?.();
         openPro(source, tier === "proUltra" ? "pro_ultra" : undefined);
       }}
       className={`inline-flex cursor-pointer items-center gap-1 underline underline-offset-2 transition hover:text-zinc-800 dark:hover:text-zinc-200 ${className}`}
@@ -355,6 +367,16 @@ export function PlanLink({
 }
 
 /** One row of pickable avatars, or the same row shown as a locked preview. */
+/**
+ * A published avatar URL wearing another decoration (or none). Taking the
+ * decoration off the default face a frameless account has no picture behind
+ * gives back no picture at all, as the API would publish it.
+ */
+function applyAvatarDecoration(url: string | null, decoration: string | null): string | null {
+  if (!decoration && (!url || isDefaultFace(url))) return null;
+  return withAvatarDecoration(url, decoration);
+}
+
 function AvatarRow({
   label,
   paths,
@@ -363,6 +385,9 @@ function AvatarRow({
   locked = false,
   lockedHint,
   lockedTier,
+  lockedSource,
+  onLockedOpen,
+  badge,
 }: {
   label: string;
   paths: string[];
@@ -371,17 +396,23 @@ function AvatarRow({
   locked?: boolean;
   lockedHint?: string;
   lockedTier?: "pro" | "proMax";
+  lockedSource?: ProSource;
+  onLockedOpen?: () => void;
+  badge?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
         {label}
+        {badge}
         {locked && lockedHint && (
           <>
             <span aria-hidden>·</span>
             <PlanLink
               tier={lockedTier ?? "pro"}
               label={lockedHint}
+              source={lockedSource}
+              onOpen={onLockedOpen}
               className="text-[11px] text-zinc-500 dark:text-zinc-400"
             />
           </>
@@ -417,9 +448,20 @@ export function UserProfileCard({
   id,
   onNavigate,
   autoPlaySong = false,
+  sections,
 }: {
   id: string;
   onNavigate?: () => void;
+  /**
+   * More about this person, drawn inside the card under its footer (the
+   * profile's comments, a group's roles for them) rather than as cards of
+   * their own under it. As separate cards they read as something else that
+   * happened to be below — a different surface from a themed profile, with
+   * its own border and gap. In here they share the card's colours, and each
+   * one gets a divider above it. A section that renders nothing gets no
+   * divider either (the rule is on the children, not the wrapper).
+   */
+  sections?: ReactNode;
   /**
    * Whether the profile song starts on its own. True only from the /user page
    * — in the room's popup somebody is checking who a name belongs to, and
@@ -471,6 +513,7 @@ export function UserProfileCard({
       onNavigate={onNavigate}
       onProfileUpdated={setProfile}
       autoPlaySong={autoPlaySong}
+      sections={sections}
     />
   );
 }
@@ -563,7 +606,9 @@ function ProfileContent({
   onNavigate,
   onProfileUpdated,
   autoPlaySong = false,
+  sections,
 }: {
+  sections?: ReactNode;
   profile: UserProfile;
   onNavigate?: () => void;
   onProfileUpdated?: (updated: UserProfile) => void;
@@ -601,6 +646,13 @@ function ProfileContent({
     account.avatarShape ?? avatarShapeOf(account.avatarUrl)
   );
   const [ownedBgColors, setOwnedBgColors] = useState<CosmeticProduct[]>([]);
+  // The frames this account owns, for the picker's "Moldura" row. Equipping
+  // one is immediate (like in the shop), not part of the save below.
+  const [ownedDecorations, setOwnedDecorations] = useState<CosmeticProduct[]>([]);
+  const [decorationPending, setDecorationPending] = useState<string | null>(null);
+  // The frame just equipped from here, until the profile is read again: the
+  // card outside edit mode draws account.avatarUrl, which is the old one.
+  const [equippedDecorationNow, setEquippedDecorationNow] = useState<{ value: string | null } | null>(null);
   const [avatarOptions, setAvatarOptions] = useState<AvatarOptions | null>(null);
   const [avatarOptionsError, setAvatarOptionsError] = useState<string | null>(null);
   const [previewBanner, setPreviewBanner] = useState<string | null>(account.bannerUrl ?? null);
@@ -645,6 +697,7 @@ function ProfileContent({
 
   // Sync state if profile prop changes
   useEffect(() => {
+    setEquippedDecorationNow(null);
     setEditDisplayName(account.displayName);
     setEditUsername(account.username);
     setEditBio(account.bio ?? "");
@@ -674,6 +727,9 @@ function ProfileContent({
           (p) => p.type === "profile_color" && data.ownedCosmetics.includes(p.id)
         );
         setOwnedBgColors(bgColors);
+        setOwnedDecorations(
+          data.catalog.filter((p) => p.type === "avatar_decoration" && data.ownedCosmetics.includes(p.id))
+        );
       })
       .catch(() => {
         // Silently fail if store catalog cannot be reached
@@ -750,6 +806,9 @@ function ProfileContent({
 
   /** A preset: stored as its own path, so no upload is involved. */
   function handlePickPreset(path: string) {
+    // A gallery picture only the avatar-free experiment unlocked: the badge
+    // on that row has done its job.
+    if (avatarOptions?.freeGallery && avatarOptions.gallery.includes(path)) markFeatureUsed(AVATAR_FREE_BADGE);
     setError(null);
     setPreviewAvatar(path);
     setAvatarDataUrl(path);
@@ -758,6 +817,7 @@ function ProfileContent({
   async function handleAvatarPicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (avatarOptions?.freeUpload) markFeatureUsed(AVATAR_FREE_BADGE);
     setError(null);
     if (file.size > AVATAR_IMAGE_MAX_BYTES) {
       setError(t("userProfileCard.theImageMustBeAtMost", { value: Math.round(AVATAR_IMAGE_MAX_BYTES / (1024 * 1024)) }));
@@ -957,7 +1017,7 @@ function ProfileContent({
 
       setIsEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("userProfileCard.couldNotSaveTheChanges"));
+      setError(errorText(err, t("userProfileCard.couldNotSaveTheChanges")));
     } finally {
       setSaving(false);
     }
@@ -983,7 +1043,32 @@ function ProfileContent({
   // Same fallback as everywhere else — see UserAvatar. In edit mode this is
   // also what "Remover foto" leaves behind, which is the honest result: the
   // picture is gone and the default is what they have.
-  const currentAvatar = (isEditing ? previewAvatar : account.avatarUrl) ?? DEFAULT_AVATAR_PATH;
+  const shownSavedAvatar = equippedDecorationNow
+    ? applyAvatarDecoration(account.avatarUrl ?? null, equippedDecorationNow.value)
+    : account.avatarUrl;
+  const currentAvatar = (isEditing ? previewAvatar : shownSavedAvatar) ?? DEFAULT_AVATAR_PATH;
+  const currentDecoration = avatarDecorationOf(currentAvatar);
+
+  // Puts on (or takes off) an owned frame right away, through the same route
+  // the shop uses; the preview and the saved card both follow.
+  async function handlePickDecoration(product: CosmeticProduct | null) {
+    if (decorationPending) return;
+    setDecorationPending(product?.id ?? "none");
+    setError(null);
+    try {
+      const result = await equipCosmetic(product?.id ?? null, "avatar_decoration");
+      const value = product && result.equippedAvatarDecoration !== null ? product.value : null;
+      setPreviewAvatar((prev) => applyAvatarDecoration(prev, value));
+      setEquippedDecorationNow({ value });
+      await refreshAuth();
+      // Whoever shares a room with us sees the new frame without a reconnect.
+      if (state.name) signalingClient.register(state.name, getAccountToken());
+    } catch (err) {
+      setError(errorText(err, t("common.couldNotEquipTheItem")));
+    } finally {
+      setDecorationPending(null);
+    }
+  }
   const currentBanner = isEditing ? previewBanner : account.bannerUrl;
   const canUploadBanner = hasFeature("banner_upload", authAccount?.features ?? []);
   const canEditTheme = hasFeature("profile_gradient", authAccount?.features ?? []);
@@ -1235,7 +1320,7 @@ function ProfileContent({
           {/* No empty case left to handle: currentAvatar falls back to the
               first default, so there is always a picture here. */}
           <img
-            src={currentAvatar}
+            src={avatarImageOf(currentAvatar) ?? currentAvatar}
             alt={account.displayName}
             className="h-full w-full object-cover"
           />
@@ -1247,7 +1332,12 @@ function ProfileContent({
           {isEditing && (
             <button
               type="button"
-              onClick={() => setAvatarPickerOpen((open) => !open)}
+              onClick={() => {
+                // Every group: how often people go to change their picture at
+                // all is part of what the avatar-free experiment moves.
+                if (!avatarPickerOpen) trackFeatureEvent(AVATAR_FREE_EVENTS.pickerOpen);
+                setAvatarPickerOpen((open) => !open);
+              }}
               aria-expanded={avatarPickerOpen}
               aria-label={t("userProfileCard.changeProfilePicture")}
               className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/30 text-white transition-colors hover:bg-black/60 focus-visible:bg-black/60"
@@ -1256,6 +1346,20 @@ function ProfileContent({
             </button>
           )}
         </div>
+
+        {/* The avatar decoration (see lib/avatarShape), outside the avatar's
+            overflow-hidden box so it can hang over its edge: 1.2× the box,
+            centred on it, in the row's coordinates (px-5 + w-24, px-6 + w-28). */}
+        {avatarDecorationOf(currentAvatar) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarDecorationOf(currentAvatar)!}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="pointer-events-none absolute -bottom-[10px] left-[10px] z-[5] h-[115px] w-[115px] max-w-none select-none sm:-bottom-[11px] sm:left-[13px] sm:h-[134px] sm:w-[134px]"
+          />
+        )}
 
         {/* Outside the avatar's box for the same reason the picker below is:
             that box is overflow-hidden to round the picture, so a dot
@@ -1343,6 +1447,9 @@ function ProfileContent({
                       locked={!avatarOptions.canUseGallery}
                       lockedHint={t("userProfileCard.availableOnPro")}
                       lockedTier="pro"
+                      lockedSource="avatar_lock"
+                      onLockedOpen={() => trackFeatureEvent(AVATAR_FREE_EVENTS.lockGallery)}
+                      badge={avatarOptions.freeGallery ? <NewBadge id={AVATAR_FREE_BADGE} /> : null}
                     />
                   </div>
                 )}
@@ -1360,8 +1467,81 @@ function ProfileContent({
                     <MdPhotoCamera className="h-3.5 w-3.5" />
                     {t("userProfileCard.uploadMyImage")}
                   </button>
+                  {avatarOptions.freeUpload && <NewBadge id={AVATAR_FREE_BADGE} />}
                   {!avatarOptions.canUpload && (
-                    <PlanLink tier="proMax" className="text-xs text-zinc-500 dark:text-zinc-400" />
+                    <PlanLink
+                      tier="proMax"
+                      source="avatar_lock"
+                      onOpen={() => trackFeatureEvent(AVATAR_FREE_EVENTS.lockUpload)}
+                      className="text-xs text-zinc-500 dark:text-zinc-400"
+                    />
+                  )}
+                </div>
+
+                {/* Frames: the ones this account owns (bought or given, like the
+            3-month gift), plus none. Without any, a way to the shop. */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                    {t("userProfileCard.avatarDecoration")}
+                  </span>
+                  {ownedDecorations.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={Boolean(decorationPending)}
+                        onClick={() => void handlePickDecoration(null)}
+                        aria-pressed={!currentDecoration}
+                        aria-label={t("userProfileCard.noDecoration")}
+                        title={t("userProfileCard.noDecoration")}
+                        className={`flex h-11 w-11 items-center justify-center rounded-full border-2 text-zinc-400 transition disabled:opacity-60 ${
+                          !currentDecoration
+                            ? "border-emerald-500"
+                            : "cursor-pointer border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-600"
+                        }`}
+                      >
+                        <MdBlock className="h-5 w-5" />
+                      </button>
+                      {ownedDecorations.map((product) => {
+                        const selected = currentDecoration === product.value;
+                        return (
+                          <button
+                            key={product.id}
+                            type="button"
+                            disabled={Boolean(decorationPending)}
+                            onClick={() => void handlePickDecoration(product)}
+                            aria-pressed={selected}
+                            aria-label={product.label}
+                            title={product.label}
+                            className={`relative h-11 w-11 rounded-full border-2 transition disabled:opacity-60 ${
+                              selected
+                                ? "border-emerald-500"
+                                : "cursor-pointer border-transparent hover:border-zinc-300 dark:hover:border-zinc-600"
+                            } ${decorationPending === product.id ? "animate-pulse" : ""}`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={avatarImageOf(currentAvatar) ?? currentAvatar}
+                              alt=""
+                              className={`absolute inset-[5px] h-[calc(100%-10px)] w-[calc(100%-10px)] object-cover ${shapeRoundingClass(shownAvatarShape)}`}
+                            />
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={product.value} alt="" className="pointer-events-none absolute inset-0 h-full w-full" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAvatarPickerOpen(false);
+                        openPopup("cosmetics_store", { data: {} });
+                      }}
+                      className="flex w-fit items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      <MdStorefront className="h-3.5 w-3.5" />
+                      {t("userProfileCard.getDecorations")}
+                    </button>
                   )}
                 </div>
 
@@ -2104,6 +2284,23 @@ function ProfileContent({
               </button>
             </div>
           </form>
+        )}
+
+        {/* Hidden while editing: the form above is the card's whole job then. */}
+        {sections && !isEditing && (
+          <div
+            // `data-scheme` makes every `dark:` class inside follow the
+            // profile's own background rather than the site's (see the dark
+            // variant in globals.css): a light gradient on a dark site would
+            // otherwise get white comment text.
+            data-scheme={theme ? (theme.dark ? "dark" : "light") : undefined}
+            className={`flex flex-col [&>*]:mt-5 [&>*]:border-t [&>*]:pt-5 ${
+              theme ? "[&>*]:border-[var(--profile-border)]" : "[&>*]:border-zinc-200 dark:[&>*]:border-zinc-800"
+            }`}
+            style={theme ? ({ "--profile-border": theme.border } as React.CSSProperties) : undefined}
+          >
+            {sections}
+          </div>
         )}
       </div>
     </div>

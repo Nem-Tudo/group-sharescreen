@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { MdChevronRight, MdVolumeUp } from "react-icons/md";
-import { WatchRoom } from "@/app/watch/[handle]/WatchRoom";
+import { WatchRoom } from "@/app/(shell)/watch/[handle]/WatchRoom";
 import { Tooltip } from "@/components/Tooltip";
 import {
   callNameFor,

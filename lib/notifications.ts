@@ -102,6 +102,43 @@ function capacitorLocalNotifications(): CapacitorLocalNotifications | null {
   return plugin ?? null;
 }
 
+// Where a native shell's notification permission is asked and read.
+//
+// LocalNotifications when the shell has it. The iPhone app does not: it never
+// draws a notification from the page (the API sends them through APNs, and with
+// the app open the page shows its own), so the only permission that matters
+// there is the push plugin's. Without this the iPhone read as "unsupported":
+// no bell, no "ativar" on the settings screen, permission never asked — and
+// so no APNs token, and not one notification.
+interface NativePermission {
+  check(): Promise<NotificationPermissionState>;
+  request(): Promise<NotificationPermissionState>;
+}
+
+interface CapacitorPushPermissions {
+  requestPermissions(): Promise<{ receive?: string }>;
+  checkPermissions(): Promise<{ receive?: string }>;
+}
+
+function nativePermission(): NativePermission | null {
+  const local = capacitorLocalNotifications();
+  if (local) {
+    return {
+      check: async () => normalizeCapacitorDisplay((await local.checkPermissions()).display),
+      request: async () => normalizeCapacitorDisplay((await local.requestPermissions()).display),
+    };
+  }
+  if (!isBrowser() || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return null;
+  const plugins = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } })
+    .Capacitor?.Plugins;
+  const push = plugins?.PushNotifications as CapacitorPushPermissions | undefined;
+  if (!push) return null;
+  return {
+    check: async () => normalizeCapacitorDisplay((await push.checkPermissions()).receive),
+    request: async () => normalizeCapacitorDisplay((await push.requestPermissions()).receive),
+  };
+}
+
 function webNotificationsSupported(): boolean {
   // Deliberately not on a Capacitor native platform: an Android WebView exposes
   // a `Notification` global that mostly does nothing, so trusting it there would
@@ -114,7 +151,7 @@ function webNotificationsSupported(): boolean {
 }
 
 export function isNotificationSupported(): boolean {
-  return capacitorLocalNotifications() !== null || webNotificationsSupported();
+  return nativePermission() !== null || webNotificationsSupported();
 }
 
 // ---------------------------------------------------------------------------
@@ -131,8 +168,7 @@ function normalizeCapacitorDisplay(display: string | undefined): NotificationPer
 }
 
 export function getNotificationPermission(): NotificationPermissionState {
-  const cap = capacitorLocalNotifications();
-  if (cap) {
+  if (nativePermission()) {
     // checkPermissions is async; the last value observed by
     // refreshNotificationPermission() is cached here so the getter stays sync
     // for render paths. Before the first refresh we optimistically report
@@ -150,11 +186,10 @@ let capacitorCachedPermission: NotificationPermissionState = "default";
 // Pulls the current Capacitor permission into the cache the sync getter reads.
 // Safe to call on web (no-ops).
 export async function refreshNotificationPermission(): Promise<NotificationPermissionState> {
-  const cap = capacitorLocalNotifications();
+  const cap = nativePermission();
   if (!cap) return getNotificationPermission();
   try {
-    const { display } = await cap.checkPermissions();
-    capacitorCachedPermission = normalizeCapacitorDisplay(display);
+    capacitorCachedPermission = await cap.check();
   } catch {
     // Leave the cache as-is; a failed check should not flip a known-granted
     // permission back to default.
@@ -168,11 +203,10 @@ export async function refreshNotificationPermission(): Promise<NotificationPermi
  * or the browser rejects it silently. Resolves to the resulting state.
  */
 export async function requestNotificationPermission(): Promise<NotificationPermissionState> {
-  const cap = capacitorLocalNotifications();
+  const cap = nativePermission();
   if (cap) {
     try {
-      const { display } = await cap.requestPermissions();
-      capacitorCachedPermission = normalizeCapacitorDisplay(display);
+      capacitorCachedPermission = await cap.request();
     } catch {
       capacitorCachedPermission = "denied";
     }

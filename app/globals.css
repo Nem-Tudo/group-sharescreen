@@ -129,7 +129,10 @@ html[data-obs="true"] div:has(> iframe[src*="challenges.cloudflare.com"]) {
    an inline script in app/layout.tsx does it once more before the first paint
    so the page never flashes the wrong theme. Nothing below this line has to
    know the media query exists — "sistema" is resolved before it gets here. */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* `data-scheme="dark" | "light"` on an element overrides that for its subtree:
+   a themed profile card (UserProfileCard's sections) has its own background,
+   and what sits on it has to follow that, not the page. */
+@custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *, [data-theme="dark"]:not([data-scheme="light"] *), [data-theme="dark"] *:not([data-scheme="light"], [data-scheme="light"] *)));
 
 :root {
   color-scheme: light;

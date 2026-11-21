@@ -232,9 +232,16 @@ export type NativeVideoStart =
     }
   | { source: null; failure: string | null; hidden?: undefined };
 
-export async function startNativeVideo(options: NativeVideoOptions): Promise<NativeVideoStart> {
+export async function startNativeVideo(
+  options: NativeVideoOptions,
+  // A last attempt for a share whose browser capture produced no frame at all
+  // (see lib/shareFrameWatch.ts): nothing to lose there, so an earlier failure
+  // this session does not rule it out, and its own failure rules nothing out
+  // for the shares that come after.
+  { rescue = false }: { rescue?: boolean } = {}
+): Promise<NativeVideoStart> {
   const bridge = getDesktopBridge()?.nativeVideo;
-  if (!bridge || disabledForSession) return { source: null, failure: null };
+  if (!bridge || (disabledForSession && !rescue)) return { source: null, failure: null };
   if (!(await probeNativeVideo())) return { source: null, failure: "unsupported" };
   // Subscribed before asking, so the first frames — which arrive before the
   // answer does — are not lost.
@@ -244,7 +251,7 @@ export async function startNativeVideo(options: NativeVideoOptions): Promise<Nat
     source.stop();
     // Anything but a missing surface is this machine's answer, and asking
     // again in the same session would only put the person through it twice.
-    if (!result || result.reason !== "no-source") disabledForSession = true;
+    if (!rescue && (!result || result.reason !== "no-source")) disabledForSession = true;
     const failure = result ? `${result.reason}${result.detail ? `: ${result.detail}` : ""}` : "no answer";
     console.warn("[golive] GPU capture unavailable, using the browser's:", failure);
     return { source: null, failure: result?.reason ?? "failed" };

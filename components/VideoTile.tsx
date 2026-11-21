@@ -90,7 +90,8 @@ import { AnnotateButton, AnnotationLayer } from "@/components/roomTools/Annotati
 import { annotatedVideoDrawer, openCanvasPip } from "@/components/roomTools/canvasPip";
 import { useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
 import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
-import { useFeature } from "@/lib/features";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { CONNECTING_TILE_EVENTS, CONNECTING_TILE_FEATURE, CONNECTING_TILE_SLOW_MS } from "@/lib/connectingTile";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 
 function noopSubscribe() {
@@ -617,15 +618,25 @@ const VideoTileView = memo(function VideoTileView({
     const video = videoRef.current;
     if (!video) return;
     // Releasing the stream stops this tile decoding and compositing while it
-    // is off screen — but only when the element is not the thing carrying the
-    // sound. useGainedAudio runs the audio through a Web Audio graph built
-    // from the *stream* (immune to this) and mutes the element; when that
-    // graph cannot be built yet, because the context has not been unblocked
-    // by a gesture, it leaves the element unmuted and audible instead. In
-    // that state releasing the stream would silence a share that somebody is
-    // listening to, so the video stays attached and we simply do without the
-    // saving. A muted element has no audio to lose either way.
-    const carriesAudio = !video.muted && stream !== null && stream.getAudioTracks().length > 0;
+    // is off screen — but never for a stream with sound in it, whichever path
+    // is playing that sound.
+    //
+    // useGainedAudio runs the audio through a Web Audio graph built from the
+    // stream and mutes the element. That graph is *not* immune to the element
+    // going away: Chromium only pulls a remote WebRTC audio track while some
+    // media element is attached to it (crbug 933677 — a MediaStreamSource fed
+    // by a peer connection and nothing else is silent). So releasing a muted
+    // element took the share's sound with it the moment the page was hidden:
+    // the Android app sent to the background ("quando a tela fica em segundo
+    // plano não sai mais som da transmissão", ticket 1435), the desktop app
+    // minimised. The voices were never affected — they play through <audio>
+    // elements that nothing detaches — which is why only the share went quiet.
+    //
+    // Keeping it attached costs next to nothing: a hidden tile reports itself
+    // hidden (onVisibilityChange below), the sender stops sending it video,
+    // and there is nothing left to decode. Muted or not, the element is what
+    // keeps the audio flowing.
+    const carriesAudio = stream !== null && stream.getAudioTracks().length > 0;
     const release = detachWhenHidden && !visible && !carriesAudio;
     video.srcObject = release ? null : stream;
     return () => {
@@ -1982,6 +1993,54 @@ export function ResumingPeerTile({ fill = false }: { fill?: boolean }) {
   return (
     <PlaceholderTile fill={fill}>
       <p className="text-sm text-zinc-400">{t("videoTile.resuming")}</p>
+    </PlaceholderTile>
+  );
+}
+
+// A transmission that is on (the room's peer list says so) with nothing
+// arriving from it here yet: a first connection still being set up, or a
+// failed one waiting for the broadcaster's next attempt. See lib/connectingTile
+// for why this exists instead of no tile at all.
+export function ConnectingPeerTile({
+  label,
+  fill = false,
+  onRetry,
+}: {
+  label: ReactNode;
+  fill?: boolean;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSlow(true);
+      trackFeatureEvent(CONNECTING_TILE_EVENTS.slow, { feature: CONNECTING_TILE_FEATURE });
+    }, CONNECTING_TILE_SLOW_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <PlaceholderTile fill={fill}>
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white/80" />
+      <div className="flex flex-col items-center justify-center text-center text-sm">
+        <p className="text-zinc-300">{t("videoTile.connectingToBroadcast")}</p>
+        <div className="mt-0.5 flex items-center justify-center text-center text-zinc-500">{label}</div>
+      </div>
+      {slow && (
+        <>
+          <p className="max-w-sm text-xs text-zinc-400">{t("videoTile.connectingSlow")}</p>
+          <button
+            type="button"
+            onClick={() => {
+              trackFeatureEvent(CONNECTING_TILE_EVENTS.retry, { feature: CONNECTING_TILE_FEATURE });
+              onRetry();
+            }}
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/20"
+          >
+            {t("common.tryAgain")}
+          </button>
+        </>
+      )}
     </PlaceholderTile>
   );
 }

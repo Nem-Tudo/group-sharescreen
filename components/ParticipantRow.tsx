@@ -17,6 +17,7 @@ import {
   MdOutlineOndemandVideo,
   MdBackHand,
   MdHandyman,
+  MdSyncProblem,
 } from "react-icons/md";
 import { FaAndroid, FaApple, FaCrown, FaWindows } from "react-icons/fa";
 import { DisplayUserName } from "./DisplayUserName";
@@ -50,6 +51,8 @@ export const ParticipantRow = memo(function ParticipantRow({
   onToggleMute,
   volume = 1,
   connectionLost = false,
+  audioMissing = false,
+  onRetryAudio,
   verified = false,
   flags,
   bot = false,
@@ -117,6 +120,11 @@ export const ParticipantRow = memo(function ParticipantRow({
   // This peer's audio peer connection is down (failed/disconnected) while we
   // still expect one — see useRoomMedia's recvConnectionStates.
   connectionLost?: boolean;
+  // Their mic is on and, for a while now, their audio has not been reaching us
+  // (experiment "mic-link-status", see lib/micReliability's useMicReceiveLinks).
+  // The mic icon becomes a warning that asks them for a fresh connection.
+  audioMissing?: boolean;
+  onRetryAudio?: (peerId: string) => void;
   // Forwarded straight to DisplayUserName — see its `verified` prop.
   verified?: VerifiedTone | boolean;
   // Account flags — the badges drawn after the name in the call (experiment
@@ -371,6 +379,22 @@ export const ParticipantRow = memo(function ParticipantRow({
             <span className="flex shrink-0 items-center">
               <MicOffIcon className="h-4 w-4 text-red-500" />
             </span>
+          </Tooltip>
+        ) : micOn && audioMissing && peerId && onRetryAudio ? (
+          // In place of the mic icon rather than beside it: "mic on" is
+          // exactly the claim that is not true for this listener right now.
+          <Tooltip content={t("participantRow.audioNotArriving", { name })}>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetryAudio(peerId);
+              }}
+              aria-label={t("participantRow.audioNotArrivingRetry", { name })}
+              className="flex shrink-0 items-center rounded p-0.5 text-amber-500 transition hover:text-amber-600 dark:hover:text-amber-400"
+            >
+              <MdSyncProblem className="h-4 w-4" />
+            </button>
           </Tooltip>
         ) : micOn ? (
           <MicIcon className="h-4 w-4 text-sky-500" />

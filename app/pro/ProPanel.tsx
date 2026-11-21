@@ -71,6 +71,7 @@ import {
 import { useT } from "@/lib/useI18n";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { CALL_TRANSCRIPT_FREE_FEATURE } from "@/lib/useCallTranscript";
+import { useAvatarFree } from "@/lib/avatarFree";
 import { LIVE_TRANSLATION_FREE_FEATURE } from "@/lib/useLiveTranslation";
 import {
   PlanComparison,
@@ -383,6 +384,9 @@ export function ProPanel({
   const customEffects = useFeature(CAMERA_CUSTOM_FEATURE, { track: false }).enabled;
   const effectsOnOthers = useFeature(CAMERA_OTHERS_FEATURE, { track: false }).enabled;
   const translationFree = useFeature(LIVE_TRANSLATION_FREE_FEATURE, { track: false }).enabled;
+  // Avatars this person already has for free (the avatar-free experiment):
+  // not something to sell them either.
+  const avatarFree = useAvatarFree();
   // Where the subscription's card form opens (the checkout-inline experiment).
   // The API decides and counts the exposure (premiumRoutes' checkoutUiFor);
   // read here only to *predict* it before the click's await, so the hosted
@@ -620,7 +624,9 @@ export function ProPanel({
       !(feature === "call_transcript" && transcriptFree) &&
       !(feature === "camera_effect_publish" && !(effectsWorkshop && customEffects)) &&
       !(feature === "camera_effect_others" && !effectsOnOthers) &&
-      !(feature === "live_translation" && translationFree)
+      !(feature === "live_translation" && translationFree) &&
+      !(feature === "avatar_gallery" && avatarFree.gallery) &&
+      !(feature === "avatar_upload" && avatarFree.upload)
   );
 
   // Where the points rows sit: directly under this benefit, on every plan.

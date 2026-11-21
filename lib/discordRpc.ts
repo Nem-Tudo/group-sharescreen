@@ -14,10 +14,11 @@ import { useGroupDetail } from "./useGroups";
 import { trackFeatureEvent, useFeature } from "./features";
 import { arrivedBefore } from "./newcomer";
 
-// Discord Rich Presence Integration for PC (Desktop/Electron), Web/Browser & Mobile.
-//
-// In Desktop App: Uses native Named Pipes IPC bridge.
-// In Web Browser: Connects to local Discord client via Discord Local WebSocket RPC (127.0.0.1:6463..6472).
+// Discord Rich Presence, in the PC app only: the shell talks to Discord over its
+// named pipe (electron/discordRpc). The browser used to reach Discord's local
+// WebSocket RPC (127.0.0.1:6463..6472) instead, which filled every visitor's
+// console with ten failed connections every 20 s when Discord wasn't open, so
+// it was taken out on 2026-11-20.
 //
 // Configurable Discord Client ID via:
 // 1. process.env.NEXT_PUBLIC_DISCORD_CLIENT_ID
@@ -37,7 +38,6 @@ export const DISCORD_RPC_EVENTS = {
   privateCounterToggled: "discord_rpc_private_count",
   /** Discord accepted the connection (READY); once per page load, per route. */
   connectedApp: "discord_rpc_connected.app",
-  connectedBrowser: "discord_rpc_connected.browser",
   introShown: "discord_rpc_intro_shown",
   introOk: "discord_rpc_intro_ok",
   introConfigure: "discord_rpc_intro_configure",
@@ -140,6 +140,11 @@ export function useDiscordRpcSettings(): [DiscordRpcSettings, (patch: Partial<Di
 const INTRO_SEEN_KEY = "sharescreen:discordRpc:introSeen";
 // When Rich Presence went out to everybody (rollout 100%, 2026-10-31).
 const RELEASED_AT = 1793436498211;
+
+/** Whether this page can show a Discord status at all: only inside the PC app. */
+export function isDiscordRpcSupported(): boolean {
+  return Boolean(getDesktopBridge()?.discordRpcUpdate);
+}
 
 /**
  * Whether the announcement is still owed: this browser was here before the
@@ -245,188 +250,6 @@ function trackDiscordRpcConnected(event: string) {
   trackFeatureEvent(event, { feature: DISCORD_RPC_FEATURE });
 }
 
-/**
- * Browser WebSocket client for Discord Local RPC Server.
- * Discord desktop app runs a WebSocket server on 127.0.0.1 (ports 6463 - 6472)
- * with an origin allowlist or handshake validation.
- */
-class BrowserDiscordRpcClient {
-  private ws: WebSocket | null = null;
-  private clientId: string = "";
-  private portIndex: number = 0;
-  private connected: boolean = false;
-  private connecting: boolean = false;
-  private lastActivity: DiscordActivityPayload | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  // Bumped by disconnect(), so a socket from before it can't revive the client
-  // (a port probe still in flight, or the close event of the one just closed).
-  private attempt: number = 0;
-
-  constructor() {}
-
-  public configure(clientId: string) {
-    if (this.clientId === clientId) return;
-    this.clientId = clientId;
-    if (this.connected || this.connecting) {
-      this.disconnect();
-      this.connect();
-    }
-  }
-
-  public connect() {
-    if (typeof window === "undefined") return;
-    if (this.connected || this.connecting) return;
-    if (!this.clientId) return;
-
-    this.connecting = true;
-    this.tryNextPort(0);
-  }
-
-  private tryNextPort(index: number) {
-    if (index > 9) {
-      this.connecting = false;
-      this.scheduleReconnect(20000);
-      return;
-    }
-
-    this.portIndex = index;
-    const port = 6463 + index;
-    // Discord local RPC WS endpoint:
-    const url = `ws://127.0.0.1:${port}/?v=1&client_id=${encodeURIComponent(this.clientId)}`;
-
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(url);
-    } catch {
-      this.tryNextPort(index + 1);
-      return;
-    }
-
-    let resolved = false;
-    const attempt = this.attempt;
-
-    socket.onopen = () => {
-      if (attempt !== this.attempt) {
-        socket.close();
-        return;
-      }
-      resolved = true;
-      this.ws = socket;
-      this.connected = true;
-      this.connecting = false;
-      if (this.lastActivity) {
-        this.setActivity(this.lastActivity);
-      }
-    };
-
-    socket.onmessage = (event) => {
-      if (attempt !== this.attempt) return;
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.cmd === "DISPATCH" && msg.evt === "READY") {
-          this.connected = true;
-          this.connecting = false;
-          trackDiscordRpcConnected(DISCORD_RPC_EVENTS.connectedBrowser);
-          if (this.lastActivity) {
-            this.setActivity(this.lastActivity);
-          }
-        }
-      } catch {}
-    };
-
-    socket.onerror = () => {
-      if (attempt !== this.attempt) return;
-      if (!resolved) {
-        resolved = true;
-        try {
-          socket.close();
-        } catch {}
-        this.tryNextPort(index + 1);
-      }
-    };
-
-    socket.onclose = () => {
-      if (attempt !== this.attempt) return;
-      this.connected = false;
-      this.connecting = false;
-      this.ws = null;
-      if (resolved) {
-        this.scheduleReconnect(15000);
-      }
-    };
-  }
-
-  private scheduleReconnect(delayMs: number) {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      if (!this.connected && !this.connecting && this.clientId) {
-        this.connect();
-      }
-    }, delayMs);
-  }
-
-  public setActivity(activity: DiscordActivityPayload | null) {
-    this.lastActivity = activity;
-    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      if (!this.connecting) this.connect();
-      return;
-    }
-
-    const nonce = Math.random().toString(36).substring(2, 15);
-    const payload = JSON.stringify({
-      cmd: "SET_ACTIVITY",
-      args: {
-        pid: 0,
-        activity: activity || undefined,
-      },
-      nonce,
-    });
-
-    try {
-      this.ws.send(payload);
-    } catch {
-      this.connected = false;
-    }
-  }
-
-  public clearActivity() {
-    this.lastActivity = null;
-    this.setActivity(null);
-  }
-
-  // Turned off: closing the socket is also what makes Discord drop the activity,
-  // and nothing reconnects until the next setActivity.
-  public stop() {
-    this.lastActivity = null;
-    this.disconnect();
-  }
-
-  public disconnect() {
-    this.attempt++;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.connected = false;
-    this.connecting = false;
-    if (this.ws) {
-      try {
-        this.ws.close();
-      } catch {}
-      this.ws = null;
-    }
-  }
-}
-
-let browserClient: BrowserDiscordRpcClient | null = null;
-function getBrowserRpcClient(): BrowserDiscordRpcClient {
-  if (!browserClient) {
-    browserClient = new BrowserDiscordRpcClient();
-  }
-  return browserClient;
-}
-
 const selectSelfScreen = (state: SignalingState) => state.selfScreen;
 const selectSelfCamera = (state: SignalingState) => state.selfCamera;
 const selectMusicPlaying = (state: SignalingState) => state.music?.playing ?? false;
@@ -477,9 +300,8 @@ const selectVisiblePeerCount = (state: SignalingState) =>
 let lastTrackedActivity: string | null = null;
 
 /**
- * Global component that reports app presence to Discord RPC:
- * - Uses native bridge in PC / Electron app.
- * - Uses browser WebSocket RPC in Web Browser when Discord desktop is running on the computer.
+ * Global component that reports app presence to Discord RPC through the PC
+ * app's bridge. Does nothing in a browser.
  */
 export function DiscordRpcReporter() {
   const [settings] = useDiscordRpcSettings();
@@ -503,12 +325,12 @@ export function DiscordRpcReporter() {
     ? (featureData.activityType as number)
     : ACTIVITY_TYPE_WATCHING;
   const callGroupId = callSession?.group?.groupId ?? null;
-  const callGroup = useGroupDetail(featureAllowed && settings.enabled ? callGroupId : null).detail?.group ?? null;
+  const callGroup = useGroupDetail(featureAllowed && settings.enabled && isDiscordRpcSupported() ? callGroupId : null).detail?.group ?? null;
   const groupLinkAllowed = callGroup?.visibility === "public" && callGroup.richPresenceLink !== false;
 
   const clientId = getEffectiveDiscordClientId(settings);
   const bridge = getDesktopBridge();
-  const isDesktopApp = Boolean(bridge?.discordRpcUpdate);
+  const supported = Boolean(bridge?.discordRpcUpdate);
 
   // Before the effect below: its first update is what starts the connection.
   useEffect(
@@ -517,23 +339,16 @@ export function DiscordRpcReporter() {
   );
 
   useEffect(() => {
+    if (!supported) return;
     if (!featureAllowed || !settings.enabled) {
-      if (isDesktopApp) {
-        bridge?.discordRpcClear?.();
-      } else {
-        getBrowserRpcClient().stop();
-      }
+      bridge?.discordRpcClear?.();
       return;
     }
 
-    if (isDesktopApp) {
-      bridge?.discordRpcConfigure?.({
-        clientId,
-        enabled: settings.enabled,
-      });
-    } else {
-      getBrowserRpcClient().configure(clientId);
-    }
+    bridge?.discordRpcConfigure?.({
+      clientId,
+      enabled: settings.enabled,
+    });
 
     // Determine current user state
     const username = account?.displayName || account?.username || "Usuário Go Live";
@@ -636,11 +451,7 @@ export function DiscordRpcReporter() {
       instance: false,
     };
 
-    if (isDesktopApp) {
-      bridge?.discordRpcUpdate?.(payload);
-    } else {
-      getBrowserRpcClient().setActivity(payload);
-    }
+    bridge?.discordRpcUpdate?.(payload);
 
     const trackedActivity = JSON.stringify([callSession?.handle ?? null, isSharingScreen, isSharingCamera]);
     if (trackedActivity !== lastTrackedActivity) {
@@ -663,7 +474,7 @@ export function DiscordRpcReporter() {
     groupLinkAllowed,
     clientId,
     bridge,
-    isDesktopApp,
+    supported,
   ]);
 
   return null;

@@ -67,6 +67,7 @@ export const RARITY_STYLES: Record<Rarity, { dot: string; pill: string; ring: st
 const SHELF_ORDER: Record<CosmeticProductType, string[]> = {
   name_color: ["", "gradient", "effect"],
   profile_color: ["", "pattern"],
+  avatar_decoration: ["anniversary"],
 };
 
 export type Shelf = { collection: string; products: CosmeticProduct[] };

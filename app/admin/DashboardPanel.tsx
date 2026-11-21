@@ -1,6 +1,7 @@
 "use client";
 
 import { StatsOverview } from "./StatsOverview";
+import { CosmeticsAdminPanel } from "./CosmeticsAdminPanel";
 import { StreamStatsPanel } from "./StreamStatsPanel";
 import { ConnectionQualityPanel } from "./ConnectionQualityPanel";
 import { CloudflareTurnPanel } from "./CloudflareTurnPanel";
@@ -156,6 +157,18 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {can("points") && <AccountPointsPanel />}
         {can("password_reset") && <AccountPasswordResetPanel />}
         {can("auto_flags") && <AutoFlagsPanel />}
+      </Group>
+    ),
+  },
+  {
+    // Avatar frames: create, edit, take off the shop. Giving one away is a
+    // gift link, from "Gerar gift" in the users tab.
+    id: "cosmetics",
+    get label() { return translate("admin.cosmeticsPanel.tab"); },
+    needs: ["cosmetics"],
+    Panel: () => (
+      <Group>
+        <CosmeticsAdminPanel />
       </Group>
     ),
   },

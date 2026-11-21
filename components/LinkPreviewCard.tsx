@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { fetchLinkPreview, type LinkPreview } from "@/lib/dmApi";
+import { useGoLiveEmbedsEnabled } from "@/components/GoLiveEmbeds";
+import { isEmbeddedGoLiveLink } from "@/lib/goliveEmbeds";
 
 // The card under a message that has a link in it — the page's title, the
 // first line of it and its picture.
@@ -46,7 +48,11 @@ export function firstLink(text: string): string | null {
 }
 
 export function LinkPreviewCard({ text, className = "" }: { text: string; className?: string }) {
-  const url = firstLink(text);
+  // GoLive's own links have a card of their own under the message (see
+  // GoLiveEmbeds) — the page's title on top of it would say the same twice.
+  const ownCards = useGoLiveEmbedsEnabled();
+  const found = firstLink(text);
+  const url = found && ownCards && isEmbeddedGoLiveLink(found) ? null : found;
   // Tagged with the address it is about, so an edit that changes the link
   // does not draw the old card for a moment — and so nothing has to be reset
   // when the text changes. The cache is read straight during the render,

@@ -109,6 +109,24 @@ export function setOwnIceServers(servers: RTCIceServer[]) {
   listeners.forEach((listener) => listener());
 }
 
+// The VPS again, for the microphone's connections only, handed to an account
+// without Pro that is in the experiment "mic-turn-free" (see the API's GET
+// /ice-servers?audio=1). Never used for anything but the mic channel: a voice
+// is about 40 kbps, a screen is megabits, and the relay for video stays a Pro
+// thing. Empty for everybody else.
+let audioRelayServers: RTCIceServer[] = [];
+
+/** Sets (or clears) the audio-only relay. See lib/iceServers.ts. */
+export function setAudioRelayServers(servers: RTCIceServer[]) {
+  audioRelayServers = servers;
+  listeners.forEach((listener) => listener());
+}
+
+/** Whether this page holds the audio-only relay right now. */
+export function hasAudioRelay(): boolean {
+  return audioRelayServers.length > 0;
+}
+
 function urlsOf(server: RTCIceServer): string[] {
   return Array.isArray(server.urls) ? server.urls : [server.urls];
 }
@@ -241,8 +259,16 @@ export function isTurnConfigured(): boolean {
  * *their* own connections regardless of what the other end does, which is
  * exactly what "hide my IP from other participants" needs.
  */
-export function iceConfigFor(forceRelay: boolean): RTCConfiguration {
-  if (!turnAllowed) return { iceServers: [STUN_SERVER] };
+export function iceConfigFor(forceRelay: boolean, channel?: string): RTCConfiguration {
+  if (!turnAllowed) {
+    // The audio-only relay (see audioRelayServers): offered to ICE as a last
+    // resort like any TURN server, never forced — "Impedir conexões diretas"
+    // is a Pro setting and stays one.
+    if (channel === "mic" && audioRelayServers.length > 0) {
+      return { iceServers: [STUN_SERVER, ...tcpOnlyServers(audioRelayServers)] };
+    }
+    return { iceServers: [STUN_SERVER] };
+  }
   const config: RTCConfiguration = {
     iceServers: [STUN_SERVER, ...dynamicServers, ...tcpOnlyServers(ownServers())],
   };

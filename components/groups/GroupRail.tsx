@@ -106,10 +106,16 @@ function mentionLabel(t: ReturnType<typeof useT>, mentions: number): string {
 export function GroupRail({
   activeGroupId,
   roomsActive = false,
+  elsewhere = false,
 }: {
   activeGroupId: string | null;
   /** The public rooms are the page (experiment "groups-rooms") — their tile is the lit one. */
   roomsActive?: boolean;
+  /**
+   * The page is none of the rail's own — an ordinary room's, framed by the
+   * group shell (experiment "room-shell", see lib/roomShell) — so no tile is lit.
+   */
+  elsewhere?: boolean;
 }) {
   const t = useT();
   // The tile is where the experiment shows itself, so this is the exposure.
@@ -479,7 +485,7 @@ export function GroupRail({
             onArrowDown={() => scrollRef.current?.querySelector<HTMLElement>("[data-rail-group]")?.focus()}
           />
           <RailTile
-            active={activeGroupId === null && !roomsActive}
+            active={activeGroupId === null && !roomsActive && !elsewhere}
             showName={showNames}
             label={t("groups.groupSwitcher.allGroups")}
             href="/groups"

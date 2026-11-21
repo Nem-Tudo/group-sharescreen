@@ -1,4 +1,4 @@
-import { setDynamicIceServers, setOwnIceServers } from "./iceConfig";
+import { setAudioRelayServers, setDynamicIceServers, setOwnIceServers } from "./iceConfig";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getAccountToken } from "./accountApi";
 
@@ -23,6 +23,10 @@ const RETRY_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 8_000;
 
 let started = false;
+// Whether to ask for the audio-only relay too (experiment "mic-turn-free",
+// decided by the room — see setAudioRelayWanted). The API decides for itself
+// whether to grant it; this only says the page would use it.
+let audioWanted = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 // When the VPS credentials (see readOwn) need asking for again, or null.
 let ownRefreshAt: number | null = null;
@@ -67,7 +71,7 @@ async function load() {
     // The account decides whether there is anything to get (see the API's
     // "dedicated_turn"), so the request carries it.
     const token = getAccountToken();
-    const res = await fetch(`${getSignalingHttpBase()}/ice-servers`, {
+    const res = await fetch(`${getSignalingHttpBase()}/ice-servers${audioWanted ? "?audio=1" : ""}`, {
       cache: "no-store",
       signal: controller.signal,
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -79,6 +83,7 @@ async function load() {
       disabled?: unknown;
       locked?: unknown;
       own?: unknown;
+      audio?: unknown;
     };
     // Not on a plan with TURN: drop anything held from before (a lapsed
     // subscription, a logout) and look again later.
@@ -86,9 +91,13 @@ async function load() {
       setDynamicIceServers([]);
       setOwnIceServers([]);
       ownRefreshAt = null;
+      // The one relay a plan without TURN can get: for the microphone only.
+      readAudio(body.audio);
       schedule(RETRY_MS);
       return;
     }
+    // A plan with TURN relays the mic like everything else.
+    setAudioRelayServers([]);
     readOwn(body.own);
     // The admin switched Cloudflare's TURN off. Unlike every other empty
     // answer, this one means "stop using what you have" — see the API's GET
@@ -132,6 +141,31 @@ export function ensureIceServers() {
  * message, sent when the admin switches Cloudflare on or off). A tab that
  * never needed ICE servers has nothing to refresh; it loads them when it does.
  */
+// The audio-only relay, when the API granted it: `{ own: { iceServers,
+// expiresAt } }`, the same shape as `own`. Anything else clears it.
+function readAudio(value: unknown) {
+  const own = (value as { own?: { iceServers?: unknown; expiresAt?: unknown } } | null | undefined)?.own;
+  const servers = Array.isArray(own?.iceServers) ? own.iceServers.filter(isUsableServer) : [];
+  const expiresAt = typeof own?.expiresAt === "number" ? own.expiresAt : null;
+  if (!audioWanted || servers.length === 0 || expiresAt === null || expiresAt <= Date.now()) {
+    setAudioRelayServers([]);
+    return;
+  }
+  setAudioRelayServers(servers);
+}
+
+/**
+ * Whether this page wants the audio-only relay (see lib/iceConfig's
+ * audioRelayServers). Asks again at once when that changes, so the answer is
+ * in before the room's first mic connection where possible.
+ */
+export function setAudioRelayWanted(wanted: boolean) {
+  if (audioWanted === wanted) return;
+  audioWanted = wanted;
+  if (!wanted) setAudioRelayServers([]);
+  if (started) refreshIceServers();
+}
+
 export function refreshIceServers() {
   if (!started || typeof window === "undefined") return;
   if (timer) clearTimeout(timer);

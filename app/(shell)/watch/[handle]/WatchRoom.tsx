@@ -91,7 +91,7 @@ import {
 } from "@/lib/roomsApi";
 import { rememberRecentRoom } from "@/lib/recentRoomsSync";
 import { openDirectMessages } from "@/lib/dmWindow";
-import type { CallDockPhase } from "@/lib/callSession";
+import type { CallDockPhase, RoomHeaderSlots } from "@/lib/callSession";
 import { useRoomSoundEffects } from "@/lib/useRoomSoundEffects";
 import { useBackgroundKeepAlive } from "@/lib/useBackgroundKeepAlive";
 import { useAndroidCallService } from "@/lib/androidCallService";
@@ -111,6 +111,7 @@ import { qualityNegotiator } from "@/lib/qualityNegotiation";
 import { isTurnConfigured, subscribeIceServers, TURN_CONFIGURED } from "@/lib/iceConfig";
 import { useMediaDevices, type MediaDeviceOption } from "@/lib/useMediaDevices";
 import {
+  getStoredMicOn,
   getStoredMicsMuted,
   setStoredMicsMuted,
   getStoredPeerVolumes,
@@ -133,10 +134,24 @@ import {
   SoundEffectsToggle,
 } from "@/components/SitePreferenceToggles";
 import { openSettings, SETTINGS_HUB_BADGE, SETTINGS_HUB_FEATURE, useSettingsCallSlot } from "@/lib/settingsHub";
-import { VideoTile, StoppedPeerTile, ResumingPeerTile, IOSScreenSelfTile } from "@/components/VideoTile";
+import {
+  VideoTile,
+  StoppedPeerTile,
+  ResumingPeerTile,
+  ConnectingPeerTile,
+  IOSScreenSelfTile,
+} from "@/components/VideoTile";
+import { CONNECTING_TILE_FEATURE } from "@/lib/connectingTile";
 import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { ParticipantRow } from "@/components/ParticipantRow";
+import { AudioUnblockBanner } from "@/components/AudioUnblockBanner";
+import {
+  MIC_LINK_STATUS_EVENTS,
+  MIC_LINK_STATUS_FEATURE,
+  useMicReceiveLinks,
+  useStuckShownEvents,
+} from "@/lib/micReliability";
 import { countDevicesByOwner, withDeviceSuffix } from "@/lib/displayName";
 import { isMobileDevice } from "@/lib/announcement";
 import { enterAndroidPip, onAndroidPipModeChange } from "@/lib/androidPictureInPicture";
@@ -284,6 +299,12 @@ import {
 import { useIOSBackgroundCall } from "@/lib/iosBackgroundCall";
 import { STREAM_PREVIEW_FEATURE, useStreamPreviewUploader } from "@/lib/streamPreview";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
+import {
+  setRoomShellSwitchedOff,
+  trackRoomShellFold,
+  useRoomShell,
+  useRoomShellCallMinutes,
+} from "@/lib/roomShell";
 import type { CallSource } from "@/lib/callRecording";
 import { CALL_RECORDING_FEATURE, trackCallRecordingOpen, useCallRecording } from "@/lib/useCallRecording";
 import { CallRecordButton, CallRecordingModal } from "@/components/CallRecordingModal";
@@ -873,7 +894,7 @@ function QualityControls({
               <span className="font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
                 {meshCapacity.availableOutgoingKbps > 0
                   ? t("watch.watchRoom.valueMbps", { value: (meshCapacity.availableOutgoingKbps / 1000).toFixed(1) })
-                  : "medindo…"}
+                  : t("watch.watchRoom.measuring")}
               </span>
             </div>
             <div className="flex justify-between gap-2">
@@ -1936,11 +1957,12 @@ function WatchRoomView({
   /**
    * The slots of whatever top bar is lending itself to the call — a group's,
    * while the group's pages are on screen, whether the call is that group's or
-   * one carried in from an ordinary room. The call controls are portalled into
-   * it, and the room's page buttons too while the room is the page shown (see
-   * inHeaderSlot). Null anywhere else.
+   * one carried in from an ordinary room; and the same bar around an ordinary
+   * room's own page, in the experiment "room-shell" (see lib/roomShell). The
+   * call controls are portalled into it, and the room's page buttons too while
+   * the room is the page shown (see inHeaderSlot). Null anywhere else.
    */
-  headerSlots?: { center: HTMLElement | null; right: HTMLElement | null; end: HTMLElement | null } | null;
+  headerSlots?: RoomHeaderSlots | null;
   /**
    * The strip under a group's header that a group voice room draws its music
    * bars into (see CallChrome.musicSlot). Used only when this room *is* a
@@ -1963,6 +1985,16 @@ function WatchRoomView({
   const router = useRouter();
   // The room stripped down to the call itself. See the `dm` prop.
   const callLayout = Boolean(dm);
+  // An ordinary room's own page, framed by the group shell (experiment
+  // "room-shell", see lib/roomShell): the rail of groups on its left and the
+  // shell's bar on top. The room keeps everything that is its own — its
+  // participant column and ad, its chat, its menus, its theme — but its header
+  // is the shell's: the name and description go to the bar's left (inHeaderSlot
+  // "start"), the call controls to its middle, the page buttons to its right
+  // and "⋯" to its corner, the way a group's voice room already does. Only
+  // while the page is the one on screen: carried around the site, the call is
+  // docked like any other.
+  const hostedPage = Boolean(headerSlots) && visible && !group && !callLayout;
   const state = useSignalingSelector(selectWatchRoom, shallow);
   const { hasMusic, musicPlaying, musicAddedById } = useSignalingSelector(selectMusicSummary, shallow);
   // The room's tools and raised hands (see lib/roomTools).
@@ -2023,7 +2055,9 @@ function WatchRoomView({
   // element, so the redesign's layer in globals.css finds them through this
   // mark on <html> — only while the room is the page on screen, so a docked
   // call does not restyle whatever page somebody walked off to.
-  const redesignInGroup = Boolean(group);
+  // A page framed by the group shell wears the shell's colours the same way:
+  // the rail and the bar around it are not the redesign's.
+  const redesignInGroup = Boolean(group) || hostedPage;
   useEffect(() => {
     if (!roomRedesign || !visible) return;
     const root = document.documentElement;
@@ -2034,6 +2068,11 @@ function WatchRoomView({
   // The "Configurações" dialog: from here on the room's menu keeps the room's
   // own things, and the switches about a running call go to the dialog's spot.
   const settingsHub = useFeature(SETTINGS_HUB_FEATURE, { track: visible }).enabled;
+  // Experiment "room-shell" (see lib/roomShell): read here for the switch in
+  // "⋯" and for the time-in-call count; its exposure is the shell's, which is
+  // where the frame is drawn. Never for a group's room or a direct call.
+  const roomShell = useRoomShell(group || callLayout ? null : handle, { track: false });
+  useRoomShellCallMinutes(roomShell.eligible && state.room === handle);
   // "Silenciar fontes": the headphones split in two - voices, and the room's
   // videos and music (see lib/mediaSourcesMute). Exposure wherever the room
   // is on screen, since its switch under the headphones' arrow always is.
@@ -2121,6 +2160,7 @@ function WatchRoomView({
     shareError,
     setShareSystemAudio,
     shareSystemAudioUnavailable,
+    shareNoFrames,
     shareSource,
     fileChannels,
     localMediaSnapshots,
@@ -2171,6 +2211,7 @@ function WatchRoomView({
     localMicStream,
     remoteMicStreams,
     micConnectionStates,
+    retryMicFrom,
     micDeviceId,
     setMicDevice,
     extraMicDeviceIds,
@@ -2244,7 +2285,10 @@ function WatchRoomView({
   // What the mic was doing when the room was deafened, so undeafening can put
   // it back exactly there. Deafening with the mic already closed has nothing
   // to restore, which is the whole of the "fica apenas deafen" case.
-  const micBeforeDeafenRef = useRef(false);
+  //
+  // Seeded from storage for a deafen restored on entry: the mic did not open
+  // then (see useRoomMedia's restore), and undeafening is what brings it back.
+  const micBeforeDeafenRef = useRef(getStoredMicsMuted() && getStoredMicOn());
   // Set to the value a deafen/undeafen is about to move the mic to, so the
   // mic's own sound below stays quiet for that one change. Without it,
   // deafening plays two sounds at once — the deafen chime and the mic-off
@@ -3125,9 +3169,11 @@ function WatchRoomView({
       }
       trackEvent("left_sidebar_toggle", { collapsed: next });
       trackRoomRedesignEvent(ROOM_REDESIGN_EVENTS.sidebarToggle);
+      // Framed by the group shell, this folds the rail of groups too.
+      if (hostedPage) trackRoomShellFold(next);
       return next;
     });
-  }, [hasAnyMedia, rawActivePartner, activePartnerAd, partnerAdHidden]);
+  }, [hasAnyMedia, rawActivePartner, activePartnerAd, partnerAdHidden, hostedPage]);
 
   const toggleRightSidebar = useCallback(() => {
     setRightSidebarCollapsed((prev) => {
@@ -3151,7 +3197,9 @@ function WatchRoomView({
     toggleLeftSidebarRef.current = toggleLeftSidebar;
   }, [toggleLeftSidebar]);
   const stableToggleLeftSidebar = useCallback(() => toggleLeftSidebarRef.current(), []);
-  const publishesGroupColumns = Boolean(group);
+  // A page framed by the group shell publishes the same thing, for the one
+  // column of the shell's it folds with its own participants: the rail.
+  const publishesGroupColumns = Boolean(group) || hostedPage;
   useEffect(() => {
     if (!publishesGroupColumns) return;
     setGroupVoiceColumns({
@@ -4500,9 +4548,56 @@ function WatchRoomView({
     () => state.peers.filter((p) => p.role !== "moderator" && !isObsPeer(p)),
     [state.peers]
   );
+  // Experiment "connecting-peer-tile" (see lib/connectingTile): who is
+  // transmitting with nothing of it arriving here, and not because we chose
+  // so (stopped) or are already waiting on a resume. Only an explicit `true`
+  // for the channel counts — a client too old to report the breakdown sends
+  // null, and guessing "screen" for it would park a "Conectando…" tile under
+  // somebody sharing only a camera, for good.
+  const connectingScreenPeers = tilePeers.filter(
+    (p) =>
+      p.id !== state.selfId &&
+      p.sharing &&
+      p.screen === true &&
+      !(p.id in remoteStreams) &&
+      !stoppedPeers.has(p.id) &&
+      !resumingPeers.has(p.id)
+  );
+  const connectingCameraPeers = tilePeers.filter(
+    (p) =>
+      p.id !== state.selfId &&
+      p.sharing &&
+      p.camera === true &&
+      !(p.id in remoteCameraStreams) &&
+      !stoppedCameraPeers.has(p.id) &&
+      !resumingCameraPeers.has(p.id)
+  );
+  // Counted for both sides the moment there is somebody to show the tile for —
+  // which is exactly when the other side shows nothing.
+  const connectingTileOn = useFeature(CONNECTING_TILE_FEATURE, {
+    track: connectingScreenPeers.length + connectingCameraPeers.length > 0,
+  }).enabled;
   const visiblePeers = useMemo(
     () => tilePeers.filter((p) => !isAttachedScreenCompanion(p, presentPeerIds)),
     [tilePeers, presentPeerIds]
+  );
+  // Whether each person's audio is reaching us, measured for everyone (see
+  // lib/micReliability) — and, in the experiment "mic-link-status", said on
+  // their row with a retry, instead of the one "Conectando..." in the header
+  // that never says who. Not while our own signalling is down: everybody would
+  // look unreachable, and none of it would be about them.
+  const micLinksLive = state.status === "open" && state.room === handle && Boolean(state.name);
+  const micLinks = useMicReceiveLinks(visiblePeers, micConnectionStates, micLinksLive);
+  const micLinkStatusOn = useFeature(MIC_LINK_STATUS_FEATURE, { track: micLinks.stuck.size > 0 }).enabled;
+  useStuckShownEvents(micLinks.stuck, micLinkStatusOn);
+  const { noteRetry: noteMicRetry } = micLinks;
+  const retryPeerAudio = useCallback(
+    (peerId: string) => {
+      noteMicRetry(peerId);
+      retryMicFrom(peerId);
+      trackFeatureEvent(MIC_LINK_STATUS_EVENTS.retry, { feature: MIC_LINK_STATUS_FEATURE });
+    },
+    [noteMicRetry, retryMicFrom]
   );
   // People sharing their iPhone's screen right now, by identity — so their
   // row says "compartilhando tela" like anybody sharing from a computer, even
@@ -4854,7 +4949,7 @@ function WatchRoomView({
   if (restoring) {
     return (
       <>
-        <RoomSkeleton />
+        <RoomSkeleton hosted={hostedPage} />
         <p className="sr-only" role="status">
           {translate("watch.watchRoom.joiningTheRoom")}
         </p>
@@ -5253,7 +5348,7 @@ function WatchRoomView({
   if (!state.room) {
     return (
       <>
-        <RoomSkeleton />
+        <RoomSkeleton hosted={hostedPage} />
         <p className="sr-only" role="status">
           {translate("watch.watchRoom.joiningTheRoom")}
         </p>
@@ -6735,6 +6830,24 @@ function WatchRoomView({
     });
   }
 
+  // On, and nothing of it here: see lib/connectingTile. Under the same id the
+  // real tile takes, so a focus on it survives the gap. Left out while
+  // hyperfocused, like the other placeholders.
+  if (connectingTileOn && !activeHyperfocusId) {
+    for (const peer of connectingScreenPeers) {
+      tiles.push({
+        id: tileId("screen", peer.id),
+        render: (fill) => (
+          <ConnectingPeerTile
+            label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+            fill={fill}
+            onRetry={() => resumeWatchingPeer(peer.id)}
+          />
+        ),
+      });
+    }
+  }
+
   for (const peer of visibleStoppedCamera2Entries) {
     tiles.push({
       id: tileId("camera2", peer.id),
@@ -6813,6 +6926,21 @@ function WatchRoomView({
       id: tileId("camera", peer.id),
       render: (fill) => <ResumingPeerTile fill={fill} />,
     });
+  }
+
+  if (connectingTileOn && !activeHyperfocusId) {
+    for (const peer of connectingCameraPeers) {
+      tiles.push({
+        id: tileId("camera", peer.id),
+        render: (fill) => (
+          <ConnectingPeerTile
+            label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+            fill={fill}
+            onRetry={() => resumeWatchingCameraPeer(peer.id)}
+          />
+        ),
+      });
+    }
   }
 
   for (const [slot, peer] of visibleStoppedFileEntries) {
@@ -7937,6 +8065,25 @@ function WatchRoomView({
         </div>
       )}
 
+      {/* Experiment "room-shell": the room framed by the group shell — the
+          groups down the left, the conversations in the top bar. The way back
+          to the room as it always was, for whoever prefers it, on this
+          browser; and the way back in. The menu closes on the way: the bar it
+          hangs from is the one being swapped. */}
+      {roomShell.available && (
+        <MenuToggleRow
+          label={translate("watch.watchRoom.roomShellToggle")}
+          active={!roomShell.switchedOff}
+          onToggle={() => {
+            closeMenu();
+            setRoomShellSwitchedOff(!roomShell.switchedOff);
+          }}
+          activeIcon={<LuPanelLeftOpen className="h-4 w-4" />}
+          inactiveIcon={<LuPanelLeftClose className="h-4 w-4" />}
+          hint={translate("watch.watchRoom.roomShellHint")}
+        />
+      )}
+
       <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
 
       {!settingsHub && (
@@ -8842,11 +8989,11 @@ function WatchRoomView({
         )}
 
         {isWideLayout && hasAnyMedia && (
-          <Tooltip content={translate("watch.watchRoom.hideParticipants")}>
+          <Tooltip content={translate(hostedPage ? "watch.watchRoom.hideGroupsAndParticipants" : "watch.watchRoom.hideParticipants")}>
             <button
               type="button"
               onClick={toggleLeftSidebar}
-              aria-label={translate("watch.watchRoom.hideParticipants")}
+              aria-label={translate(hostedPage ? "watch.watchRoom.hideGroupsAndParticipants" : "watch.watchRoom.hideParticipants")}
               className="rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <LuPanelLeftClose className="h-4 w-4" />
@@ -8952,6 +9099,8 @@ function WatchRoomView({
             onToggleMute={toggleParticipantMute}
             volume={peerVolumes[volumeKey] ?? 1}
             connectionLost={micConnectionStates[p.id] === "disconnected"}
+            audioMissing={micLinkStatusOn && micLinks.stuck.has(p.id)}
+            onRetryAudio={micLinkStatusOn ? retryPeerAudio : undefined}
           />
         );
       })}
@@ -9279,7 +9428,12 @@ function WatchRoomView({
   // "end" is the corner of the group's bar, after its own buttons, and only
   // exists there — outside a group that node stays in the room's own right
   // zone (see moreOptions).
-  function inHeaderSlot(slot: "center" | "right" | "end", node: ReactNode): ReactNode {
+  //
+  // "start" is the left of that bar, after "início" and the conversations:
+  // where an ordinary room's page framed by the group shell puts its name,
+  // code and description (see hostedPage). Without the bar it is the left of
+  // the room's own header, where it always was.
+  function inHeaderSlot(slot: "start" | "center" | "right" | "end", node: ReactNode): ReactNode {
     const barTarget = headerSlots?.[slot] ?? null;
     if (barTarget) {
       if (slot !== "center" && !visible) return null;
@@ -9587,8 +9741,9 @@ function WatchRoomView({
       data-room-page=""
       // The redesign's scope: every rule of it in globals.css hangs off this.
       data-room-redesign={roomRedesign ? "" : undefined}
-      // A group's room wears the group's colours, not the redesign's.
-      data-rr-group={roomRedesign && group ? "" : undefined}
+      // A group's room wears the group's colours, not the redesign's — and so
+      // does a page framed by the group shell (see hostedPage).
+      data-rr-group={roomRedesign && redesignInGroup ? "" : undefined}
       className={`flex min-h-0 flex-1 flex-col ${
         // The conversation's own card is what this is drawn on.
         callLayout ? "" : "bg-zinc-50 dark:bg-black"
@@ -9645,7 +9800,9 @@ function WatchRoomView({
           // to the bar of whatever page is showing it (see inHeaderSlot), and
           // the room's name, its link and its settings are not what a call
           // with one person is about.
-          group || callLayout
+          // Nor on a page framed by the group shell, whose bar carries all of
+          // it (see hostedPage).
+          group || callLayout || hostedPage
             ? "hidden"
             : "shrink-0 border-b border-black/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-950 sm:px-4"
         }
@@ -9704,8 +9861,17 @@ function WatchRoomView({
 
             {/* The room's own identity — name, access code, public/private —
                 held together in one group, so the description beside it is
-                the only thing that gives space up as the window narrows. */}
-            <div className={group ? "hidden" : "flex min-w-0 items-center gap-2"}>
+                the only thing that gives space up as the window narrows.
+                Framed by the group shell, all of it goes to the left of the
+                shell's bar instead, after a rule of its own (see inHeaderSlot
+                "start"). Never for a group's room or a direct call, whose bar
+                says where you are in its own way. */}
+            {!group && !callLayout && inHeaderSlot("start", (
+            <>
+            {headerSlots?.start && hostedPage && (
+              <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />
+            )}
+            <div className="flex min-w-0 items-center gap-2">
               {/* For a private room the code is split out of the handle and
                   shown on its own: it's the room's whole secret now (see
                   roomsApi's toPrivateRoomHandle), so it's the thing someone
@@ -9773,13 +9939,15 @@ function WatchRoomView({
                 menuItems), which is where the rest of the once-per-visit
                 controls already are. */}
             {/* Public rooms only — see the same gate on the phone copy above. */}
-            {isWideLayout && !isPrivateRoomHandle(handle) && !group && (
+            {isWideLayout && !isPrivateRoomHandle(handle) && (
               <RoomInfoControls
                 description={state.roomDescription}
                 category={state.roomCategory}
                 canEdit={isRoomManager}
               />
             )}
+            </>
+            ))}
           </div>
 
           {/* What you do in the call: mic, what you hear, screen, camera and
@@ -9997,7 +10165,8 @@ function WatchRoomView({
               </Tooltip>
             )}
 
-            {!group && <UpdateAppButton />}
+            {/* Not in a host bar, which has its own (the group shell's). */}
+            {!group && !headerSlots?.right && <UpdateAppButton />}
 
             {/* On a phone the same menu is a bottom sheet: fixed to the
                 screen rather than hung off the button, closed by a drag, a tap
@@ -10174,6 +10343,15 @@ function WatchRoomView({
           )}
         </p>
       )}
+      {/* The share's capture never produced a frame (see
+          lib/shareFrameWatch.ts): without this the tile is just black, for
+          the person sharing and the room alike, with no reason given. Red,
+          because the share is not working at all. */}
+      {shareNoFrames && localStream && (
+        <p className="bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          {translate("watch.watchRoom.shareNoFrames")}
+        </p>
+      )}
       {/* Firefox never offers screen/tab audio in its picker and drops the
           track without saying so, so the share above is silent however it
           was started. Red because, unlike the amber notice, nothing the
@@ -10191,6 +10369,16 @@ function WatchRoomView({
           {micError}
         </p>
       )}
+      {/* The browser holding the room's audio back until a click (see the
+          component). Anything with sound in it counts: a voice, or a share. */}
+      <AudioUnblockBanner
+        hasAudio={
+          Object.keys(remoteMicStreams).length > 0 ||
+          [...Object.values(remoteStreams), ...Object.values(remoteCameraStreams)].some(
+            (stream) => stream.getAudioTracks().length > 0
+          )
+        }
+      />
       {/* "Celular como microfone" with the phone not there: the mic is on but
           silent until it connects (see useRoomMedia) — said here, with the
           steps, since there is no picture to put them on as the camera has. */}
@@ -10337,8 +10525,9 @@ function WatchRoomView({
         />
       )}
 
-      {/* In a group the shell around this already pads it (see GroupAppShell). */}
-      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group || callLayout ? "" : "lg:p-3"}`}>
+      {/* In a group the shell around this already pads it (see GroupAppShell),
+          and on a page it frames as well. */}
+      <div className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3 ${group || callLayout || hostedPage ? "" : "lg:p-3"}`}>
         {/* From lg up, participants get this dedicated full-height column
             instead of sharing a pane with chat — see isWideLayout. A card of
             its own rather than loose text on the page background: the room is
@@ -10387,13 +10576,13 @@ function WatchRoomView({
           {isWideLayout && leftSidebarCollapsed && !callLayout && (
             <div className="absolute left-2 top-2 z-20">
               <Tooltip
-                content={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
+                content={translate(group ? "watch.watchRoom.showGroupsAndRooms" : hostedPage ? "watch.watchRoom.showGroupsAndParticipants" : "watch.watchRoom.showParticipants")}
                 placement="right"
               >
                 <button
                   type="button"
                   onClick={toggleLeftSidebar}
-                  aria-label={translate(group ? "watch.watchRoom.showGroupsAndRooms" : "watch.watchRoom.showParticipants")}
+                  aria-label={translate(group ? "watch.watchRoom.showGroupsAndRooms" : hostedPage ? "watch.watchRoom.showGroupsAndParticipants" : "watch.watchRoom.showParticipants")}
                   className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur-xs transition hover:bg-white hover:text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"
                 >
                   <LuPanelLeftOpen className="h-4 w-4" />

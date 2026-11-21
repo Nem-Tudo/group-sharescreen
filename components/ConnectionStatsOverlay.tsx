@@ -4,7 +4,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useT } from "@/lib/useI18n";
 import {
   diagnose,
+  iceIsUp,
   isRelayed,
+  NOT_CONNECTED_MS,
   type Cause,
   type PcSnapshot,
   type RouteInfo,
@@ -13,7 +15,7 @@ import {
 import { connectionRegistry, createStatsSampler } from "@/lib/connectionRegistry";
 import { connectionDiagLink, type RemoteDiag } from "@/lib/connectionDiagLink";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
-import { turnProvider, type TurnProvider } from "@/lib/iceConfig";
+import { isTurnAllowed, turnProvider, type TurnProvider } from "@/lib/iceConfig";
 
 const TURN_PROVIDER_KEYS: Record<TurnProvider, string> = {
   cloudflare: "connectionStats.turnCloudflare",
@@ -76,6 +78,7 @@ export function ConnectionStatsOverlay({
   const [sender, setSender] = useState<{ id: string; since: number } | null>(null);
   const [remote, setRemote] = useState<{ senderId: string; diag: RemoteDiag } | null>(null);
   const [now, setNow] = useState(0);
+  const [iceState, setIceState] = useState<RTCIceConnectionState | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -89,6 +92,7 @@ export function ConnectionStatsOverlay({
         lastSender = null;
         setSender(null);
         setLocal(null);
+        setIceState(null);
         setNow(Date.now());
         return;
       }
@@ -98,6 +102,7 @@ export function ConnectionStatsOverlay({
         lastSender = entry.peerId;
         setSender({ id: entry.peerId, since: Date.now() });
       }
+      setIceState(entry.pc.iceConnectionState);
       if (snapshot) setLocal({ snapshot });
       setNow(Date.now());
     };
@@ -140,6 +145,13 @@ export function ConnectionStatsOverlay({
   const recv = snapshot?.recv ?? null;
   const send = diag?.send ?? null;
   const causes: Cause[] = snapshot ? diagnose({ route, send, recv }) : [];
+  // ICE never found a path: said outright, ahead of every cause — those all
+  // describe a picture that is arriving, and there is none.
+  const notConnected =
+    sender !== null &&
+    !iceIsUp(iceState) &&
+    (iceState === "failed" || ((route?.kind ?? "unknown") === "unknown" && now - sender.since >= NOT_CONNECTED_MS));
+  const turnAllowed = isTurnAllowed();
 
   // Which TURN network each relaying side is on. Ours comes from our own
   // stats; the other side's only from the sender's report, since the browser
@@ -164,6 +176,9 @@ export function ConnectionStatsOverlay({
       channel,
       originId,
       route,
+      iceState,
+      notConnected,
+      turnAllowed,
       turn: {
         ours: localRelays ? (turnProvider(snapshot?.route.relayUrl) ?? "unknown") : null,
         theirs: remoteRelays ? (turnProvider(remoteRelayUrl) ?? "unknown") : null,
@@ -278,7 +293,15 @@ export function ConnectionStatsOverlay({
       </Row>
 
       <div className="mt-1.5 border-t border-white/10 pt-1.5 font-sans">
-        {causes.length === 0 ? (
+        {notConnected && (
+          <p className="mb-0.5 text-red-300">
+            • {t("connectionStats.notConnected")}
+            {/* With a relay of our own on the table, it is not "your network"
+                any more — it is something support needs to see. */}
+            {turnAllowed && <span className="block">{t("connectionStats.notConnectedRelay")}</span>}
+          </p>
+        )}
+        {notConnected && causes.length === 0 ? null : causes.length === 0 ? (
           <span className="text-zinc-400">
             {snapshot ? t("connectionStats.noCauses") : t("connectionStats.waiting")}
           </span>

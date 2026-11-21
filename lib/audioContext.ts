@@ -56,7 +56,12 @@
 // rnnoise.ts still checks, for the ones it does not.
 export const RNNOISE_SAMPLE_RATE = 48000;
 
-const GESTURE_EVENTS = ["pointerdown", "touchend", "keydown"] as const;
+// pointerup as well as pointerdown: Chrome only counts a pointerdown as user
+// activation for a mouse. A finger's pointerdown is not one, its pointerup and
+// touchend are — and the first event in this list spends the queued callbacks,
+// so without a later one a tap on a phone could use them up and unlock nothing.
+// (A retry that fails is re-armed now as well; see playWhenAllowed.)
+const GESTURE_EVENTS = ["pointerdown", "pointerup", "touchend", "keydown"] as const;
 
 let sharedContext: AudioContext | null = null;
 let constructionFailed = false;
@@ -237,6 +242,13 @@ export async function ensureSharedAudioContextRunning(): Promise<boolean> {
   // ctx.state directly: the state changes underneath us across the await,
   // which is precisely what a narrowed local read would fail to notice.
   if (isSharedAudioContextRunning()) return true;
+  // Armed before the await, not after it. Without user activation Chrome does
+  // not reject resume(): it leaves the promise pending until the context is
+  // allowed to start, which a gesture alone never does — somebody has to call
+  // resume() again. Arming only once the await returned meant nobody did: the
+  // await never returned. Harmless when it does resume, since the callback
+  // finds the context running and stops there.
+  armGestureResume();
   try {
     await ctx.resume();
   } catch {
@@ -308,20 +320,102 @@ export function canRouteToPreferredSink(): boolean {
 // game that is hours of calls' worth of tiles (measured: every <video> and
 // <audio> a room ever made, still alive). The returned function takes the
 // retry back; call it once the element is no longer this caller's to play.
+//
+// A retry that is refused again is armed again. It used to be spent: the first
+// event on the page took it, and when that event was not one the browser counts
+// as activation (a finger's pointerdown, Escape) the element stayed paused for
+// good, with nothing left waiting to start it.
+//
+// While an element waits here it counts as blocked (see isAudioPlaybackBlocked),
+// which is what lets the room tell somebody why they hear nothing.
 export function playWhenAllowed(element: HTMLMediaElement): () => void {
   let cancelled = false;
   let cancelRetry: (() => void) | null = null;
-  const promise = element.play();
-  promise?.catch((err: unknown) => {
-    if (cancelled || (err as { name?: string } | null)?.name !== "NotAllowedError") return;
-    cancelRetry = onNextUserGesture(() => {
-      cancelRetry = null;
-      if (!cancelled) void element.play().catch(() => {});
-    });
-  });
+  const attempt = () => {
+    const promise = element.play();
+    promise?.then(
+      () => {
+        if (!cancelled) setElementBlocked(element, false);
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        if ((err as { name?: string } | null)?.name !== "NotAllowedError") {
+          setElementBlocked(element, false);
+          return;
+        }
+        setElementBlocked(element, true);
+        cancelRetry = onNextUserGesture(() => {
+          cancelRetry = null;
+          if (!cancelled) attempt();
+        });
+      }
+    );
+  };
+  attempt();
   return () => {
     cancelled = true;
     cancelRetry?.();
     cancelRetry = null;
+    setElementBlocked(element, false);
   };
+}
+
+// The elements refused playback for want of a click, right now. Held only
+// while their own playWhenAllowed is: its cancel takes them out, so a tile that
+// goes away is never kept alive here.
+const blockedElements = new Set<HTMLMediaElement>();
+// When playback first became blocked in the current episode, for telemetry —
+// null while nothing is blocked.
+let blockedSince: number | null = null;
+const blockedListeners = new Set<() => void>();
+
+function setElementBlocked(element: HTMLMediaElement, blocked: boolean) {
+  const before = blockedElements.size > 0;
+  if (blocked) blockedElements.add(element);
+  else blockedElements.delete(element);
+  const after = blockedElements.size > 0;
+  if (before === after) return;
+  blockedSince = after ? Date.now() : null;
+  blockedListeners.forEach((listener) => listener());
+}
+
+/**
+ * Whether some remote audio is being held back by the browser's autoplay rule
+ * right now — it will start on the next click or key press anywhere. For
+ * useSyncExternalStore, with subscribeAudioPlaybackBlocked.
+ */
+export function isAudioPlaybackBlocked(): boolean {
+  return blockedElements.size > 0;
+}
+
+export function isAudioPlaybackBlockedServer(): boolean {
+  return false;
+}
+
+/** When the current blocked stretch began, or null. */
+export function audioPlaybackBlockedSince(): number | null {
+  return blockedSince;
+}
+
+export function subscribeAudioPlaybackBlocked(cb: () => void): () => void {
+  blockedListeners.add(cb);
+  return () => {
+    blockedListeners.delete(cb);
+  };
+}
+
+/**
+ * Starts everything waiting for a gesture, now. Only useful from inside a
+ * click handler — which is the one place it is called from (the room's
+ * "Ativar som" button). The capture-phase listeners above normally beat it to
+ * it; this is the belt to their braces.
+ */
+export function unlockAudioNow() {
+  void ensureSharedAudioContextRunning();
+  for (const element of [...blockedElements]) {
+    element.play().then(
+      () => setElementBlocked(element, false),
+      () => {}
+    );
+  }
 }

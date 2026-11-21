@@ -2,10 +2,10 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useT } from "@/lib/useI18n";
-import { diagnose, isRelayed, type PcSnapshot } from "@/lib/connectionDiagnostics";
+import { diagnose, iceIsUp, isRelayed, NOT_CONNECTED_MS, type PcSnapshot } from "@/lib/connectionDiagnostics";
 import { connectionRegistry, createStatsSampler } from "@/lib/connectionRegistry";
 import { signalingClient } from "@/lib/signalingClient";
-import { turnProvider } from "@/lib/iceConfig";
+import { isTurnAllowed, turnProvider } from "@/lib/iceConfig";
 import { nativeSinkPaused } from "@/lib/nativeVideoCapture";
 import { senderQualityState } from "@/lib/peerQualityController";
 import type { QualityChannel } from "@/lib/qualityNegotiation";
@@ -19,6 +19,9 @@ interface ViewerRow {
   snapshot: PcSnapshot;
   /** They are not looking at it, so nothing is being sent (see lib/qualityNegotiation). */
   paused: boolean;
+  iceState: RTCIceConnectionState;
+  /** ICE has found no path to them for NOT_CONNECTED_MS, or gave up. */
+  notConnected: boolean;
 }
 
 interface Capture {
@@ -74,6 +77,10 @@ export function OwnStreamStatsOverlay({
   useEffect(() => {
     const sample = createStatsSampler();
     let cancelled = false;
+    // Since when each viewer has had no path. Per viewer rather than per
+    // connection: an unreachable one is rebuilt by the send retry every few
+    // seconds, and each fresh connection would start the clock over.
+    const unconnectedSince = new Map<string, number>();
     const tick = async () => {
       const peers = signalingClient.state.peers;
       const names = new Map(peers.map((p) => [p.id, p.name]));
@@ -89,14 +96,24 @@ export function OwnStreamStatsOverlay({
         const snapshot = await sample(entry.pc);
         if (cancelled) return;
         if (!snapshot) continue;
+        const iceState = entry.pc.iceConnectionState;
+        const now = Date.now();
+        if (iceIsUp(iceState)) unconnectedSince.delete(entry.peerId);
+        else if (!unconnectedSince.has(entry.peerId)) unconnectedSince.set(entry.peerId, now);
+        const since = unconnectedSince.get(entry.peerId);
         next.push({
           peerId: entry.peerId,
           name: names.get(entry.peerId) ?? entry.peerId.slice(0, 6),
           snapshot,
           paused: senderQualityState(entry.pc)?.paused === true || nativeSinkPaused(entry.pc),
+          iceState,
+          notConnected: since !== undefined && (iceState === "failed" || now - since >= NOT_CONNECTED_MS),
         });
       }
       if (cancelled) return;
+      for (const peerId of unconnectedSince.keys()) {
+        if (!next.some((row) => row.peerId === peerId)) unconnectedSince.delete(peerId);
+      }
       next.sort((a, b) => a.name.localeCompare(b.name));
       setRows(next);
       setCapture(readCapture(stream));
@@ -145,10 +162,13 @@ export function OwnStreamStatsOverlay({
       totalKbps,
       viewers: (rows ?? []).map((row) => ({
         peerId: row.peerId,
+        iceState: row.iceState,
+        notConnected: row.notConnected,
         route: row.snapshot.route,
         sending: row.snapshot.send,
         causes: diagnose({ route: row.snapshot.route, send: row.snapshot.send, recv: null }).map((c) => c.id),
       })),
+      turnAllowed: isTurnAllowed(),
       cores: typeof navigator !== "undefined" ? (navigator.hardwareConcurrency ?? null) : null,
       userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     };
@@ -249,7 +269,11 @@ export function OwnStreamStatsOverlay({
                   <span className="font-sans font-medium text-white">{row.name}</span>
                   <span className={isRelayed(route.kind) ? "text-amber-300" : "text-zinc-400"}>
                     {" · "}
-                    {isRelayed(route.kind) ? "TURN" : t("connectionStats.routeDirect")}
+                    {isRelayed(route.kind)
+                      ? "TURN"
+                      : route.kind === "unknown"
+                        ? t("connectionStats.routeUnknown")
+                        : t("connectionStats.routeDirect")}
                     {provider &&
                       ` · ${t(provider === "cloudflare" ? "connectionStats.turnCloudflare" : "connectionStats.turnOwn")}`}
                   </span>
@@ -263,7 +287,12 @@ export function OwnStreamStatsOverlay({
                       </span>
                     )
                   )}
-                  {worst && (
+                  {row.notConnected ? (
+                    <span className="block font-sans text-red-300">
+                      {t("connectionStats.notConnected")}
+                      {isTurnAllowed() && ` ${t("connectionStats.notConnectedRelay")}`}
+                    </span>
+                  ) : worst && (
                     <span
                       className={`block font-sans ${worst.severity === "high" ? "text-red-300" : "text-amber-200"}`}
                     >

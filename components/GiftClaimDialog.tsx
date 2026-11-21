@@ -10,6 +10,7 @@ import { planIcon } from "@/components/planIcons";
 import { PlanUnlockInline } from "@/components/PlanUnlockGuide";
 import { useAuth } from "@/lib/AuthContext";
 import { accountTierOf, planTierOf, tierAbove, verifiedBadge } from "@/lib/entitlements";
+import { withAvatarDecoration } from "@/lib/avatarShape";
 import {
   fetchGiftByCode,
   redeemGiftCode,
@@ -121,14 +122,16 @@ export function GiftClaimDialog({
   };
 
   const gift = state.kind === "ready" || state.kind === "done" ? state.gift : null;
+  // An avatar frame rather than plan time: no plan rules, a picture instead.
+  const item = gift?.cosmetic ?? null;
   const mark = planIcon(gift?.planIconId);
-  const tone = planTone(gift ? planTierOf(gift.planId) : null);
+  const tone = planTone(gift && !item ? planTierOf(gift.planId) : null);
   // What this account already has, against what the present is worth. Worked
   // out here so the screen can say it *before* the button — a refusal that
   // only appears after pressing "resgatar" reads as a failure, and this one is
   // the opposite of bad news.
   const outranks = Boolean(
-    gift && account && tierAbove(accountTierOf(account.flags), planTierOf(gift.planId))
+    gift && !item && account && tierAbove(accountTierOf(account.flags), planTierOf(gift.planId))
   );
   const alreadyTaken = gift?.status === "delivered" && state.kind !== "done";
 
@@ -266,18 +269,30 @@ export function GiftClaimDialog({
 
               <h2 className="mt-1.5 flex items-center justify-center gap-1.5 text-center text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
                 {gift.planTitle}
-                <mark.Icon className={`h-5 w-5 shrink-0 ${mark.className}`} />
+                {!item && <mark.Icon className={`h-5 w-5 shrink-0 ${mark.className}`} />}
               </h2>
 
               <p className="mt-2 text-center">
                 <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                  {gift.trialOnly
+                  {item
+                    ? t("giftClaimDialog.avatarFrame")
+                    : gift.trialOnly
                     ? t("giftClaimDialog.trialDays", { value: gift.days })
                     : gift.hours
                       ? t("giftClaimDialog.hoursOfAccess", { value: gift.hours })
                       : `${gift.days} dias de acesso`}
                 </span>
               </p>
+              {/* The frame on this person's own face (or the default one). */}
+              {item && (
+                <div className="mt-4 flex justify-center">
+                  <UserAvatar
+                    src={withAvatarDecoration(account?.avatarUrl ?? null, item.value)}
+                    name={account?.displayName ?? gift.planTitle}
+                    size={88}
+                  />
+                </div>
+              )}
               {gift.testGift && state.kind !== "done" && (
                 <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
                   {t("giftClaimDialog.testGiftExplain")}
@@ -328,14 +343,18 @@ export function GiftClaimDialog({
                 <div className="mt-5 flex flex-col items-center gap-2 text-center">
                   <MdCheckCircle className="h-9 w-9 text-emerald-500" />
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {state.until > 0
+                    {item
+                      ? t("giftClaimDialog.frameIsOn")
+                      : state.until > 0
                       ? t("giftClaimDialog.itIsAllYoursUntilValue", { value: periodEndLabel(state.until) })
                       : t("giftClaimDialog.itIsAllYoursEnjoy")}
                   </p>
                   {/* What it opened, and where (experiment plan-unlock-guide). */}
-                  <div className="w-full">
-                    <PlanUnlockInline planId={gift.planId} onNavigate={() => closePopup(true)} />
-                  </div>
+                  {!item && (
+                    <div className="w-full">
+                      <PlanUnlockInline planId={gift.planId} onNavigate={() => closePopup(true)} />
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => closePopup(true)}
@@ -436,6 +455,8 @@ export function GiftClaimDialog({
                     ? t("giftClaimDialog.notAllowed")
                     : failure === "test_used"
                       ? t("giftClaimDialog.testUsed")
+                    : failure === "owned"
+                      ? t("giftClaimDialog.alreadyOwned")
                     : failure === "has_plan"
                       ? t("giftClaimDialog.trialHasPlan")
                       : error}

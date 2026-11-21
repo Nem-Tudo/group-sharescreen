@@ -1,6 +1,6 @@
 {
   "name": "sharescreen",
-  "version": "1.1.12",
+  "version": "1.1.13",
   "private": true,
   "description": "Go Live — compartilhe sua tela com quem estiver na mesma sala.",
   "author": "NemTudo",
@@ -40,6 +40,7 @@
     "@capacitor/core": "^8.5.1",
     "@capacitor/ios": "^8.5.1",
     "@capacitor/push-notifications": "^8.1.2",
+    "@gsap/react": "^2.1.2",
     "@mediabunny/ac3": "^1.60.0",
     "@mediabunny/mp3-encoder": "^1.59.1",
     "@monaco-editor/react": "^4.7.0",
@@ -51,6 +52,7 @@
     "@univerjs/presets": "^1.0.4",
     "frimousse": "^0.3.0",
     "gifenc": "^1.0.3",
+    "gsap": "^3.15.1",
     "leaflet": "^1.9.4",
     "mediabunny": "^1.59.1",
     "next": "16.3.1",

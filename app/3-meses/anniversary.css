@@ -1,0 +1,311 @@
+/* The "3 meses" page. Its own look on purpose: it reads like a broadcast
+   control room's run of show for the first three months, so it borrows that
+   world's pieces (colour bars, timecode, the on-air tally, lower thirds, the
+   news crawl) instead of generic page decoration. Always dark, with its own
+   colours rather than the zinc palette globals.css redefines per theme.
+   Everything here is scoped under .anniv.
+
+   Layout: left-aligned scenes on a control-room charcoal, one display face
+   (condensed, uppercase) for headlines, a mono for every timecode and label. */
+
+.anniv {
+  /* Control room */
+  --a-bg: #111215;
+  --a-bg-2: #17191d;
+  --a-card: #1c1f24;
+  --a-line: rgba(236, 233, 226, 0.13);
+  /* Monitor white, and the grey of a muted channel */
+  --a-ink: #ece9e2;
+  --a-mute: #9b9ea6;
+  /* The tally light: only for what is live or on air */
+  --a-tally: #ff3b2f;
+  /* Go Live's own blue, for data */
+  --a-blue: #4c86ff;
+  /* Preview / warning amber */
+  --a-amber: #f2b705;
+  --a-green: #3ccf6e;
+  /* Older names the scenes still use, mapped onto the palette above */
+  --a-rose: var(--a-tally);
+  --a-sky: var(--a-blue);
+  --a-indigo: var(--a-blue);
+  --a-violet: var(--a-mute);
+  background: var(--a-bg);
+  color: var(--a-ink);
+  font-family: var(--font-geist-sans), system-ui, "Twemoji", sans-serif;
+  overflow-x: clip;
+  color-scheme: dark;
+}
+
+.anniv ::selection {
+  background: var(--a-tally);
+  color: white;
+}
+
+/* Headlines: condensed, heavy, uppercase — broadcast graphics, not a blog. */
+.anniv-display {
+  font-family: var(--font-anniv-display), var(--font-geist-sans), sans-serif;
+  font-stretch: 70%;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: -0.005em;
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+/* Timecodes, labels, data. */
+.anniv-mono {
+  font-family: var(--font-anniv-mono), ui-monospace, monospace;
+  letter-spacing: 0.06em;
+}
+
+.anniv-accent {
+  color: var(--a-blue);
+}
+
+/* SMPTE-style colour bars: the test card before the countdown, then a strip. */
+.anniv-bars {
+  background: linear-gradient(
+    90deg,
+    #c0c0c0 0 14.28%,
+    #c0c000 0 28.57%,
+    #00c0c0 0 42.85%,
+    #00c000 0 57.14%,
+    #c000c0 0 71.42%,
+    #c00000 0 85.71%,
+    #0000c0 0
+  );
+}
+.anniv-bars-low {
+  background: linear-gradient(
+    90deg,
+    #0000c0 0 14.28%,
+    #111215 0 28.57%,
+    #c000c0 0 42.85%,
+    #111215 0 57.14%,
+    #00c0c0 0 71.42%,
+    #111215 0 85.71%,
+    #c0c0c0 0
+  );
+}
+
+/* The news crawl in the finale. */
+.anniv-crawl {
+  animation: anniv-crawl 38s linear infinite;
+}
+@keyframes anniv-crawl {
+  to { transform: translateX(-50%); }
+}
+
+/* An "on air" box: the red square of a lower third. */
+.anniv-onair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  background: var(--a-tally);
+  color: #fff;
+  font-family: var(--font-anniv-mono), ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.3em 0.6em;
+  border-radius: 2px;
+}
+
+/* ── Mascot idle motion ─────────────────────────────────────────────────── */
+.anniv-mascot { overflow: visible; }
+.anniv-mascot-bob { animation: anniv-bob 2.6s ease-in-out infinite; transform-origin: 60px 120px; }
+@keyframes anniv-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-5px) rotate(-1.5deg); }
+}
+.anniv-mascot[data-mood="party"] .anniv-mascot-bob { animation-duration: 0.7s; }
+.anniv-mascot[data-mood="sleep"] .anniv-mascot-bob { animation-duration: 4.5s; }
+.anniv-mascot[data-mood="shock"] .anniv-mascot-bob,
+.anniv-mascot[data-mood="sweat"] .anniv-mascot-bob { animation: anniv-jitter 0.18s linear infinite; }
+@keyframes anniv-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(1px, -1px); }
+  75% { transform: translate(-1px, 1px); }
+}
+.anniv-mascot-eye { animation: anniv-blink 4.2s infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes anniv-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+.anniv-mascot-rec { animation: anniv-rec 1.2s steps(2, jump-none) infinite; }
+@keyframes anniv-rec {
+  0% { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+.anniv-mascot-waving { animation: anniv-wave 0.9s ease-in-out infinite; transform-origin: 108px 62px; }
+@keyframes anniv-wave {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-22deg); }
+}
+.anniv-mascot-drop { animation: anniv-drop 1.4s ease-in infinite; }
+@keyframes anniv-drop {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(26px); opacity: 0; }
+}
+.anniv-mascot-zzz { animation: anniv-float 2.4s ease-in-out infinite; }
+@keyframes anniv-float {
+  0%, 100% { transform: translateY(0); opacity: 0.9; }
+  50% { transform: translateY(-6px); opacity: 0.5; }
+}
+
+/* ── Glitch (outage, bug wall) ──────────────────────────────────────────── */
+.anniv-glitch { position: relative; display: inline-block; }
+.anniv-glitch::before,
+.anniv-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.anniv-glitch::before {
+  color: #22d3ee;
+  transform: translate(-2px, 0);
+  clip-path: inset(0 0 55% 0);
+  animation: anniv-glitch-a 2.2s steps(1) infinite;
+}
+.anniv-glitch::after {
+  color: #f43f5e;
+  transform: translate(2px, 0);
+  clip-path: inset(50% 0 0 0);
+  animation: anniv-glitch-b 1.7s steps(1) infinite;
+}
+@keyframes anniv-glitch-a {
+  0%, 82%, 100% { transform: translate(-2px, 0); clip-path: inset(0 0 55% 0); }
+  84% { transform: translate(-6px, -2px); clip-path: inset(10% 0 70% 0); }
+  88% { transform: translate(5px, 1px); clip-path: inset(40% 0 30% 0); }
+}
+@keyframes anniv-glitch-b {
+  0%, 76%, 100% { transform: translate(2px, 0); clip-path: inset(50% 0 0 0); }
+  79% { transform: translate(7px, 2px); clip-path: inset(70% 0 5% 0); }
+  85% { transform: translate(-4px, -1px); clip-path: inset(30% 0 45% 0); }
+}
+
+/* TV static: a small tile, repeated, nudged a few pixels at a time. It used to
+   be one layer twice the size of the scene, which phones choked on. */
+.anniv-static {
+  position: absolute;
+  inset: -12px;
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1.4px),
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1.4px);
+  background-size: 7px 7px, 11px 11px;
+  background-position: 0 0, 3px 5px;
+  animation: anniv-static 0.35s steps(4) infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+@keyframes anniv-static {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-5px, 3px); }
+  50% { transform: translate(4px, -5px); }
+  75% { transform: translate(-2px, 6px); }
+  100% { transform: translate(5px, -2px); }
+}
+/* Phones get the static still: the motion is not worth the frames. */
+@media (pointer: coarse), (max-width: 640px) {
+  .anniv-static { animation: none; will-change: auto; }
+}
+/* A scene off screen keeps nothing running (see AnniversaryContent). */
+.anniv-offscreen *,
+.anniv-offscreen *::before,
+.anniv-offscreen *::after {
+  animation-play-state: paused !important;
+}
+.anniv-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.28) 0 2px, transparent 2px 4px);
+  pointer-events: none;
+}
+
+/* ── Night sky (behind the scenes) ──────────────────────────────────────── */
+.anniv-stars {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 18%, white, transparent),
+    radial-gradient(1px 1px at 28% 62%, white, transparent),
+    radial-gradient(2px 2px at 44% 30%, #c7d2fe, transparent),
+    radial-gradient(1px 1px at 63% 12%, white, transparent),
+    radial-gradient(1.5px 1.5px at 78% 46%, white, transparent),
+    radial-gradient(1px 1px at 88% 80%, #fde68a, transparent),
+    radial-gradient(1px 1px at 8% 86%, white, transparent),
+    radial-gradient(2px 2px at 55% 88%, #c7d2fe, transparent),
+    radial-gradient(1px 1px at 36% 8%, white, transparent),
+    radial-gradient(1.5px 1.5px at 94% 24%, white, transparent);
+  background-size: 640px 640px;
+  animation: anniv-twinkle 4s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes anniv-twinkle {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* ── Bug cards ──────────────────────────────────────────────────────────── */
+.anniv-bug {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+}
+.anniv-bug:hover {
+  box-shadow: 0 18px 50px rgba(244, 63, 94, 0.25);
+}
+.anniv-stamp {
+  animation: anniv-stamp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes anniv-stamp {
+  from { transform: rotate(-14deg) scale(2.4); opacity: 0; }
+  to { transform: rotate(-14deg) scale(1); opacity: 1; }
+}
+
+/* ── Misc ───────────────────────────────────────────────────────────────── */
+.anniv-caret::after {
+  content: "▋";
+  margin-left: 2px;
+  animation: anniv-rec 0.9s steps(2, jump-none) infinite;
+}
+.anniv-bounce-y { animation: anniv-bounce-y 1.4s ease-in-out infinite; }
+@keyframes anniv-bounce-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(8px); }
+}
+.anniv-marquee { animation: anniv-marquee 30s linear infinite; }
+@keyframes anniv-marquee {
+  to { transform: translateX(-50%); }
+}
+.anniv-live-dot { animation: anniv-rec 1s steps(2, jump-none) infinite; }
+
+.anniv-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.anniv-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: white;
+  cursor: ew-resize;
+}
+.anniv-range::-moz-range-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: white;
+  border: 0;
+  cursor: ew-resize;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anniv *,
+  .anniv *::before,
+  .anniv *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

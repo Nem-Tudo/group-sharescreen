@@ -27,6 +27,12 @@ export type Account = {
   equippedNameColor?: string | null;
   equippedProfileColor?: string | null;
   /**
+   * The avatar decoration worn — its picture's path — or null. It also rides
+   * inside avatarUrl (see lib/avatarShape), which is what draws it; this copy
+   * is for the screens that list or toggle it.
+   */
+  equippedAvatarDecoration?: string | null;
+  /**
    * The verified mark this account chose to wear instead of the highest one
    * its plan affords ("blue"/"gold" for a Pro Ultra subscriber, "blue" for a
    * Pro Max one), or null/absent for "the highest I have". Only for the
@@ -568,6 +574,12 @@ export type AvatarOptions = {
   gallery: string[];
   canUseGallery: boolean;
   canUpload: boolean;
+  /**
+   * Unlocked by the avatar-free experiment rather than by a plan (decided by
+   * the API — see lib/avatarFree.ts). Absent from an older API.
+   */
+  freeGallery?: boolean;
+  freeUpload?: boolean;
 };
 
 export async function fetchAvatarOptions(): Promise<AvatarOptions> {

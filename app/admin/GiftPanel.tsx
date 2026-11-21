@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  createAdminCosmeticGift,
   createAdminGift,
   parseUsernameList,
   fetchAdminPlans,
@@ -10,6 +11,10 @@ import {
 } from "@/lib/adminApi";
 import { downloadGiftCard, downloadGiftCardsPdf } from "@/lib/giftCardImage";
 import { useI18n } from "@/lib/useI18n";
+import { fetchCosmeticsCatalog, type CosmeticProduct } from "@/lib/cosmetics";
+import { withAvatarDecoration } from "@/lib/avatarShape";
+import { UserAvatar } from "@/components/UserAvatar";
+import { useAuth } from "@/lib/AuthContext";
 import { fromDateInput, giftDurationLabel, GiftListPanel } from "./GiftListPanel";
 
 // Minting a gift link nobody paid for.
@@ -79,7 +84,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
       <span className="text-xs text-zinc-500 dark:text-zinc-400">
-        {gift.planTitle} · {giftDurationLabel(gift, tc)}
+        {gift.cosmetic ? `${gift.planTitle} · ${t("admin.giftPanel.frameBadge")}` : `${gift.planTitle} · ${giftDurationLabel(gift, tc)}`}
         {gift.trialOnly ? ` · ${t("admin.giftPanel.trialBadge")}` : ""}
         {gift.testGift ? ` · ${t("admin.giftPanel.testBadge")}` : ""}
       </span>
@@ -97,6 +102,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
         >
           {copied ? t("common.copied") : t("common.copy")}
         </button>
+        {!gift.cosmetic && (
         <button
           type="button"
           onClick={() => void downloadImage()}
@@ -105,6 +111,7 @@ function GiftRow({ gift }: { gift: AdminGift }) {
         >
           {t("admin.giftPanel.downloadImage")}
         </button>
+        )}
       </div>
     </li>
   );
@@ -124,6 +131,11 @@ export function GiftPanel({
   const { t, tc } = useI18n();
   const [plans, setPlans] = useState<AdminPlanOption[]>([]);
   const [planId, setPlanId] = useState("");
+  // What the link gives: plan time, or an avatar frame (any of them, sold or not).
+  const [kind, setKind] = useState<"plan" | "frame">("plan");
+  const [frames, setFrames] = useState<CosmeticProduct[]>([]);
+  const [frameId, setFrameId] = useState("");
+  const { account } = useAuth();
   const [days, setDays] = useState(DEFAULT_DAYS);
   // Days or hours: a prize is a month, a taste is an afternoon.
   const [unit, setUnit] = useState<"days" | "hours">("days");
@@ -148,13 +160,32 @@ export function GiftPanel({
   async function downloadAllPdf() {
     setBuildingPdf(true);
     try {
-      await downloadGiftCardsPdf([...minted].reverse());
+      // Plan gifts only: the printed card is drawn per plan.
+      await downloadGiftCardsPdf([...minted].filter((g) => !g.cosmetic).reverse());
     } catch {
       setError(t("admin.giftPanel.couldNotBuildPdf"));
     } finally {
       setBuildingPdf(false);
     }
   }
+
+  // The frames, for the "Moldura" kind: the public catalog has all of them,
+  // gift-only ones included, so no other permission is needed here.
+  useEffect(() => {
+    if (!canGifts) return;
+    let cancelled = false;
+    fetchCosmeticsCatalog()
+      .then((data) => {
+        if (cancelled) return;
+        const list = data.catalog.filter((p) => p.type === "avatar_decoration");
+        setFrames(list);
+        setFrameId((current) => current || list[0]?.id || "");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canGifts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,11 +207,18 @@ export function GiftPanel({
   const amountValid = unit === "hours" ? hours >= 1 && hours <= MAX_HOURS : days >= 1;
 
   async function handleGenerate(testGift = false) {
-    if (!planId || busy || (!testGift && !amountValid)) return;
+    const frameGift = kind === "frame" && !testGift;
+    if (busy) return;
+    if (frameGift ? !frameId : !planId || (!testGift && !amountValid)) return;
     setBusy(true);
     setError(null);
     try {
-      const gift = await createAdminGift(
+      const gift = frameGift
+        ? await createAdminCosmeticGift(frameId, fromDateInput(expiry), {
+            allowedUsernames: parseUsernameList(allowed),
+            blockedUsernames: parseUsernameList(blocked),
+          })
+        : await createAdminGift(
         planId,
         // Ignored by the API for a test gift, which is always 2h.
         unit === "hours" || testGift ? { hours: testGift ? 2 : hours } : { days },
@@ -212,6 +250,52 @@ export function GiftPanel({
         {canGifts ? t("admin.giftPanel.createsAGiftLinkWithNo") : t("admin.giftPanel.testOnlyIntro")}
       </p>
 
+      {canGifts && (
+        <div className="mt-3 flex gap-2" role="radiogroup" aria-label={t("admin.giftPanel.kind")}>
+          {(["plan", "frame"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={kind === option}
+              onClick={() => setKind(option)}
+              className={`rounded-lg border-2 px-3 py-1.5 text-xs font-semibold transition ${
+                kind === option
+                  ? "border-emerald-500 text-zinc-900 dark:text-zinc-50"
+                  : "border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-600"
+              }`}
+            >
+              {option === "plan" ? t("admin.giftPanel.kindPlan") : t("admin.giftPanel.kindFrame")}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {kind === "frame" && canGifts ? (
+        <div className="mt-3 flex items-end gap-3">
+          <div className="min-w-40 flex-1">
+            <label htmlFor="gift-frame" className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              {t("admin.giftPanel.frame")}
+            </label>
+            <select id="gift-frame" value={frameId} onChange={(e) => setFrameId(e.target.value)} className={inputClass}>
+              {frames.map((frame) => (
+                <option key={frame.id} value={frame.id}>
+                  {frame.label}
+                  {frame.forSale === false ? ` (${t("admin.giftPanel.frameGiftOnly")})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          {frames.find((f) => f.id === frameId) && (
+            <UserAvatar
+              src={withAvatarDecoration(account?.avatarUrl ?? null, frames.find((f) => f.id === frameId)!.value)}
+              name={account?.displayName ?? "Go Live"}
+              size={40}
+              className="mb-0.5 shrink-0"
+            />
+          )}
+        </div>
+      ) : (
       <div className="mt-3 flex flex-wrap gap-3">
         <div className="min-w-40 flex-1">
           <label
@@ -292,6 +376,7 @@ export function GiftPanel({
         </div>
         )}
       </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-3">
         <div className="min-w-40 flex-1">
@@ -320,7 +405,7 @@ export function GiftPanel({
         </div>
       </div>
 
-      {canGifts && unit === "days" && (
+      {canGifts && kind === "plan" && unit === "days" && (
       <label className="mt-3 flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
         <input
           type="checkbox"
@@ -358,13 +443,13 @@ export function GiftPanel({
           <button
             type="button"
             onClick={() => void handleGenerate()}
-            disabled={!planId || busy || !amountValid}
+            disabled={busy || (kind === "frame" ? !frameId : !planId || !amountValid)}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? t("admin.giftPanel.generating") : t("admin.giftPanel.generateLink")}
           </button>
         )}
-        {canTestGifts && (
+        {canTestGifts && kind === "plan" && (
           // Its own button rather than a checkbox on the form above: it is a
           // different thing with fixed rules (2h, once per account), and it
           // sits under its own permission.

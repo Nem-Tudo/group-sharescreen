@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- "Ao Vivo · 3 Meses": Go Live's 3-month avatar decoration. The face sits
+       in the middle (radius 50 of this 120 box); everything here is around it. -->
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff5a4f"/>
+      <stop offset="1" stop-color="#c81e14"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2"/>
+    </filter>
+  </defs>
+
+  <!-- Tally glow, breathing -->
+  <circle cx="60" cy="60" r="54" fill="none" stroke="#ff3b2f" stroke-width="5" filter="url(#glow)" opacity="0.55">
+    <animate attributeName="opacity" values="0.25;0.7;0.25" dur="2.4s" repeatCount="indefinite"/>
+  </circle>
+  <!-- The tally ring -->
+  <circle cx="60" cy="60" r="54" fill="none" stroke="url(#ring)" stroke-width="5"/>
+  <circle cx="60" cy="60" r="51.2" fill="none" stroke="#111215" stroke-width="1.2" opacity="0.7"/>
+
+  <!-- Colour bars over the top, like a test card -->
+  <g fill="none" stroke-width="5.6" stroke-linecap="butt">
+    <path d="M 13.62 32.35 A 54 54 0 0 1 22.72 20.93" stroke="#c0c0c0"/>
+    <path d="M 23.83 19.91 A 54 54 0 0 1 35.89 11.68" stroke="#c0c000"/>
+    <path d="M 37.25 11.03 A 54 54 0 0 1 51.21 6.72" stroke="#00c0c0"/>
+    <path d="M 52.70 6.50 A 54 54 0 0 1 67.30 6.50" stroke="#00c000"/>
+    <path d="M 68.79 6.72 A 54 54 0 0 1 82.75 11.03" stroke="#c000c0"/>
+    <path d="M 84.11 11.68 A 54 54 0 0 1 96.17 19.91" stroke="#c00000"/>
+    <path d="M 97.28 20.93 A 54 54 0 0 1 106.38 32.35" stroke="#0000c0"/>
+  </g>
+
+  <!-- Viewfinder corners -->
+  <g fill="none" stroke="#ece9e2" stroke-width="2.6" stroke-linecap="square">
+    <path d="M 3 16 V 3 H 16"/>
+    <path d="M 104 3 H 117 V 16"/>
+    <path d="M 3 104 V 117 H 16"/>
+    <path d="M 117 104 V 117 H 104"/>
+  </g>
+
+  <!-- The on-air slate at the bottom -->
+  <g transform="translate(60 106)">
+    <rect x="-31" y="-8.5" width="62" height="17" rx="2" fill="#ff3b2f"/>
+    <rect x="-31" y="-8.5" width="62" height="17" rx="2" fill="none" stroke="#111215" stroke-width="1.4"/>
+    <circle cx="-23" cy="0" r="3" fill="#fff">
+      <animate attributeName="opacity" values="1;1;0.15;0.15" keyTimes="0;0.5;0.5;1" dur="1.2s" repeatCount="indefinite"/>
+    </circle>
+    <text x="5" y="3.5" text-anchor="middle" font-family="Arial Narrow, Arial, Helvetica, sans-serif" font-weight="900" font-size="10" letter-spacing="0.3" fill="#fff">3 MESES</text>
+  </g>
+</svg>

@@ -7,8 +7,8 @@ import { hasFeature, type Feature } from "./entitlements";
 import { useAuth } from "./AuthContext";
 import { trackEvent } from "./analytics";
 import { iceConfigFor, setTurnAllowed } from "./iceConfig";
-import { ensureIceServers, refreshIceServers } from "./iceServers";
-import { reportUnreachablePeer, TURN_UPSELL_DELAY_MS } from "./turnUpsell";
+import { ensureIceServers, refreshIceServers, setAudioRelayWanted } from "./iceServers";
+import { reportPeerConnected, reportUnreachablePeer, TURN_UPSELL_DELAY_MS } from "./turnUpsell";
 import { watchTurnRelay } from "./turnRoute";
 import {
   captureNoiseSuppressedMic,
@@ -17,13 +17,22 @@ import {
   graphSuppressionAvailable,
   clampMicGain,
   DEFAULT_MIC_GAIN,
+  detachGraphInputs,
+  attachGraphInputs,
   type MicNoiseGraph,
 } from "./rnnoise";
+import {
+  watchMicSendLinks,
+  MIC_SOFT_MUTE_FEATURE,
+  MIC_SOFT_MUTE_EVENTS,
+  MIC_TURN_FREE_FEATURE,
+} from "./micReliability";
 import {
   getStoredAutoJoin,
   getStoredForceRelayIce,
   setForceRelayAllowed,
   getStoredMicOn,
+  getStoredMicsMuted,
   getStoredNoiseSuppressionOn,
   getStoredCameraDeviceId,
   getStoredCameraFacing,
@@ -125,6 +134,13 @@ import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { getDesktopBridge } from "./desktop";
 import { trackFeatureEvent, useFeature } from "./features";
+import {
+  OWN_AUDIO_FILTER_FEATURE,
+  ownAudioConstraints,
+  reportShareAudio,
+  reportShareAudioRefused,
+  setOwnAudioFilterEnabled,
+} from "./ownAudioFilter";
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { isClassicSend, NEW_SEND_FEATURE, setClassicSend } from "./classicSend";
 import { H264_SEND_FEATURE, setH264Send } from "./h264Send";
@@ -196,6 +212,12 @@ import {
   type NativeVideoMethod,
   type NativeVideoOptions,
 } from "./nativeVideoCapture";
+import {
+  FIRST_FRAME_WAIT_MS,
+  SHARE_NO_FRAMES_EVENTS,
+  SHARE_NO_FRAMES_FEATURE,
+  waitForFirstFrame,
+} from "./shareFrameWatch";
 
 // "file1".."file3" are local video or audio files played into the room (see
 // lib/localMediaSource.ts). Each is a full sibling of screen and camera — its
@@ -521,6 +543,14 @@ const STAGGER_MS = 150;
 // left while this client was disconnected still disappears promptly.
 const PEER_PRUNE_GRACE_MS = 5000;
 
+// How long after a "peer-left" a peer we were watching is still asked for its
+// stream back when it reappears (see departedWhileWatching). Covers a sender
+// whose socket was down longer than the server's departure hold
+// (PEER_LEFT_GRACE_MS, 8 s) and then reconnected, with room for a slow
+// reconnect backoff. Past this, a return is treated like any new arrival:
+// the sender opens its connections on its own.
+const REJOIN_RESUME_WINDOW_MS = 120_000;
+
 // If a sendPC hasn't reached "connected" within this long, treat it as dead
 // and retry — see openSendPC's doc comment on why this exists *in addition
 // to* the connectionState === "failed" handler below it: a silently-dropped
@@ -531,6 +561,14 @@ const PEER_PRUNE_GRACE_MS = 5000;
 // for the last peer in a 50-person burst) plus normal ICE/TURN negotiation
 // time on a slow link.
 const CONNECT_TIMEOUT_MS = 15_000;
+
+// Soft mute's bounds (see turnMicOff). Up to this many other people, a muted
+// mic keeps its connections; above it each muted person would hold one to
+// everybody for nothing, and the old full stop is the better trade.
+const SOFT_MUTE_MAX_PEERS = 12;
+// Muted longer than this and the connections are let go for real: somebody
+// listening for the evening should not hold the room's mesh open.
+const SOFT_MUTE_HOLD_MS = 10 * 60_000;
 
 // Backoff for retrying a sendPC that failed or never connected — see
 // scheduleSendRetry. The first retry is as prompt as it always was, so an
@@ -806,6 +844,15 @@ function copyForViewer(track: MediaStreamTrack): MediaStreamTrack {
 //                                the OS); "window"/"browser" mix that bar
 //                                with the window or tab going away
 //   screen_share_restart        started within a minute of the last one ending
+//   screen_share_restart.<why>  ...and what the one before looked like, to
+//                                tell a fix from a habit (several can fire):
+//                                after_lost   it ended without stop pressed
+//                                after_stop   the person pressed stop
+//                                after_short  it ran under 30 s
+//                                after_black  viewers were connected and not
+//                                             one frame had gone out
+//                                same_source  the same screen/window again
+//                                new_source   a different one
 //   screen_share_seconds         on stop; value = how long it ran
 //   screen_share_fps             on stop; value = average frames sent per second
 //   screen_share_low_fps         on stop, below 60% of the frame rate asked for
@@ -859,7 +906,16 @@ export const SCREEN_SHARE_STATS = {
 
 const RESTART_WINDOW_MS = 60_000;
 const SHARE_SAMPLE_MS = 5_000;
+// How long a share that started black is watched for frames that come late
+// (see guardFirstFrame) — long enough for a minimized window to be restored.
+const LATE_FRAME_WAIT_MS = 5 * 60_000;
 let lastScreenShareEndedAt = 0;
+// What the last share looked like when it ended, for screen_share_restart.<why>.
+// The label (a window title, "screen:0:0") never leaves this page: it is only
+// compared with the next share's.
+let lastShareEnd: { lost: boolean; seconds: number; black: boolean; label: string } | null = null;
+// Under this a share counts as a false start (see screen_share_restart.after_short).
+const SHORT_SHARE_S = 30;
 
 interface ScreenStartConfig {
   native: boolean;
@@ -879,6 +935,8 @@ interface ShareStats {
   lost: boolean;
   /** What was captured, for screen_share_lost.<surface>. */
   surface: ShareSurface;
+  /** The capture's track label, compared with the next share's (see lastShareEnd). */
+  label: string;
   /** Frames sent, summed over samples, and the seconds they covered. */
   frames: number;
   seconds: number;
@@ -902,11 +960,19 @@ function shareSurface(stream: MediaStream): ShareSurface {
   return surface === "monitor" || surface === "window" || surface === "browser" ? surface : "other";
 }
 
-function startShareStats(quality: QualityPreset | null, surface: ShareSurface): ShareStats {
+function startShareStats(quality: QualityPreset | null, surface: ShareSurface, label: string): ShareStats {
   const now = Date.now();
   trackFeatureEvent(SCREEN_SHARE_STATS.start, { value: 1 });
   if (lastScreenShareEndedAt && now - lastScreenShareEndedAt < RESTART_WINDOW_MS) {
     trackFeatureEvent(SCREEN_SHARE_STATS.restart);
+    const previous = lastShareEnd;
+    if (previous) {
+      const why = (reason: string) => trackFeatureEvent(`${SCREEN_SHARE_STATS.restart}.${reason}`);
+      why(previous.lost ? "after_lost" : "after_stop");
+      if (previous.seconds < SHORT_SHARE_S) why("after_short");
+      if (previous.black) why("after_black");
+      if (previous.label && label) why(previous.label === label ? "same_source" : "new_source");
+    }
   }
   const stats: ShareStats = {
     startedAt: now,
@@ -916,6 +982,7 @@ function startShareStats(quality: QualityPreset | null, surface: ShareSurface): 
     peerFailures: 0,
     lost: false,
     surface,
+    label,
     frames: 0,
     seconds: 0,
     samples: 0,
@@ -994,6 +1061,13 @@ function reportShareEnd(stats: ShareStats) {
   clearInterval(stats.timer);
   lastScreenShareEndedAt = Date.now();
   const seconds = Math.round((lastScreenShareEndedAt - stats.startedAt) / 1000);
+  lastShareEnd = {
+    lost: stats.lost,
+    seconds,
+    // A viewer connection was sampled and had sent nothing: the black share.
+    black: stats.last !== null && stats.last.framesSent === 0 && stats.frames === 0,
+    label: stats.label,
+  };
   trackFeatureEvent(SCREEN_SHARE_STATS.seconds, { value: seconds });
   if (stats.lost) {
     trackFeatureEvent(SCREEN_SHARE_STATS.lost);
@@ -1056,9 +1130,22 @@ function useBroadcastChannel(
   // switching input device is stop() immediately followed by start(): an
   // effect-driven teardown races the new capture being assigned and can
   // release the graph that just replaced the one it meant to release.
-  onStopped?: () => void
+  onStopped?: () => void,
+  // Mic only: whether the room should be told the mic is on while this channel
+  // is active. False while soft-muted (experiment "mic-soft-mute"): the channel
+  // and its connections stay up, but nobody is being transmitted to — so the
+  // re-announce after a signalling reconnect must not light the icon again.
+  micAnnounced?: () => boolean
 ) {
   const eventPrefix = channel === "mic" ? "mic" : `${channel}_share`;
+  const micAnnouncedRef = useRef(micAnnounced);
+  useEffect(() => {
+    micAnnouncedRef.current = micAnnounced;
+  }, [micAnnounced]);
+  // The send-side measurement of a mic that just came on (see
+  // lib/micReliability). Cancelled by stop(): the mic going off before every
+  // answer is in is not a failure.
+  const sendLinkWatch = useRef<(() => void) | null>(null);
   // What the screen share did, for the GPU capture experiment (see
   // SCREEN_SHARE_STATS). Per share; reset by start().
   const shareStatsRef = useRef<ShareStats | null>(null);
@@ -1115,6 +1202,17 @@ function useBroadcastChannel(
   const sendTracks = useRef<Map<string, MediaStreamTrack>>(new Map());
   const recvPCs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const activeRef = useRef(false);
+  // The capture start() is waiting on, if any. `active` only turns true once
+  // the capture resolves — a getUserMedia on a slow Windows driver, or behind
+  // a permission prompt, can take seconds — and before this existed that gap
+  // was a hole: stop() saw nothing active and did nothing, and a second click
+  // (toggleMic reads `active`, still false) opened a *second* capture. Both
+  // resolved, one was orphaned, and the microphone stayed open with the
+  // button showing it off — the "it records me while muted" report.
+  // stop() now marks the pending capture cancelled, and start() closes what a
+  // cancelled capture brings back instead of broadcasting it.
+  const pendingStartRef = useRef<{ cancelled: boolean; source?: ShareSource } | null>(null);
+  const [starting, setStarting] = useState(false);
   const pendingSendCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const pendingRecvCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   // Peers who (as viewers of OUR stream) asked us to stop sending — mirrors
@@ -1132,6 +1230,15 @@ function useBroadcastChannel(
   // own comment for why an immediate prune is wrong right after a signaling
   // server restart.
   const pendingPruneTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Peers we were receiving from on this channel when a "peer-left" arrived
+  // for them, with when it arrived. A sender whose socket stays down past the
+  // server's departure hold is announced as gone, so we close our connection
+  // — but its own connection to us never heard about that and still looks
+  // fine to it, so when it reconnects it has no reason to send a new offer,
+  // and nothing on our side ever asked. The tile stayed empty until the
+  // viewer left and rejoined the room. When such a peer reappears, the
+  // subscriber below asks it for a fresh connection ("resume").
+  const departedWhileWatching = useRef<Map<string, number>>(new Map());
   // Mirrors the forceRelayIce prop for callbacks below that must read the
   // live value without becoming a dependency of every connection-opening
   // useCallback — same pattern as videoQualityRef.
@@ -1518,7 +1625,7 @@ function useBroadcastChannel(
       // stand-in track, which needs the connection built for it (see
       // lib/nativeVideoCapture.ts).
       const nativeVideo = nativeVideoSourceFor(stream.getVideoTracks()[0]);
-      const iceConfig = iceConfigFor(forceRelayIceRef.current);
+      const iceConfig = iceConfigFor(forceRelayIceRef.current, channel);
       const pc = new RTCPeerConnection(nativeVideo ? nativeVideoPeerConfig(iceConfig) : iceConfig);
       sendPCs.current.set(peerId, pc);
       if (channel !== "mic") {
@@ -1771,6 +1878,17 @@ function useBroadcastChannel(
     [openSendPC]
   );
 
+  // Measures how long the connections to everyone in the room take to come up
+  // from now (see lib/micReliability). Called when the mic comes on — by
+  // start() below, and by a soft unmute, whose connections are already up.
+  const watchSendLinks = useCallback(() => {
+    sendLinkWatch.current?.();
+    const peerIds = signalingClient.state.peers
+      .filter((peer) => !peer.bot && !viewerPausedPeers.current.has(peer.id))
+      .map((peer) => peer.id);
+    sendLinkWatch.current = watchMicSendLinks(peerIds, (peerId) => sendPCs.current.get(peerId)?.connectionState);
+  }, []);
+
   // Lets the broadcaster change resolution/fps/bitrate mid-share to react to
   // a room bogging down, instead of having to stop and restart the whole
   // capture. Skipped while inactive — a change picked before starting is
@@ -1917,9 +2035,17 @@ function useBroadcastChannel(
   }, [active]);
 
   const stop = useCallback(() => {
+    // Asked to stop before the capture came back: start() closes it when it
+    // does (see pendingStartRef). Nothing else exists yet to tear down.
+    if (pendingStartRef.current && !pendingStartRef.current.cancelled) {
+      pendingStartRef.current.cancelled = true;
+      setStarting(false);
+    }
     if (!activeRef.current) return;
     activeRef.current = false;
     setActive(false);
+    sendLinkWatch.current?.();
+    sendLinkWatch.current = null;
     if (shareStatsRef.current) {
       reportShareEnd(shareStatsRef.current);
       shareStatsRef.current = null;
@@ -1989,13 +2115,42 @@ function useBroadcastChannel(
 
   const start = useCallback(async (requestedSource?: ShareSource) => {
     if (activeRef.current) return;
+    // A capture is already on its way. Never a second one alongside it: if it
+    // was cancelled (on → off → on, faster than the device opens) and is for
+    // the same thing, it simply goes ahead after all.
+    const inFlight = pendingStartRef.current;
+    if (inFlight) {
+      if (inFlight.cancelled && inFlight.source === requestedSource) {
+        inFlight.cancelled = false;
+        setStarting(true);
+      }
+      return;
+    }
     setError(null);
     if (!isSupported()) {
       setError(notSupportedMessage);
       return;
     }
+    const pending: { cancelled: boolean; source?: ShareSource } = { cancelled: false, source: requestedSource };
+    pendingStartRef.current = pending;
+    setStarting(true);
     try {
-      const stream = await capture(requestedSource);
+      let stream: MediaStream;
+      try {
+        stream = await capture(requestedSource);
+      } finally {
+        pendingStartRef.current = null;
+        setStarting(false);
+      }
+      if (pending.cancelled) {
+        // Stopped while the device was opening: close it, and let the owner
+        // release what it built around it (the mic's noise graph holds the
+        // raw capture — stopping only this output would leave it open).
+        stream.getTracks().forEach((t) => t.stop());
+        onStoppedRef.current?.();
+        trackEvent(`${eventPrefix}_cancelled`);
+        return;
+      }
       // contentHint steers the encoder's whole strategy, and the right value
       // depends entirely on what is being shared — which is why this is a
       // user-facing choice rather than a constant. See contentHintFor, which
@@ -2025,7 +2180,11 @@ function useBroadcastChannel(
       else signalingClient.setSharing({ [channel]: true });
       trackEvent(`${eventPrefix}_start`);
       if (channel === "screen" && requestedSource !== "camera") {
-        shareStatsRef.current = startShareStats(videoQualityRef.current ?? null, shareSurface(stream));
+        shareStatsRef.current = startShareStats(
+          videoQualityRef.current ?? null,
+          shareSurface(stream),
+          stream.getVideoTracks()[0]?.label ?? ""
+        );
       }
       if (channel !== "mic" && stream.getAudioTracks().length > 0) {
         trackFeatureEvent(STEREO_AUDIO_SHARE_EVENT, { feature: STEREO_AUDIO_FEATURE });
@@ -2042,7 +2201,10 @@ function useBroadcastChannel(
       // already-large room is exactly the burst that used to overwhelm the
       // signaling rate limit and leave some viewers' connections stuck.
       openSendPCsStaggered(signalingClient.state.peers.map((peer) => peer.id));
+      if (channel === "mic") watchSendLinks();
     } catch (err) {
+      // Nobody is waiting for this capture any more: failing is not news.
+      if (pending.cancelled) return;
       // A failure the capture already worked out the reason for carries the
       // message that fits it — `failureMessage` is a per-channel fallback for
       // everything else, and "verifique as permissões" is the wrong thing to
@@ -2087,6 +2249,7 @@ function useBroadcastChannel(
     openSendPCsStaggered,
     stop,
     holdStillScreenFloor,
+    watchSendLinks,
   ]);
 
   // Whether a swap is already in flight. Two flips in quick succession — a
@@ -2249,7 +2412,7 @@ function useBroadcastChannel(
 
   const openRecvPC = useCallback(
     (peerId: string) => {
-      const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current));
+      const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current, channel));
       recvPCs.current.set(peerId, pc);
       if (channel !== "mic") {
         connectionRegistry.register({ channel, direction: "recv", peerId, originId: peerId, pc });
@@ -2368,6 +2531,8 @@ function useBroadcastChannel(
             }
           }, 4000);
         } else if (pc.connectionState === "connected") {
+          // Counts for turn-upsell-copy when the "Pro relays" notice was up.
+          reportPeerConnected();
           // Recovered, by whichever route. Drop the fallback so it cannot
           // later tear down a connection that is working again.
           const recovery = recvRecoveryTimers.current.get(peerId);
@@ -2384,6 +2549,7 @@ function useBroadcastChannel(
     const unsubscribeSignal = signalingClient.onSignal((from, rawData) => {
       const data = rawData as SignalData;
       if (data.kind === "peer-left") {
+        if (recvPCs.current.has(from)) departedWhileWatching.current.set(from, Date.now());
         closeSendPC(from);
         closeRecvPCFully(from);
         viewerPausedPeers.current.delete(from);
@@ -2605,6 +2771,28 @@ function useBroadcastChannel(
       // the array and still gets through, which is correct and cheap —
       // openSendPCsStaggered's own pendingStaggeredPeers dedup absorbs the
       // repeat for peers already waiting on a first attempt.
+      //
+      // Viewer side first, since it runs whether or not we broadcast: a peer
+      // we were watching when its "peer-left" came is back (see
+      // departedWhileWatching). "resume" rather than "reconnect-request",
+      // because the latter tries an ICE restart first, and a restart offer
+      // cannot rebuild the connection we already closed. Marked decided so
+      // the autoJoin gate lets the fresh offer through: closeRecvPCFully
+      // forgot the decision, and this is the same share continuing.
+      const departed = departedWhileWatching.current;
+      if (departed.size > 0) {
+        const now = Date.now();
+        const present = new Set(signalingClient.state.peers.map((p) => p.id));
+        for (const [peerId, leftAt] of departed) {
+          if (now - leftAt > REJOIN_RESUME_WINDOW_MS) {
+            departed.delete(peerId);
+          } else if (present.has(peerId)) {
+            departed.delete(peerId);
+            autoJoinDecidedRef.current.add(peerId);
+            signalingClient.sendSignal(peerId, { channel, role: "viewer", kind: "resume" });
+          }
+        }
+      }
       if (!activeRef.current) return;
       const peers = signalingClient.state.peers;
       if (peers === lastScannedPeers.current) return;
@@ -2673,7 +2861,7 @@ function useBroadcastChannel(
       // re-announce our actual state so other peers' indicators don't go
       // stale.
       if (!activeRef.current) return;
-      if (channel === "mic") signalingClient.setMic(true);
+      if (channel === "mic") signalingClient.setMic(micAnnouncedRef.current?.() ?? true);
       else signalingClient.setSharing({ [channel]: true });
     });
 
@@ -2765,6 +2953,8 @@ function useBroadcastChannel(
 
   return {
     active,
+    /** start() is waiting on the capture; `active` is not true yet. */
+    starting,
     start,
     stop,
     swapCapture,
@@ -2777,6 +2967,7 @@ function useBroadcastChannel(
     recvConnectionStates,
     stopWatchingPeer,
     resumeWatchingPeer,
+    watchSendLinks,
   };
 }
 
@@ -2965,6 +3156,18 @@ export function useRoomMedia(room: string) {
     setTurnAllowed(turnAllowed);
     refreshIceServers();
   }, [turnAllowed, resolvingAccount]);
+  // Experiment "mic-turn-free": the relay for the microphone only, for an
+  // account without the plan above. About 5.6% of pairs never connect without
+  // TURN (measured on video, 2026-11-19); a voice relayed costs ~40 kbps, so
+  // this is the cheap half of "TURN for everybody". Accounts only — the API
+  // decides by account id, which a guest does not have. Counted for everyone
+  // it could apply to: a signed-in account without TURN, in a room.
+  const eligibleForAudioRelay = !resolvingAccount && Boolean(account) && !turnAllowed;
+  const micTurnFree = useFeature(MIC_TURN_FREE_FEATURE, { track: eligibleForAudioRelay });
+  useEffect(() => {
+    if (resolvingAccount) return;
+    setAudioRelayWanted(eligibleForAudioRelay && micTurnFree.enabled);
+  }, [resolvingAccount, eligibleForAudioRelay, micTurnFree.enabled]);
   useEffect(() => {
     setRelayCapExempt(relayCapExempt);
   }, [relayCapExempt]);
@@ -3054,6 +3257,12 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setStereoAudioEnabled(stereoAudioFeature.enabled);
   }, [stereoAudioFeature.enabled]);
+  // Experiment "share-own-audio-filter" (see lib/ownAudioFilter): read when
+  // a screen share asks for system audio; exposure counted while sharing.
+  const ownAudioFilterFeature = useFeature(OWN_AUDIO_FILTER_FEATURE, { track: false });
+  useEffect(() => {
+    setOwnAudioFilterEnabled(ownAudioFilterFeature.enabled);
+  }, [ownAudioFilterFeature.enabled]);
 
   const shareResolutionRef = useRef(shareResolution);
   const shareFpsRef = useRef(shareFps);
@@ -3074,6 +3283,9 @@ export function useRoomMedia(room: string) {
   // Null while there is nothing to say; otherwise why, so the notice can
   // point somebody whose permission is blocked at the settings screen.
   const [systemAudioUnavailable, setSystemAudioUnavailable] = useState<SystemAudioUnavailableReason | null>(null);
+  // The share is running but its capture has never produced a picture (see
+  // lib/shareFrameWatch.ts) — the room says so instead of a silent black tile.
+  const [shareNoFrames, setShareNoFrames] = useState(false);
   const shareBitrateRef = useRef(shareBitrate);
   const smartQualityEnabledRef = useRef(smartQualityEnabled);
 
@@ -3254,6 +3466,18 @@ export function useRoomMedia(room: string) {
   });
   const gpuSurveyOn = nativeVideoBridge && gpuSurveyFeature.enabled;
 
+  // "Tela preta": a capture that never produces a frame (see
+  // lib/shareFrameWatch.ts). Exposure is counted from the first share
+  // attempted on this page — that is where the check runs, and counting
+  // everybody who merely opened a room would drown the few it is about.
+  // Control measures only; "on" also tries the GPU helper and warns.
+  const [shareAttempted, setShareAttempted] = useState(false);
+  const noFramesFeature = useFeature(SHARE_NO_FRAMES_FEATURE, { track: shareAttempted });
+  const noFramesRef = useRef({ group: noFramesFeature.group, on: noFramesFeature.enabled });
+  useEffect(() => {
+    noFramesRef.current = { group: noFramesFeature.group, on: noFramesFeature.enabled };
+  }, [noFramesFeature.group, noFramesFeature.enabled]);
+
   const nativeVideoWantedRef = useRef(false);
   useEffect(() => {
     nativeVideoWantedRef.current = nativeVideoWanted;
@@ -3272,7 +3496,11 @@ export function useRoomMedia(room: string) {
   // What the running share was started with, as far as settings that only a
   // restart applies are concerned — compared below to offer one.
   const [screenStartConfig, setScreenStartConfig] = useState<ScreenStartConfig | null>(null);
-  const withNativeVideo = useCallback(async (stream: MediaStream): Promise<MediaStream> => {
+  //
+  // `rescueMethod` is the no-frames rescue (see guardFirstFrame below): the
+  // helper is tried with that method whether or not this person is in the GPU
+  // experiment, and it does not count as the experiment's start or fallback.
+  const withNativeVideo = useCallback(async (stream: MediaStream, rescueMethod?: NativeVideoMethod): Promise<MediaStream> => {
     const config: ScreenStartConfig = {
       native: nativeVideoWantedRef.current,
       method: nativeVideoMethodRef.current,
@@ -3280,8 +3508,8 @@ export function useRoomMedia(room: string) {
       resolution: shareResolutionRef.current,
       fps: shareFpsRef.current,
     };
-    if (nativeVideoBridge) setScreenStartConfig(config);
-    if (!nativeVideoWantedRef.current) return stream;
+    if (nativeVideoBridge && !rescueMethod) setScreenStartConfig(config);
+    if (!nativeVideoWantedRef.current && !rescueMethod) return stream;
     const dims = RESOLUTION_DIMENSIONS[shareResolutionRef.current];
     const options: NativeVideoOptions = {
       maxWidth: dims.width,
@@ -3290,10 +3518,11 @@ export function useRoomMedia(room: string) {
       // captureConstraints): the helper encodes every frame it captures.
       fps: Math.min(shareFpsRef.current, MAX_TIER_FPS),
       bitrateKbps: bitrateCeilingKbps(shareBitrateRef.current, isClassicSend()),
-      captureMethod: nativeVideoMethodRef.current,
+      captureMethod: rescueMethod ?? nativeVideoMethodRef.current,
     };
-    const { source: native, failure, hidden } = await startNativeVideo(options);
+    const { source: native, failure, hidden } = await startNativeVideo(options, { rescue: Boolean(rescueMethod) });
     if (!native) {
+      if (rescueMethod) return stream;
       // Null failure: not tried at all (turned off for this session after an
       // earlier failure), which is not a new fallback to count.
       if (failure !== null) {
@@ -3307,6 +3536,12 @@ export function useRoomMedia(room: string) {
       track.stop();
     }
     stream.addTrack(native.track);
+    if (rescueMethod) {
+      // The share is on the helper now, so the settings only it reads at
+      // start (resolution, fps) need a restart to change, as usual.
+      setScreenStartConfig((current) => ({ ...(current ?? config), usedNative: true }));
+      return stream;
+    }
     setScreenStartConfig({ ...config, usedNative: true });
     // Armed here rather than in the survey module's own timer: this is the
     // one place that knows the share is on the GPU *and* what it was set to,
@@ -3330,6 +3565,70 @@ export function useRoomMedia(room: string) {
     trackEvent("screen_share_native_video", { encoder: native.encoder.slice(0, 60) });
     return stream;
   }, [nativeVideoBridge, gpuSurveyOn]);
+
+  // The last step of every desktop share: makes sure the capture is producing
+  // a picture at all (see lib/shareFrameWatch.ts). The ordinary share is
+  // returned untouched the moment its first frame arrives — tens of
+  // milliseconds — so this only ever waits on a capture that is broken.
+  //
+  // When it is: the GPU helper gets one try with the method that was *not*
+  // just used (Chromium's capture of a screen is DXGI, so Windows Graphics
+  // Capture; or the other one of the helper's, when the helper was already
+  // tried and fell back). If that does not produce frames either, the share
+  // goes on as it is and the room says why the picture is black.
+  const guardFirstFrame = useCallback(
+    async (stream: MediaStream): Promise<MediaStream> => {
+      setShareNoFrames(false);
+      setShareAttempted(true);
+      const track = stream.getVideoTracks()[0];
+      // The helper watches its own first frame and falls back without one.
+      if (!track || nativeVideoSourceFor(track)) return stream;
+      const { group, on } = noFramesRef.current;
+      if (group === null) return stream;
+      const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+      const report = () => {
+        trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.noFrames);
+        trackFeatureEvent(
+          surface === "window" ? SHARE_NO_FRAMES_EVENTS.noFramesWindow : SHARE_NO_FRAMES_EVENTS.noFramesScreen
+        );
+      };
+      // Frames that turn up after all — a minimized window restored, a driver
+      // that took its time — take the warning away and count as a false alarm.
+      const watchLate = () => {
+        void waitForFirstFrame(track, LATE_FRAME_WAIT_MS).then((got) => {
+          if (!got) return;
+          trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.late);
+          setShareNoFrames(false);
+        });
+      };
+      if (!on) {
+        // Control: the same measurement, off the share's critical path, and
+        // nothing else.
+        void waitForFirstFrame(track, FIRST_FRAME_WAIT_MS).then((got) => {
+          if (got !== false || track.readyState === "ended") return;
+          report();
+          watchLate();
+        });
+        return stream;
+      }
+      const got = await waitForFirstFrame(track, FIRST_FRAME_WAIT_MS);
+      if (got !== false || track.readyState === "ended") return stream;
+      report();
+      if (nativeVideoBridge) {
+        const triedMethod = nativeVideoWantedRef.current ? nativeVideoMethodRef.current : null;
+        const rescued = await withNativeVideo(stream, triedMethod === "wgc" ? "duplication" : "wgc");
+        if (nativeVideoSourceFor(rescued.getVideoTracks()[0])) {
+          trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.rescued);
+          return rescued;
+        }
+      }
+      trackFeatureEvent(SHARE_NO_FRAMES_EVENTS.failed);
+      setShareNoFrames(true);
+      watchLate();
+      return stream;
+    },
+    [nativeVideoBridge, withNativeVideo]
+  );
 
   const screen = useBroadcastChannel(
     "screen",
@@ -3378,6 +3677,9 @@ export function useRoomMedia(room: string) {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
+        // Experiment "share-own-audio-filter": leave the room's own voices
+        // out of the system audio (see lib/ownAudioFilter.ts).
+        ...ownAudioConstraints(),
       };
       // In the desktop app on Windows 11, the system audio comes from
       // somewhere else entirely: a native helper capturing the mix with
@@ -3399,6 +3701,9 @@ export function useRoomMedia(room: string) {
       // apart, so a share that failed for this reason says so instead of
       // looking like nothing happened at all.
       const activationLost = !hasUserActivation();
+      // Set when the request with system audio was refused and retried
+      // without it, so that share is not also counted as one that asked.
+      let audioRetried = false;
       const capture = navigator.mediaDevices
         .getDisplayMedia({
           video: displayConstraints,
@@ -3429,6 +3734,8 @@ export function useRoomMedia(room: string) {
           // second time, since every getDisplayMedia is a new pick.
           if (isVideoSourceFailure(err)) throw windowCaptureBlocked();
           if (err instanceof DOMException && err.name === "NotReadableError") {
+            if (!excluded) reportShareAudioRefused();
+            audioRetried = true;
             return (async () => {
               // In the desktop app the retry would otherwise open the picker
               // again, for a choice the person made a second ago. The shell
@@ -3454,7 +3761,14 @@ export function useRoomMedia(room: string) {
           throw err;
         });
 
-      if (!excluded) return withNativeVideo(await capture);
+      if (!excluded) {
+        const stream = await capture;
+        // A refused request was retried video-only and already reported as
+        // such; this is the share that asked for system audio and got an
+        // answer (see lib/ownAudioFilter.ts).
+        if (!audioRetried) reportShareAudio(stream);
+        return guardFirstFrame(await withNativeVideo(stream));
+      }
 
       // The picker is still open at this point, and it is the one place the
       // share can still be called off. A cancelled picker rejects here, and
@@ -3472,7 +3786,7 @@ export function useRoomMedia(room: string) {
       // they came from, and this one's stop() takes the helper with it (see
       // desktopSystemAudio.ts).
       stream.addTrack(excluded.track);
-      return withNativeVideo(stream);
+      return guardFirstFrame(await withNativeVideo(stream));
     },
     () => hasDisplayCapture() || isAndroidScreenCaptureAvailable() || hasCameraCapture(),
     t("useRoomMedia.yourBrowserSupportsNeitherScreenSharing"),
@@ -3504,6 +3818,7 @@ export function useRoomMedia(room: string) {
     // Counted as what it is (manualRestart), not as a share restarted out of
     // dissatisfaction (screen_share_restart).
     lastScreenShareEndedAt = 0;
+    lastShareEnd = null;
     await getDesktopBridge()?.useSavedShareSource?.();
     trackFeatureEvent(SCREEN_SHARE_STATS.manualRestart);
     screen.start(source);
@@ -4460,6 +4775,7 @@ export function useRoomMedia(room: string) {
   useFeature(NEW_SEND_FEATURE, { track: screen.active });
   useFeature(H264_SEND_FEATURE, { track: screen.active });
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
+  useFeature(OWN_AUDIO_FILTER_FEATURE, { track: screen.active });
   useFeature(AV1_HW_ONLY_FEATURE, { track: Object.keys(screen.remoteStreams).length > 0 });
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture
@@ -4546,6 +4862,12 @@ export function useRoomMedia(room: string) {
   // however many of the paths that notice it get there in the same moment.
   const restartPhoneMicRef = useRef<(ask: boolean) => void>(() => {});
 
+  // Soft mute (experiment "mic-soft-mute", see the block after the channel):
+  // muted with the connections kept. Declared up here because the channel
+  // asks it what to announce after a signalling reconnect.
+  const micSoftMutedRef = useRef(false);
+  const micAnnounced = useCallback(() => !micSoftMutedRef.current, []);
+
   const mic = useBroadcastChannel(
     "mic",
     room,
@@ -4626,7 +4948,8 @@ export function useRoomMedia(room: string) {
     // here is what actually frees the raw microphone (browser indicator off,
     // device available to the next getUserMedia) and destroys the RNNoise
     // worklet, instead of leaking one running on the shared context per start.
-    releaseMicGraph
+    releaseMicGraph,
+    micAnnounced
   );
 
   const micStop = mic.stop;
@@ -4651,6 +4974,11 @@ export function useRoomMedia(room: string) {
         micRestartPendingRef.current = false;
         const m = micRef.current;
         if (!m.active) return;
+        // Muted (soft): the phone moving does not turn the mic back on.
+        if (micSoftMutedRef.current) {
+          m.stop();
+          return;
+        }
         askPhoneMicRef.current = ask;
         m.stop();
         void Promise.resolve(m.start()).finally(() => {
@@ -4730,12 +5058,156 @@ export function useRoomMedia(room: string) {
     };
   }, [releaseMicGraph]);
 
-  const toggleMic = useCallback(() => {
-    const next = !mic.active;
-    setStoredMicOn(next);
-    if (mic.active) mic.stop();
-    else mic.start();
+  // "Mutar sem desconectar" (experiment "mic-soft-mute").
+  //
+  // Muting used to be mic.stop(): every connection carrying this mic closed,
+  // and unmuting was mic.start() — the device opened again, then a brand-new
+  // connection negotiated with every person in the room, 150 ms apart. The
+  // first second or three of whatever was said after unmuting reached nobody,
+  // and anybody whose negotiation failed that time heard nothing at all until
+  // CONNECT_TIMEOUT_MS and a retry later: "às vezes o áudio não sai", "um ouve
+  // e o outro não".
+  //
+  // In the experiment, muting lets go of the microphone (device released, the
+  // browser's indicator off — the privacy half of the old behaviour is kept)
+  // and leaves the graph and every connection up, sending silence. Unmuting
+  // opens the device into the same graph: nothing to negotiate.
+  //
+  // Bounded, because connections kept for a muted mic are connections every
+  // other person in the room keeps too: only in rooms up to
+  // SOFT_MUTE_MAX_PEERS, and let go for real after SOFT_MUTE_HOLD_MS muted.
+  // Anything the graph cannot do (no graph — the context never ran; a phone as
+  // the mic) falls back to the full stop, as before.
+  const micSoftMuteFeature = useFeature(MIC_SOFT_MUTE_FEATURE, { track: mic.active });
+  const micSoftMuteOnRef = useRef(micSoftMuteFeature.enabled);
+  useEffect(() => {
+    micSoftMuteOnRef.current = micSoftMuteFeature.enabled;
+  }, [micSoftMuteFeature.enabled]);
+  // Which capture is soft-muted. Tied to the stream rather than a plain flag so
+  // that the mic going off and on again (a new stream) is never read as muted.
+  const [softMutedStream, setSoftMutedStream] = useState<MediaStream | null>(null);
+  const micSoftMuted = mic.active && softMutedStream !== null && softMutedStream === mic.localStream;
+  const softMuteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by anything that makes a pending unmute stale: muting again, or the
+  // mic going off altogether, while the device was still opening.
+  const softUnmuteSeq = useRef(0);
+
+  const endSoftMute = useCallback(() => {
+    micSoftMutedRef.current = false;
+    setSoftMutedStream(null);
+    if (softMuteTimer.current) clearTimeout(softMuteTimer.current);
+    softMuteTimer.current = null;
+  }, []);
+
+  // The mic going off by any route — a stop, a room change, its input dying,
+  // the hold running out — ends a soft mute with it. Only the refs here: the
+  // state follows by itself (see softMutedStream).
+  useEffect(() => {
+    if (mic.active) return;
+    softUnmuteSeq.current += 1;
+    micSoftMutedRef.current = false;
+    if (softMuteTimer.current) clearTimeout(softMuteTimer.current);
+    softMuteTimer.current = null;
+  }, [mic.active]);
+
+  const turnMicOff = useCallback(() => {
+    if (micSoftMutedRef.current) return;
+    // Still opening: cancel the capture, there is nothing to keep.
+    if (!mic.active) {
+      mic.stop();
+      return;
+    }
+    if (micSoftMuteOnRef.current) {
+      const graph = micGraphRef.current;
+      const roomSize = signalingClient.state.peers.length;
+      if (graph && !micFromPhoneRef.current && roomSize <= SOFT_MUTE_MAX_PEERS && detachGraphInputs(graph)) {
+        softUnmuteSeq.current += 1;
+        micSoftMutedRef.current = true;
+        setSoftMutedStream(mic.localStream);
+        signalingClient.setMic(false);
+        if (softMuteTimer.current) clearTimeout(softMuteTimer.current);
+        softMuteTimer.current = setTimeout(() => {
+          softMuteTimer.current = null;
+          if (!micSoftMutedRef.current) return;
+          trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.expired, { feature: MIC_SOFT_MUTE_FEATURE });
+          micRef.current.stop();
+        }, SOFT_MUTE_HOLD_MS);
+        trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.mute, { feature: MIC_SOFT_MUTE_FEATURE });
+        return;
+      }
+      trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.fallback, { feature: MIC_SOFT_MUTE_FEATURE });
+    }
+    mic.stop();
   }, [mic]);
+
+  const turnMicOn = useCallback(() => {
+    if (!micSoftMutedRef.current) {
+      mic.start();
+      return;
+    }
+    const graph = micGraphRef.current;
+    if (!graph || graph.disposed || !mic.active) {
+      softUnmuteSeq.current += 1;
+      endSoftMute();
+      mic.stop();
+      mic.start();
+      return;
+    }
+    // On at once for the button — the device opening is the only wait left —
+    // and announced to the room once there is actually something to hear.
+    endSoftMute();
+    const seq = ++softUnmuteSeq.current;
+    const startedAt = Date.now();
+    attachGraphInputs(graph, {
+      deviceId: micDeviceIdRef.current,
+      stereo: stereoMicRef.current,
+      extraDeviceIds: extraMicDeviceIdsRef.current,
+      suppressionEnabled: noiseSuppressionOnRef.current,
+    }).then(
+      () => {
+        if (seq !== softUnmuteSeq.current) {
+          // Muted again while the device opened: let it go again.
+          if (micSoftMutedRef.current) detachGraphInputs(graph);
+          return;
+        }
+        signalingClient.setMic(true);
+        micRef.current.watchSendLinks();
+        trackFeatureEvent(MIC_SOFT_MUTE_EVENTS.unmute, {
+          feature: MIC_SOFT_MUTE_FEATURE,
+          value: Math.max(1, Date.now() - startedAt),
+        });
+      },
+      () => {
+        if (seq !== softUnmuteSeq.current) return;
+        // The device would not open again (unplugged, refused): off for real,
+        // rather than a lit button over a graph sending silence.
+        micRef.current.stop();
+      }
+    );
+  }, [mic, endSoftMute]);
+
+  // What a change to the capture's setup does to a mic that is on: stop and
+  // start on the new setup. A soft-muted mic is off as far as the person is
+  // concerned, so it just goes off properly — never back on behind their back.
+  const restartLiveMic = useCallback(() => {
+    const m = micRef.current;
+    if (!m.active) return;
+    if (micSoftMutedRef.current) {
+      m.stop();
+      return;
+    }
+    m.stop();
+    m.start();
+  }, []);
+
+  const toggleMic = useCallback(() => {
+    // Still opening counts as on: a click then is the person changing their
+    // mind, so it cancels the capture rather than opening a second one.
+    const on = (mic.active && !micSoftMutedRef.current) || mic.starting;
+    setStoredMicOn(!on);
+    if (on) turnMicOff();
+    else turnMicOn();
+  }, [mic, turnMicOff, turnMicOn]);
 
   /**
    * Opens or closes the mic explicitly, **without** touching the stored
@@ -4756,11 +5228,13 @@ export function useRoomMedia(room: string) {
    */
   const setMicOn = useCallback(
     (on: boolean) => {
-      if (mic.active === on) return;
-      if (on) mic.start();
-      else mic.stop();
+      // Opening counts as on — deafening while the mic is still coming up
+      // must cancel it, not wait for it to arrive and leave it open.
+      if (((mic.active && !micSoftMutedRef.current) || mic.starting) === on) return;
+      if (on) turnMicOn();
+      else turnMicOff();
     },
-    [mic]
+    [mic, turnMicOn, turnMicOff]
   );
 
   // Switches the input device the mic captures from. If the mic is live
@@ -4779,7 +5253,8 @@ export function useRoomMedia(room: string) {
       micDeviceIdRef.current = deviceId;
       setMicDeviceIdState(deviceId);
       setStoredMicDeviceId(deviceId);
-      if (mic.active) {
+      // Soft-muted: nothing to restart — the unmute opens the new device.
+      if (mic.active && !micSoftMutedRef.current) {
         mic.stop();
         mic.start();
       }
@@ -4794,7 +5269,8 @@ export function useRoomMedia(room: string) {
       setExtraMicDeviceIdsState(ids);
       setStoredExtraMicDeviceIds(ids);
       extraMicDeviceIdsRef.current = multiMic ? ids : [];
-      if (mic.active) {
+      // Soft-muted: the unmute opens the new set.
+      if (mic.active && !micSoftMutedRef.current) {
         mic.stop();
         mic.start();
       }
@@ -4809,7 +5285,7 @@ export function useRoomMedia(room: string) {
     extraMicDeviceIdsRef.current = multiMic ? extraMicDeviceIds : [];
     if (multiMicPrevRef.current === multiMic) return;
     multiMicPrevRef.current = multiMic;
-    if (mic.active && extraMicDeviceIds.length) {
+    if (mic.active && !micSoftMutedRef.current && extraMicDeviceIds.length) {
       mic.stop();
       mic.start();
     }
@@ -4823,10 +5299,9 @@ export function useRoomMedia(room: string) {
     setMicStereoEnabled(stereoMic);
     if (stereoMicRef.current === stereoMic) return;
     stereoMicRef.current = stereoMic;
-    if (mic.active) {
-      mic.stop();
-      mic.start();
-    }
+    // The graph's channel count changes too, so a soft-muted mic cannot keep
+    // it: restartLiveMic turns that one off properly instead.
+    restartLiveMic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stereoMic]);
 
@@ -4855,8 +5330,14 @@ export function useRoomMedia(room: string) {
   // stay off instead of carrying over like noise suppression/mute do).
   // Only ever reads the persisted value once per room; a manual toggle
   // afterwards is respected instead of being fought on the next render.
+  //
+  // Not while deafened ("silenciar microfones", also stored): that used to
+  // bring somebody back with the room silenced and their own mic open — heard
+  // by everyone, hearing no one, which is the one state deafening exists to
+  // rule out. The room remembers the mic was on (see WatchRoom's
+  // micBeforeDeafenRef) and undeafening opens it, as after a deafen made here.
   useEffect(() => {
-    if (getStoredMicOn()) mic.start();
+    if (getStoredMicOn() && !getStoredMicsMuted()) mic.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
 
@@ -4881,6 +5362,14 @@ export function useRoomMedia(room: string) {
     setMicGainState(clamped);
     setStoredMicGain(clamped);
     setGraphInputGain(micGraphRef.current, clamped);
+  }, []);
+
+  // "Tentar de novo" on a person whose audio is not reaching us (experiment
+  // "mic-link-status"). "resume" is the strongest thing a listener can say: the
+  // sender drops whatever connection it holds to us and builds a fresh one,
+  // whatever its own side believes (see the handler in useBroadcastChannel).
+  const retryMicFrom = useCallback((peerId: string) => {
+    signalingClient.sendSignal(peerId, { channel: "mic", role: "viewer", kind: "resume" });
   }, []);
 
   const toggleNoiseSuppression = useCallback(() => {
@@ -4909,6 +5398,9 @@ export function useRoomMedia(room: string) {
     // shareSystemAudioRef for why this one is never remembered.
     setShareSystemAudio,
     shareSystemAudioUnavailable: systemAudioUnavailable,
+    // The share's capture has produced no picture at all (see
+    // lib/shareFrameWatch.ts); only while the share is still on.
+    shareNoFrames: shareNoFrames && screen.active,
     // The local-file slots (see useLocalFileChannel). A record rather than a
     // flat set of fields, because there are three of them and every consumer
     // wants to walk them.
@@ -4973,11 +5465,13 @@ export function useRoomMedia(room: string) {
     autoJoin,
     toggleAutoJoin,
 
-    isMicOn: mic.active,
+    // A soft-muted mic is off for everything that asks: the buttons, the
+    // sounds, push-to-talk's gate, the speaking ring.
+    isMicOn: mic.active && !micSoftMuted,
     toggleMic,
     setMicOn,
     micError: mic.error,
-    localMicStream: mic.localStream,
+    localMicStream: micSoftMuted ? null : mic.localStream,
     remoteMicStreams: mic.remoteStreams,
     // Per-peer audio recvPC state (origin id -> RTCPeerConnectionState) — the
     // room isn't fully "connected" the instant signaling joins; each
@@ -4985,6 +5479,7 @@ export function useRoomMedia(room: string) {
     // first. Drives the "Conectando..." banner and the per-participant
     // connection-lost dot in WatchRoom.
     micConnectionStates: mic.recvConnectionStates,
+    retryMicFrom,
     micDeviceId,
     setMicDevice,
     extraMicDeviceIds,

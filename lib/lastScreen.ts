@@ -3,9 +3,11 @@
 import { useSyncExternalStore } from "react";
 import { isAppShell } from "@/lib/desktop";
 import {
+  isRestorablePath,
+  LAST_SCREEN_COOKIE,
+  LAST_SCREEN_SESSION_COOKIE,
   LAST_SCREEN_SESSION_KEY,
   LAST_SCREEN_STORAGE_KEY,
-  NEVER_RESTORE,
   REOPEN_LAST_SCREEN_KEY,
 } from "@/lib/lastScreenInit";
 
@@ -43,6 +45,9 @@ export function setReopenLastScreenEnabled(enabled: boolean): void {
   } catch {
     // Storage refused: the choice lasts only for this page.
   }
+  // Turned off, the server must stop redirecting the launch too; turned on,
+  // the next screen recorded writes it again.
+  if (!enabled) writeCookie(LAST_SCREEN_COOKIE, "", 0);
   enabledListeners.forEach((listener) => listener());
 }
 
@@ -59,10 +64,28 @@ export function useReopenLastScreen(): boolean {
 const voiceFallbacks = new Map<string, string>();
 
 function isRestorable(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  const pathname = path.split(/[?#]/)[0];
-  if (voiceFallbacks.has(pathname)) return false;
-  return !NEVER_RESTORE.some((prefix) => pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix));
+  if (voiceFallbacks.has(path.split(/[?#]/)[0])) return false;
+  return isRestorablePath(path);
+}
+
+function writeCookie(name: string, value: string, maxAgeSeconds: number | null): void {
+  try {
+    const secure = window.location.protocol === "https:" ? ";Secure" : "";
+    const age = maxAgeSeconds === null ? "" : `;Max-Age=${maxAgeSeconds}`;
+    document.cookie = `${name}=${encodeURIComponent(value)};Path=/;SameSite=Lax${age}${secure}`;
+  } catch {
+    // Cookies refused: the launch falls back to LAST_SCREEN_INIT_SCRIPT.
+  }
+}
+
+/**
+ * Marks this app process as already launched (see LAST_SCREEN_SESSION_COOKIE):
+ * a later "/" in it is the home page, not a launch. The inline script does the
+ * same on Android and desktop before anything paints; this covers iOS.
+ */
+export function markAppSessionStarted(): void {
+  if (!isAppShell()) return;
+  writeCookie(LAST_SCREEN_SESSION_COOKIE, "1", null);
 }
 
 function write(path: string): void {
@@ -71,6 +94,10 @@ function write(path: string): void {
   } catch {
     // Storage refused: the app simply opens on the home page, as it used to.
   }
+  // "/" is a screen too (the home): recorded as no cookie, so a launch after
+  // leaving the app on the home page opens on the home page.
+  if (path.split(/[?#]/)[0] === "/" || !isReopenLastScreenEnabled()) writeCookie(LAST_SCREEN_COOKIE, "", 0);
+  else writeCookie(LAST_SCREEN_COOKIE, path, 60 * 60 * 24 * 365);
 }
 
 /** Records the screen on show. Anything that would join a call is skipped. */
@@ -82,7 +109,8 @@ export function rememberScreen(path: string): void {
     write(fallback);
     return;
   }
-  if (isRestorable(path)) write(path);
+  // The home page is recorded too — as "nothing to reopen".
+  if (pathname === "/" || isRestorable(path)) write(path);
 }
 
 /**

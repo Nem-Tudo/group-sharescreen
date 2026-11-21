@@ -1,5 +1,6 @@
 "use client";
 
+import { errorText } from "@/lib/errorText";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { MdAutoAwesome, MdCheck, MdFace, MdShuffle } from "react-icons/md";
@@ -159,7 +160,7 @@ export function AvatarBuilderQuickDialog({ onClose }: { onClose: () => void }) {
       trackAvatarBuilderSave(path);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("userProfileCard.couldNotSaveTheChanges"));
+      setError(errorText(err, t("userProfileCard.couldNotSaveTheChanges")));
       setSaving(false);
     }
   }

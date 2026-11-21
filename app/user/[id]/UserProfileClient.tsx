@@ -30,10 +30,14 @@ export function UserProfileClient({ id }: { id: string }) {
         <div className="mt-4">
           {/* Autoplay only here: this page is somebody opening a profile on
               purpose. The room's popup passes nothing and gets a play button. */}
-          <UserProfileCard id={id} autoPlaySong={autoplay} />
-          {/* Experiment profile-comments: renders nothing for a profile
-              outside it (the API decides, per profile owner). */}
-          <ProfileComments profileId={id} className="mt-4" />
+          <UserProfileCard
+            id={id}
+            autoPlaySong={autoplay}
+            // Experiment profile-comments: renders nothing for a profile
+            // outside it (the API decides, per profile owner). Inside the
+            // card, not under it — see `sections` in UserProfileCard.
+            sections={<ProfileComments profileId={id} embedded />}
+          />
         </div>
       </main>
     </div>

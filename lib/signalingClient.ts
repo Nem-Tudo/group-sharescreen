@@ -4129,6 +4129,11 @@ class SignalingClient {
     this.rawSend({ type: "mic", mic });
   }
 
+  /** Whether this client last told the room its mic is on (see setMic). */
+  isMicAnnounced(): boolean {
+    return this.micOn;
+  }
+
   // After a reconnect that took over this client's session, the room is still
   // showing what it was sharing before the drop (see the server's CarriedPeerState).
   // The channels re-announce what is on, and only this can correct something that

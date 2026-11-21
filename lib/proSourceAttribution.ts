@@ -58,6 +58,7 @@ export const PRO_SOURCES = [
   "theme_editor", // theme editor
   "profile_lock", // "available on Pro…" on a profile card
   "me_lock", // the same on the "Você" screen
+  "avatar_lock", // the locked avatar rows (gallery / upload) in the profile editor
   // Links to the page.
   "home_seo", // home page text
   "workshop", // workshop page
@@ -214,6 +215,12 @@ const SOURCES = {
     storageKey: "sharescreen:turnUpsellCtaAt",
     feature: "pro-turn-notice",
     checkoutEvent: "turn_upsell_checkout",
+  },
+  // The same notice, credited to its wording (lib/turnUpsellCopy).
+  turnUpsellCopy: {
+    storageKey: "sharescreen:turnUpsellCopyCtaAt",
+    feature: "turn-upsell-copy",
+    checkoutEvent: "tcopy_checkout",
   },
 };
 

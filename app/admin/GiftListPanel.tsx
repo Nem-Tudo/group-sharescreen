@@ -92,7 +92,9 @@ function GiftListRow({ gift, onChanged }: { gift: AdminGiftRow; onChanged: () =>
           {t(`admin.giftList.status.${gift.status}`)}
         </span>
         <span className="font-medium text-zinc-700 dark:text-zinc-300">
-          {gift.planTitle} · {giftDurationLabel(gift, tc)}
+          {gift.cosmetic
+            ? `${gift.planTitle} · ${t("admin.giftPanel.frameBadge")}`
+            : `${gift.planTitle} · ${giftDurationLabel(gift, tc)}`}
           {gift.trialOnly ? ` · ${t("admin.giftPanel.trialBadge")}` : ""}
           {gift.testGift ? ` · ${t("admin.giftPanel.testBadge")}` : ""}
         </span>
@@ -153,14 +155,17 @@ function GiftListRow({ gift, onChanged }: { gift: AdminGiftRow; onChanged: () =>
             </button>
           )}
           <span className="flex-1" />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void downloadGiftCard(gift.planId, gift.code)}
-            className="rounded-md border border-zinc-300 px-2.5 py-1 font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            {t("admin.giftPanel.downloadImage")}
-          </button>
+          {/* The printed card is drawn per plan; a frame gift has none. */}
+          {!gift.cosmetic && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void downloadGiftCard(gift.planId, gift.code)}
+              className="rounded-md border border-zinc-300 px-2.5 py-1 font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              {t("admin.giftPanel.downloadImage")}
+            </button>
+          )}
           <button
             type="button"
             disabled={busy}
@@ -250,7 +255,7 @@ export function GiftListPanel({ refreshKey }: { refreshKey: number }) {
     () => (gifts ?? []).filter((g) => filter === "all" || g.status === filter),
     [gifts, filter]
   );
-  const printable = shown.filter((g) => g.status === "paid");
+  const printable = shown.filter((g) => g.status === "paid" && !g.cosmetic);
 
   async function downloadPdf() {
     setBuildingPdf(true);

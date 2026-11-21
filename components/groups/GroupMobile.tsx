@@ -33,6 +33,15 @@ import type { GroupChannel, GroupDetail } from "@/lib/groupsApi";
 import { canShareNatively, haptic, shareLink } from "@/lib/nativeApp";
 import { useT, useTCount } from "@/lib/useI18n";
 import { openMessageFinder, useMessageFinderQuiet } from "@/lib/messageFinder";
+import { trackFeatureEvent } from "@/lib/features";
+
+/**
+ * The experiment: on a phone, a drag from left to right across a room goes up
+ * to the group's rooms, like the back arrow (see GroupAppShell). The arrow is
+ * counted too, in both groups, to compare against.
+ */
+export const SWIPE_ROOMS_FEATURE = "group-swipe-rooms";
+export const SWIPE_ROOMS_EVENTS = { swipe: "rooms_open.swipe", button: "rooms_open.button" } as const;
 
 // The groups on a phone, laid out the way a chat app is: a screen per level.
 //
@@ -81,7 +90,11 @@ export function GroupMobileBar({
 
   const back = () => {
     haptic("tap");
-    if (kind === "room" && groupId) navigation.push(groupPath(groupId));
+    if (kind === "room" && groupId) {
+      // A voice room has no swipe (see GroupAppShell), so it is no comparison.
+      if (!voiceVisible) trackFeatureEvent(SWIPE_ROOMS_EVENTS.button, { feature: SWIPE_ROOMS_FEATURE });
+      navigation.push(groupPath(groupId));
+    }
     else navigation.push("/groups");
   };
 

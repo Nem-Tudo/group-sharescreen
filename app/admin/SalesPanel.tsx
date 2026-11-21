@@ -592,6 +592,11 @@ interface Group {
 }
 
 function groupRows(rows: SalesRow[], keyOf: (row: SalesRow) => string): Map<string, { cents: number; count: number }> {
+  return groupBy(rows, keyOf);
+}
+
+/** Count and money per key — sales rows, or the ledger's events. */
+function groupBy<T extends { cents: number }>(rows: T[], keyOf: (row: T) => string): Map<string, { cents: number; count: number }> {
   const out = new Map<string, { cents: number; count: number }>();
   for (const row of rows) {
     const key = keyOf(row);
@@ -750,6 +755,7 @@ export function SalesPanel() {
     const events = data.events;
     const ended = events.filter((event) => event.type === "ended" && event.at >= windowStart);
     const refused = events.filter((event) => event.type === "refused" && event.at >= windowStart);
+    const refunds = events.filter((event) => event.type === "refund" && event.at >= windowStart);
     const newSubs = cur.filter((row) => row.method === "subscription" && row.kind === "plan" && !row.renewal);
     const endedSeries = starts.map(() => 0);
     for (const event of ended) {
@@ -795,6 +801,7 @@ export function SalesPanel() {
       byTier: split(TIERS, (row) => row.tier as (typeof TIERS)[number]),
       ended,
       refused,
+      refunds,
       newSubs,
       endedSeries,
       newSubSeries,
@@ -1006,6 +1013,16 @@ export function SalesPanel() {
   );
 
   const netSubs = view.newSubs.length - view.ended.length;
+  // Why mandates ended and why cards were refused, from the ledger's `reason`.
+  const reasonGroups = (events: typeof view.ended): Group[] =>
+    toGroups(
+      groupBy(events, (event) => event.reason ?? "none"),
+      (key) => t(`admin.sales.reason.${key}`)
+    );
+  const endedReasons = reasonGroups(view.ended);
+  const refusedReasons = reasonGroups(view.refused);
+  const refundCents = view.refunds.reduce((sum, event) => sum + event.cents, 0);
+  const disputes = view.refunds.filter((event) => event.reason === "dispute").length;
   const renewalCents = cur.filter((row) => saleType(row) === "renewal").reduce((s, r) => s + r.cents, 0);
 
   return (
@@ -1238,6 +1255,30 @@ export function SalesPanel() {
               ]}
             />
           </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                {t("admin.sales.churn.whyEnded")}
+              </p>
+              <BarList groups={endedReasons} metric="count" fmt={fmt} color={SLOT[1]} />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                {t("admin.sales.churn.whyRefused")}
+              </p>
+              <BarList groups={refusedReasons} metric="count" fmt={fmt} color={SLOT[1]} />
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-600 dark:text-zinc-300">
+            <span className="font-medium">{t("admin.sales.kpi.refunds")}:</span>{" "}
+            <b className="tabular-nums">{fmt.money(refundCents)}</b>
+            {" · "}
+            {t("admin.sales.kpi.refundsHint", {
+              count: fmt.num(view.refunds.length - disputes),
+              disputes: fmt.num(disputes),
+            })}
+          </p>
+          <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">{t("admin.sales.churn.reasonNote")}</p>
         </Card>
 
         {/* Pro vs Pro Max vs Pro Ultra. */}

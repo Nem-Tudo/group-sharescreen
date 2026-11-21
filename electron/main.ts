@@ -145,7 +145,12 @@ const OAUTH_TIMEOUT_MS = 5 * 60_000;
 // the app is ready. What this captures is *everything* the Mac plays,
 // GoLive's own room audio included: there is no per-app choice here and the
 // room will hear its own voices back (the Windows helper exists to avoid
-// exactly that; see systemAudio.ts).
+// exactly that; see systemAudio.ts) — unless the page asked for
+// restrictOwnAudio, which Chromium 140 implements on macOS (experiment
+// "share-own-audio-filter", see the site's lib/ownAudioFilter.ts).
+//
+// Reached only through our own picker: see useSystemPicker at the end of
+// installDisplayMediaHandler for why the OS's picker is not used.
 const MAC_LOOPBACK_SUPPORTED =
   process.platform === "darwin" && Number(os.release().split(".")[0]) >= 22;
 if (MAC_LOOPBACK_SUPPORTED) {
@@ -881,13 +886,21 @@ function installDisplayMediaHandler() {
         answer({});
       });
     },
-    // Prefer the OS's own picker where one exists (macOS 15+, and Windows
-    // as support lands): it is the interface the user already knows, it can
-    // offer surfaces we cannot enumerate ourselves, and on macOS it is the
-    // path that carries the system's own capture indicator. Our picker above
-    // is the fallback for everywhere it is unavailable, and Electron only
-    // calls the handler in that case.
-    { useSystemPicker: true }
+    // Our own picker everywhere, the macOS one included. The OS's picker
+    // (macOS 15+, the only place Electron offers one) looked like the better
+    // fit, but when it is used "the media request handler will not be
+    // invoked" (Electron's docs) — and this handler is the only place a share
+    // is given its system audio (`audio: "loopback"` in withAudio above). So
+    // on every Mac recent enough to have that picker, the loopback switched on
+    // by MAC_LOOPBACK_SUPPORTED was never reached: no "Compartilhar som da
+    // tela" row, and shares with video only (tickets 4.3, 1164, 1410 — the
+    // first one's screenshot is the system picker over the app). Our picker
+    // already draws the audio row on macOS 13+.
+    //
+    // What that gives up: the system's own picker UI. Listing sources here
+    // goes through desktopCapturer, which needs the Screen Recording
+    // permission the same way the capture itself always did.
+    { useSystemPicker: false }
   );
 }
 

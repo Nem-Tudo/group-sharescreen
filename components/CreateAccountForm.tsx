@@ -1,5 +1,6 @@
 "use client";
 
+import { errorText } from "@/lib/errorText";
 import { useEffect, useState, type FormEvent } from "react";
 import { checkUsernameAvailable, type UsernameCheck } from "@/lib/accountApi";
 import { useAuth } from "@/lib/AuthContext";
@@ -104,6 +105,10 @@ export function CreateAccountForm({
   // Tagged with the username it answers, so a reply for two keystrokes ago is
   // never shown under a different word.
   const [usernameCheck, setUsernameCheck] = useState<UsernameCheck | null>(null);
+  // The username a check could not be answered for (the API unreachable, or
+  // down for a moment). Without it, "verificando" stayed under the box for
+  // good, reading as something still happening (ticket 1404).
+  const [usernameCheckFailed, setUsernameCheckFailed] = useState<string | null>(null);
 
   // Mint the captcha token while this form is being filled in, not when it is
   // submitted. Turnstile does its work when its widget renders, so asking for
@@ -123,7 +128,10 @@ export function CreateAccountForm({
         .then((result) => setUsernameCheck(result))
         // A failed check is not a verdict: leave it unanswered and let the
         // submit decide, rather than blocking a name that may well be free.
-        .catch(() => {});
+        // Noted only so the hint stops claiming to be checking.
+        .catch(() => {
+          if (!controller.signal.aborted) setUsernameCheckFailed(trimmedUsername.toLowerCase());
+        });
     }, USERNAME_CHECK_DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
@@ -172,7 +180,7 @@ export function CreateAccountForm({
       trackEvent("account_created");
       onSuccess?.();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t("common.couldNotCreateTheAccount"));
+      setFormError(errorText(err, t("common.couldNotCreateTheAccount")));
     } finally {
       setSubmitting(false);
     }
@@ -213,6 +221,8 @@ export function CreateAccountForm({
     trimmedUsername.length === 0 ? (
       t("createAccountForm.use3To20LettersNumbers")
     ) : !usernameWellFormed ? (
+      t("createAccountForm.use3To20LettersNumbers")
+    ) : !check && usernameCheckFailed === trimmedUsername.toLowerCase() ? (
       t("createAccountForm.use3To20LettersNumbers")
     ) : !check ? (
       t("common.checking")
