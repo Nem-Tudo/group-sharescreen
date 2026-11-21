@@ -34,8 +34,6 @@ export const HUB_CENTRAL_EVENTS = {
   friendAdd: "central_friend_add",
   /** The pending friend requests line opened. */
   requests: "central_requests_open",
-  /** "Começar uma sala" opened its form (the layouts that keep it behind a button). */
-  roomOpen: "central_room_open",
   /** One of the ways out (explore, rooms, map, invite, new group). Tag `to`: which. */
   link: "central_link",
 } as const;

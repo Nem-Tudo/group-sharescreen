@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { MdAdd, MdCall, MdChatBubbleOutline, MdChevronRight, MdPersonAdd, MdPersonOutline } from "react-icons/md";
+import { MdCall, MdChatBubbleOutline, MdChevronRight, MdPersonAdd, MdPersonOutline } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
-import { Popover, Tooltip } from "@/components/Tooltip";
+import { Tooltip } from "@/components/Tooltip";
 import { AddFriendDialog } from "@/components/AddFriendDialog";
 import { FriendRequestsModal } from "@/components/FriendRequestsModal";
 import { NotificationKindIcon, relativeTime } from "@/components/NotificationInboxBell";
@@ -153,7 +153,7 @@ export function HubCentralHome({
   liveGroups: GroupSummary[] | null;
   links: HubCentralLink[];
 }) {
-  const data = useCentralData(layout === "inbox" ? 14 : 9);
+  const data = useCentralData(30);
   const [adding, setAdding] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -169,7 +169,7 @@ export function HubCentralHome({
     },
   };
 
-  const page =
+  const content =
     layout === "inbox" ? (
       <InboxLayout data={data} actions={actions} startRoomForm={startRoomForm} liveGroups={liveGroups} links={links} />
     ) : layout === "bento" ? (
@@ -179,8 +179,8 @@ export function HubCentralHome({
     );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      {page}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {content}
       {adding && <AddFriendDialog onClose={() => setAdding(false)} />}
       <FriendRequestsModal open={requestsOpen} onClose={() => setRequestsOpen(false)} />
       {profileId && <UserProfileDialog userId={profileId} onClose={() => setProfileId(null)} />}
@@ -208,23 +208,24 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, links }: LayoutPr
   const t = useT();
   const live = liveGroups ?? [];
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-12 pt-8 2xl:max-w-7xl">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className={page("max-w-6xl 2xl:max-w-7xl")}>
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-4">
         <Greeting data={data} />
         <div className="flex items-center gap-1">
           {links.map((link) => (
             <LinkIconButton key={link.key} link={link} />
           ))}
-          <StartRoomButton form={startRoomForm} className="ml-2" />
         </div>
       </div>
 
-      <section className="mt-8">
+      <StartStrip form={startRoomForm} className="mt-5" />
+
+      <section className="mt-6 shrink-0">
         <SectionTitle>{t("groups.central.now")}</SectionTitle>
         {data.online.length === 0 && live.length === 0 ? (
           <NobodyNow onAdd={actions.addFriend} />
         ) : (
-          <div className="-mx-1 mt-3 flex gap-3 overflow-x-auto px-1 pb-2">
+          <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
             {live.map((group) => (
               <LiveGroupTile key={group.id} group={group} />
             ))}
@@ -235,14 +236,18 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, links }: LayoutPr
         )}
       </section>
 
-      <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <section>
+      <div className="mt-6 grid min-h-0 flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <section className="flex min-h-0 flex-col">
           <InboxHeader data={data} />
-          <InboxList data={data} grouped />
+          <Scroll>
+            <InboxList data={data} grouped />
+          </Scroll>
         </section>
-        <aside className="rounded-2xl bg-zinc-100/70 p-4 dark:bg-zinc-900/50">
+        <aside className="flex min-h-0 flex-col rounded-2xl bg-zinc-100/70 p-4 dark:bg-zinc-900/50">
           <FriendsHeader data={data} actions={actions} />
-          <FriendList data={data} actions={actions} max={14} sections />
+          <Scroll>
+            <FriendList data={data} actions={actions} max={60} sections />
+          </Scroll>
         </aside>
       </div>
     </div>
@@ -253,19 +258,20 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, links }: LayoutPr
 
 function InboxLayout({ data, actions, startRoomForm, liveGroups, links }: LayoutProps) {
   const t = useT();
-  const live = liveGroups ?? [];
+  const live = (liveGroups ?? []).slice(0, 2);
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 pb-12 pt-10">
+    <div className={page("max-w-3xl")}>
       <Greeting data={data} />
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
-        <StartRoomButton form={startRoomForm} placement="bottom-start" />
+      <StartStrip form={startRoomForm} className="mt-5" />
+
+      <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
         {links.map((link) => (
           <LinkChip key={link.key} link={link} />
         ))}
       </div>
 
-      <section className="mt-8">
+      <section className="mt-6 shrink-0">
         <div className="flex items-center justify-between gap-2">
           <SectionTitle>{t("groups.central.now")}</SectionTitle>
           <button type="button" onClick={actions.addFriend} className={quietLink}>
@@ -275,7 +281,7 @@ function InboxLayout({ data, actions, startRoomForm, liveGroups, links }: Layout
         {data.online.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.central.nobodyNow")}</p>
         ) : (
-          <div className="-mx-1 mt-3 flex gap-1 overflow-x-auto px-1 pb-1">
+          <div className="-mx-1 mt-2 flex gap-1 overflow-x-auto px-1 pb-1">
             {data.online.map((user) => (
               <FaceButton key={user.id} user={user} />
             ))}
@@ -285,16 +291,18 @@ function InboxLayout({ data, actions, startRoomForm, liveGroups, links }: Layout
       </section>
 
       {live.length > 0 && (
-        <ul className="mt-6 flex flex-col gap-2">
+        <ul className="mt-4 grid shrink-0 gap-2 sm:grid-cols-2">
           {live.map((group) => (
             <LiveGroupBanner key={group.id} group={group} />
           ))}
         </ul>
       )}
 
-      <section className="mt-8">
+      <section className="mt-6 flex min-h-0 flex-1 flex-col">
         <InboxHeader data={data} />
-        <InboxList data={data} grouped />
+        <Scroll>
+          <InboxList data={data} grouped />
+        </Scroll>
       </section>
     </div>
   );
@@ -306,55 +314,62 @@ function BentoLayout({ data, actions, startRoomForm, liveGroups, links }: Layout
   const t = useT();
   const live = liveGroups ?? [];
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-12 pt-8 2xl:max-w-7xl">
+    <div className={page("max-w-6xl 2xl:max-w-7xl")}>
       <Greeting data={data} />
-      <div className="mt-6 grid gap-4 lg:grid-cols-6">
-        {/* The big tile: who is around, people and groups together. */}
-        <section className={`${tile} lg:col-span-4`}>
-          <div className="flex items-center justify-between gap-2">
-            <SectionTitle>{t("groups.central.now")}</SectionTitle>
-            {data.online.length > 0 && (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                {t("groups.central.onlineCount", { count: data.online.length })}
-              </span>
-            )}
-          </div>
-          {live.length > 0 && (
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {live.map((group) => (
-                <LiveGroupBanner key={group.id} group={group} />
-              ))}
-            </ul>
-          )}
-          {data.online.length === 0 && live.length === 0 ? (
-            <NobodyNow onAdd={actions.addFriend} />
-          ) : (
-            <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2">
-              {data.online.slice(0, 12).map((user) => (
-                <FriendTile key={user.id} user={user} presence={data.presence[user.id]} actions={actions} fluid />
-              ))}
-            </div>
-          )}
-        </section>
+      <div className="mt-5 grid min-h-0 flex-1 gap-4 lg:grid-cols-6 lg:grid-rows-[auto_minmax(0,1fr)_auto]">
+        <StartStrip form={startRoomForm} className="lg:col-span-4" />
 
-        {/* Tall: what is waiting. */}
-        <section className={`${tile} lg:col-span-2 lg:row-span-2`}>
+        {/* Tall, the whole right side: what is waiting. */}
+        <section className={`${tile} flex min-h-0 flex-col lg:col-span-2 lg:row-span-3`}>
           <InboxHeader data={data} compact />
-          <InboxList data={data} />
+          <Scroll>
+            <InboxList data={data} />
+          </Scroll>
         </section>
 
-        <section className={`${tile} lg:col-span-2`}>
-          <SectionTitle>{t("groups.hub.startRoom")}</SectionTitle>
-          <div className="mt-3">{startRoomForm}</div>
+        {/* The big one: who is around, groups and people together. */}
+        <section className={`${tile} flex min-h-0 flex-col lg:col-span-4`}>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              {t("groups.central.now")}
+              {data.online.length > 0 && (
+                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  {t("groups.central.onlineCount", { count: data.online.length })}
+                </span>
+              )}
+            </h2>
+            <span className="flex items-center gap-3">
+              <GroupLink href="/friends" className={quietLink}>
+                {t("common.seeAll")}
+              </GroupLink>
+              <button type="button" onClick={actions.addFriend} className={quietLink}>
+                {t("common.addFriend")}
+              </button>
+            </span>
+          </div>
+          {data.incoming > 0 && <RequestsLine count={data.incoming} onOpen={actions.openRequests} />}
+          <Scroll>
+            {live.length > 0 && (
+              <ul className="mt-1 grid gap-2 sm:grid-cols-2">
+                {live.map((group) => (
+                  <LiveGroupBanner key={group.id} group={group} />
+                ))}
+              </ul>
+            )}
+            {data.online.length === 0 && live.length === 0 ? (
+              <NobodyNow onAdd={actions.addFriend} />
+            ) : (
+              <div className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-1">
+                {data.online.map((user) => (
+                  <FriendTile key={user.id} user={user} presence={data.presence[user.id]} actions={actions} fluid />
+                ))}
+              </div>
+            )}
+          </Scroll>
         </section>
 
-        <section className={`${tile} lg:col-span-2`}>
-          <FriendsHeader data={data} actions={actions} />
-          <FriendList data={data} actions={actions} max={6} offlineOnly />
-        </section>
-
-        <section className={`${tile} lg:col-span-6`}>
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <section className={`${tile} !py-3 lg:col-span-4`}>
+          <ul className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
             {links.map((link) => (
               <li key={link.key}>
                 <LinkTile link={link} />
@@ -368,6 +383,28 @@ function BentoLayout({ data, actions, startRoomForm, liveGroups, links }: Layout
 }
 
 // ─── Shared pieces ────────────────────────────────────────────────────────
+
+/** The page's frame: the screen's height and never more — the lists scroll inside their blocks, the page never does. */
+function page(width: string): string {
+  return `mx-auto flex min-h-0 w-full flex-1 flex-col px-6 pb-6 pt-7 ${width}`;
+}
+
+/** Where a block's list scrolls when it is longer than the block. */
+function Scroll({ children }: { children: ReactNode }) {
+  return <div className="-mr-2 mt-1 min-h-0 flex-1 overflow-y-auto pr-2">{children}</div>;
+}
+
+/** The room form, always on screen, as one bar (RoomStartForm's `bar` layout). */
+function StartStrip({ form, className = "" }: { form: ReactNode; className?: string }) {
+  const t = useT();
+  return (
+    <section className={`${tile} shrink-0 !py-4 ${className}`}>
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("groups.hub.startRoom")}</h2>
+      {form}
+    </section>
+  );
+}
+
 
 const tile = "rounded-2xl bg-zinc-100/70 p-5 dark:bg-zinc-900/50";
 const quietLink =
@@ -401,45 +438,6 @@ function Greeting({ data }: { data: CentralData }) {
       </h1>
       {summary.length > 0 && <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{summary.join(" · ")}</p>}
     </div>
-  );
-}
-
-function StartRoomButton({
-  form,
-  className = "",
-  placement = "bottom-end",
-}: {
-  form: ReactNode;
-  className?: string;
-  placement?: "bottom-end" | "bottom-start";
-}) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover
-      open={open}
-      onClose={() => setOpen(false)}
-      placement={placement}
-      content={
-        <div className="w-96 max-w-[calc(100vw-2rem)] rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("groups.hub.startRoom")}</p>
-          <p className="mb-3 mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t("groups.hub.startRoomHint")}</p>
-          {form}
-        </div>
-      }
-    >
-      <button
-        type="button"
-        onClick={() => {
-          if (!open) trackHubCentral(HUB_CENTRAL_EVENTS.roomOpen);
-          setOpen((current) => !current);
-        }}
-        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200 ${className}`}
-      >
-        <MdAdd className="h-4 w-4" />
-        {t("groups.hub.startRoom")}
-      </button>
-    </Popover>
   );
 }
 

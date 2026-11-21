@@ -15,7 +15,11 @@ import {
 } from "@/lib/recentRoomsSync";
 import { useT } from "@/lib/useI18n";
 
-export function RecentRooms() {
+/**
+ * `chips`: one wrapping line of small pills (the groups home's room bar, see
+ * RoomStartForm's `bar` layout) instead of the stacked list.
+ */
+export function RecentRooms({ layout = "list" }: { layout?: "list" | "chips" }) {
   const t = useT();
   // useSyncExternalStore after all. The note that used to be here said this
   // hook "demands Object.is equality, which a localStorage parse cannot
@@ -48,6 +52,52 @@ export function RecentRooms() {
   const latestHandle = rooms.reduce((newest, room) =>
     room.visitedAt > newest.visitedAt ? room : newest
   ).handle;
+
+  if (layout === "chips") {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-xs text-zinc-500 dark:text-zinc-400">{t("recentRooms.recentRooms")}</span>
+        {rooms.map((room, index) => {
+          const { name, isPrivate, code } = recentRoomPresentation(room.handle);
+          const visibility = isPrivate ? t("common.private") : t("recentRooms.public");
+          return (
+            <span key={room.handle} className="group relative inline-flex">
+              <Link
+                href={`/watch/${room.handle}`}
+                onClick={() => {
+                  setOpening(room.handle);
+                  trackEvent("recent_room_click", { visibility: isPrivate ? "private" : "public", index });
+                }}
+                aria-label={t("recentRooms.joinTheVisibilityRoomName", { visibility, name })}
+                className="inline-flex max-w-56 items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-400 dark:bg-zinc-950 dark:text-zinc-300 dark:ring-zinc-800 dark:hover:ring-zinc-600"
+              >
+                {opening === room.handle ? (
+                  <ButtonSpinner className="text-zinc-400" />
+                ) : isPrivate ? (
+                  <MdLock className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden="true" />
+                ) : (
+                  <GlobeIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                )}
+                <span className="min-w-0 truncate">{name}</span>
+                {code && <span className="shrink-0 font-normal tabular-nums text-zinc-400 dark:text-zinc-500">{code}</span>}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  trackEvent("recent_room_forget", { visibility: isPrivate ? "private" : "public" });
+                  forgetRecentRoom(room.handle);
+                }}
+                aria-label={t("recentRooms.removeNameFromTheRecentRooms", { name })}
+                className="absolute -right-1 -top-1 z-10 hidden h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 transition hover:text-zinc-900 group-focus-within:flex group-hover:flex dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                <MdClose className="h-2.5 w-2.5" aria-hidden="true" />
+              </button>
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">

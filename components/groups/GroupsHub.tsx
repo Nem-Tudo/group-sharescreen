@@ -77,6 +77,7 @@ export function GroupsHubHome() {
 
   const startRoomForm = (
     <RoomStartForm
+      layout={central ? "bar" : "stack"}
       onStart={(mode) => {
         trackGroupsHub(GROUPS_HUB_EVENTS.roomStart, ROOM_MODE_VALUE[mode]);
         if (account) trackHubCentral(HUB_CENTRAL_EVENTS.roomStart, { value: ROOM_MODE_VALUE[mode] });
