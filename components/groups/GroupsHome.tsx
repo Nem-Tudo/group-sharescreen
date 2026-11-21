@@ -24,6 +24,7 @@ import {
   usePendingExploreRequest,
 } from "@/components/groups/groupSearch";
 import { useAuth } from "@/lib/AuthContext";
+import { useGroupOrganize } from "@/lib/groupOrganize";
 import { GROUPS_ROOMS_PATH, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
@@ -55,7 +56,10 @@ export function GroupsHome() {
   const { t, tc } = useI18n();
   const { openPopup } = useNtPopups();
   const { account, loading } = useAuth();
-  const { groups } = useMyGroups();
+  const { groups: all } = useMyGroups();
+  // On the shelf (experiment group-organize): kept off this list too.
+  const organize = useGroupOrganize({ track: false });
+  const groups = useMemo(() => (all && organize ? all.filter((g) => !g.archived) : all), [all, organize]);
   const canCreate = Boolean(account);
   const hasGroups = Boolean(groups && groups.length > 0);
 
@@ -84,7 +88,7 @@ export function GroupsHome() {
   const mine = searching ? (groups ?? []).filter((g) => nameMatches(g.name, words)) : groups ?? [];
   // Marked on the public cards, for a group you are in that the server did
   // not say so about (a guest's, answered before its token was sent).
-  const myIds = useMemo(() => new Set((groups ?? []).map((g) => g.id)), [groups]);
+  const myIds = useMemo(() => new Set((all ?? []).map((g) => g.id)), [all]);
 
   // "/" anywhere on the page puts the cursor in the search bar.
   useEffect(() => {
@@ -249,7 +253,7 @@ export function GroupsHome() {
  * The way to every public room open right now (experiment "groups-rooms"), on a
  * phone — from lg up it is a tile on the rail beside this page (see GroupRail).
  */
-function LiveRoomsRow() {
+export function LiveRoomsRow() {
   const { t } = useI18n();
   const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
   // Counted only where it is the way in: on a wide screen the rail's tile is.

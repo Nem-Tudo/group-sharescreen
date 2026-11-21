@@ -9,10 +9,13 @@ import {
   fetchGroup,
   fetchMyGroups,
   markChannelRead,
+  saveRailLayout,
   setChannelMuted,
+  setGroupArchived,
   setGroupOrder,
   type GroupDetail,
   type GroupMessage,
+  type GroupRailLayout,
   type GroupReaction,
   type GroupSummary,
   type GroupUser,
@@ -22,6 +25,7 @@ import {
   voiceActivityOf,
 } from "./groupsApi";
 import { translate } from "@/lib/i18n";
+import { flatIds, withoutGroup } from "./groupRailLayout";
 
 // Every group this person is in, and the details of the ones they have opened.
 //
@@ -37,12 +41,18 @@ interface GroupsState {
   /** Null until the first read has answered. */
   groups: GroupSummary[] | null;
   groupsError: string | null;
+  /**
+   * How this person arranges the list — folders and their order (experiment
+   * group-organize, see lib/groupRailLayout). Null until read, and from an API
+   * too old to send one; `groups` is already in its order either way.
+   */
+  layout: GroupRailLayout | null;
   details: Record<string, GroupDetail>;
   /** Group ids whose detail read failed, with why — a 404 means "not yours". */
   detailErrors: Record<string, { status: number; error: string }>;
 }
 
-let state: GroupsState = { groups: null, groupsError: null, details: {}, detailErrors: {} };
+let state: GroupsState = { groups: null, groupsError: null, layout: null, details: {}, detailErrors: {} };
 const listeners = new Set<() => void>();
 
 function setState(patch: Partial<GroupsState>) {
@@ -59,7 +69,7 @@ function subscribe(listener: () => void) {
 }
 
 const getSnapshot = () => state;
-const serverSnapshot: GroupsState = { groups: null, groupsError: null, details: {}, detailErrors: {} };
+const serverSnapshot: GroupsState = { groups: null, groupsError: null, layout: null, details: {}, detailErrors: {} };
 
 // ─── Reads ───────────────────────────────────────────────────────────────
 
@@ -69,8 +79,12 @@ export function refreshGroups(): Promise<void> {
   if (groupsInFlight) return groupsInFlight;
   groupsInFlight = (async () => {
     const result = await fetchMyGroups();
-    if (result.ok) setState({ groups: result.groups, groupsError: null });
-    else if (result.status === 401) setState({ groups: [], groupsError: null });
+    if (result.ok) {
+      // A save still on its way would be undone by an answer read before it
+      // landed; its own answer brings the layout (see saveLayout).
+      if (layoutsInFlight > 0) setState({ groups: result.groups, groupsError: null });
+      else setState({ groups: result.groups, groupsError: null, layout: result.layout ?? null });
+    } else if (result.status === 401) setState({ groups: [], groupsError: null, layout: null });
     else setState({ groupsError: result.error, groups: state.groups ?? [] });
   })().finally(() => {
     groupsInFlight = null;
@@ -136,7 +150,7 @@ export function prefetchGroup(groupId: string): void {
 
 /** Drops everything — used when the identity changes (logging in or out). */
 export function resetGroups(): void {
-  setState({ groups: null, groupsError: null, details: {}, detailErrors: {} });
+  setState({ groups: null, groupsError: null, layout: null, details: {}, detailErrors: {} });
 }
 
 /** Whose groups the store holds. Undefined until somebody says. */
@@ -439,7 +453,11 @@ export function publishGroupMessage(message: GroupMessage, author: GroupUser | n
 export function forgetGroup(groupId: string): void {
   const details = { ...state.details };
   delete details[groupId];
-  setState({ groups: state.groups?.filter((g) => g.id !== groupId) ?? null, details });
+  setState({
+    groups: state.groups?.filter((g) => g.id !== groupId) ?? null,
+    layout: state.layout ? withoutGroup(state.layout, groupId) : null,
+    details,
+  });
 }
 
 /** The list in the order `ids` names; any group it leaves out keeps its place after them. */
@@ -472,9 +490,63 @@ export function reorderGroups(ids: string[]): void {
     if (seq !== orderSeq) return;
     if (result.ok) {
       if (state.groups) setState({ groups: inOrder(state.groups, result.ids) });
+      // The arrangement held here is the old one now; the list's own answer
+      // says the new one (folders move with their first group — see the API's
+      // applyFlatOrder), and it is one cheap request.
+      if (state.layout) void refreshGroups();
     } else {
       void refreshGroups();
     }
+  });
+}
+
+let layoutSeq = 0;
+/** Layout saves still on their way — see ordersInFlight, the same idea. */
+let layoutsInFlight = 0;
+
+/** The server's answer to a layout change: the arrangement, and the groups in its order. */
+function applyLayoutAnswer(layout: GroupRailLayout, ids: readonly string[]) {
+  setState({ layout, ...(state.groups ? { groups: inOrder(state.groups, ids) } : {}) });
+}
+
+/**
+ * Saves a new arrangement of the list — folders made, moved, renamed, undone
+ * (experiment group-organize, see lib/groupRailLayout). Drawn at once, then
+ * saved; the server's answer replaces it, and a failure re-reads the list.
+ */
+export function saveLayout(next: GroupRailLayout): void {
+  if (!state.groups) return;
+  const archived = state.groups.filter((g) => g.archived).map((g) => g.id);
+  setState({ layout: next, groups: inOrder(state.groups, [...flatIds(next), ...archived]) });
+  const seq = ++layoutSeq;
+  layoutsInFlight += 1;
+  void saveRailLayout(next).then((result) => {
+    layoutsInFlight -= 1;
+    if (seq !== layoutSeq) return;
+    if (result.ok) applyLayoutAnswer(result.layout, result.ids);
+    else void refreshGroups();
+  });
+}
+
+/**
+ * Puts a group on the shelf, or takes it off. Applied here at once — it leaves
+ * (or rejoins) the list the moment it is chosen — then saved.
+ */
+export function archiveGroup(groupId: string, archived: boolean): void {
+  if (!state.groups) return;
+  setState({
+    groups: state.groups.map((g) => (g.id === groupId ? { ...g, archived: archived || undefined } : g)),
+    // Off the shelf it is "new" to the layout, and so drawn on top (see
+    // groupRailLayout's railEntries) — the server puts it there too.
+    layout: archived && state.layout ? withoutGroup(state.layout, groupId) : state.layout,
+  });
+  const seq = ++layoutSeq;
+  layoutsInFlight += 1;
+  void setGroupArchived(groupId, archived).then((result) => {
+    layoutsInFlight -= 1;
+    if (seq !== layoutSeq) return;
+    if (result.ok) applyLayoutAnswer(result.layout, result.ids);
+    else void refreshGroups();
   });
 }
 
@@ -553,6 +625,23 @@ function handleEvent(event: GroupSocketEvent) {
       }
       return;
     }
+    case "group-layout": {
+      // Folders or the shelf changed — on another device, or this one's own
+      // save coming back (ignored while any is on its way; its answer counts).
+      if (!state.groups || layoutsInFlight > 0 || ordersInFlight > 0) return;
+      const layout = event.layout as GroupRailLayout | undefined;
+      const ids = Array.isArray(event.ids) ? event.ids.filter((id): id is string => typeof id === "string") : null;
+      if (!layout || !Array.isArray(layout.order) || !Array.isArray(layout.folders) || !ids) return;
+      const change = event.archived as { groupId?: unknown; archived?: unknown } | undefined;
+      if (change && typeof change.groupId === "string" && typeof change.archived === "boolean") {
+        const { groupId: changed, archived } = change;
+        setState({
+          groups: state.groups.map((g) => (g.id === changed ? { ...g, archived: archived || undefined } : g)),
+        });
+      }
+      applyLayoutAnswer(layout, ids);
+      return;
+    }
     case "group-read": {
       if (groupId && typeof event.channelId === "string") clearUnread(groupId, event.channelId, false);
       return;
@@ -623,6 +712,11 @@ export function useGroupsSlice<T>(select: (state: GroupsState) => T, serverValue
     () => select(state),
     () => serverValue
   );
+}
+
+/** How this person arranges the list — see GroupsState.layout. */
+export function useGroupRailLayout(): GroupRailLayout | null {
+  return useGroupsSlice((s) => s.layout, null);
 }
 
 /** The list of groups, read once on first use. */

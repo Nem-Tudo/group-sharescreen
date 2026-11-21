@@ -2713,6 +2713,8 @@ class SignalingClient {
       case "group-read":
       case "group-typing":
       case "group-order":
+      // Folders and the shelf (experiment group-organize), from another device.
+      case "group-layout":
         this.emitGroupEvent(msg as GroupSocketEvent);
         break;
       // ─── Ligações ────────────────────────────────────────────────────

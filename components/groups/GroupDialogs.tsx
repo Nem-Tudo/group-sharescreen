@@ -39,6 +39,7 @@ import { FaCrown } from "react-icons/fa";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GroupIcon } from "@/components/groups/GroupIcon";
+import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { GroupName } from "@/components/groups/GroupName";
 import { AVATAR_IMAGE_ACCEPT, isSupportedAvatarImage, prepareAvatarImage } from "@/lib/avatarImage";
 import { copyText } from "@/lib/clipboard";
@@ -64,6 +65,7 @@ import {
   renameChannel,
   deleteCategory,
   renameCategory,
+  setCategoryTextFirst,
   revokeInvite,
   setCustomInvite,
   setGroupLayout,
@@ -84,7 +86,15 @@ import {
   type GroupVisibility,
   type InviteLifetime,
 } from "@/lib/groupsApi";
-import { CUSTOM_INVITE_RE, describeInviteExpiry, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
+import {
+  CUSTOM_INVITE_RE,
+  GROUPS_EXPLORE_PATH,
+  describeInviteExpiry,
+  groupPath,
+  inviteCodeFromInput,
+  invitePath,
+} from "@/lib/groupLinks";
+import { useGroupsHub } from "@/lib/groupsHub";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { buildSections, moveCategory, moveChannel, toPayload, type LayoutSection } from "@/lib/groupLayout";
 import { SITE_URL } from "@/lib/seo";
@@ -779,6 +789,8 @@ export function AddGroupDialog({ closePopup }: PopupProps<object>) {
   const { openPopup } = useNtPopups();
   const navigation = useGroupNavigation();
   const canCreate = Boolean(account);
+  // Explorar has a page of its own in the experiment groups-hub.
+  const hub = useGroupsHub({ track: false });
 
   function choose(popup: "create_group" | "join_group") {
     closePopup(true);
@@ -791,7 +803,7 @@ export function AddGroupDialog({ closePopup }: PopupProps<object>) {
   function explore() {
     closePopup(true);
     requestExploreGroups();
-    navigation.push("/groups");
+    navigation.push(hub ? GROUPS_EXPLORE_PATH : "/groups");
   }
 
   const choice =

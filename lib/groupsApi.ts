@@ -82,6 +82,30 @@ export interface GroupSummary {
    * group's marks even before its rooms are read. Absent when none.
    */
   mutedChannels?: string[];
+  /**
+   * On this person's shelf ("Arquivar", experiment group-organize): out of the
+   * list, and quiet except for messages naming them. Absent when not.
+   */
+  archived?: boolean;
+}
+
+/** A folder in this person's own list of groups (experiment group-organize). */
+export interface GroupFolder {
+  id: string;
+  name: string;
+  /** One of FOLDER_COLORS — see lib/groupRailLayout. */
+  color: string;
+  groupIds: string[];
+}
+
+/**
+ * How this person arranges their groups: the top level in order — group ids,
+ * and folders as "folder:<id>" — and the folders. Archived groups are in
+ * neither. See the API's groupLayoutStore.
+ */
+export interface GroupRailLayout {
+  order: string[];
+  folders: GroupFolder[];
 }
 
 export type GroupVoiceActivity = "screen" | "camera" | "voice";
@@ -410,8 +434,9 @@ const enc = encodeURIComponent;
 
 // ─── Groups ──────────────────────────────────────────────────────────────
 
+/** `layout` is absent from an older API. */
 export const fetchMyGroups = (signal?: AbortSignal) =>
-  request<{ groups: GroupSummary[] }>("GET", "/groups", undefined, signal);
+  request<{ groups: GroupSummary[]; layout?: GroupRailLayout }>("GET", "/groups", undefined, signal);
 
 export const createGroup = (name: string, visibility: GroupVisibility, discordTemplate?: string | null) =>
   request<{ group: GroupInfo }>("POST", "/groups", {
@@ -604,6 +629,21 @@ export const setChannelMuted = (groupId: string, channelId: string, muted: boole
 /** Rearranges your own list of groups (the rail). Answers with the order that now holds. */
 export const setGroupOrder = (ids: string[]) =>
   request<{ ids: string[] }>("PUT", "/groups/order", { ids });
+
+/** The whole arrangement, folders included — see GroupRailLayout. Answers with what holds. */
+export const saveRailLayout = (layout: GroupRailLayout) =>
+  request<{ layout: GroupRailLayout; ids: string[] }>("PUT", "/groups/layout", {
+    order: layout.order,
+    folders: layout.folders,
+  });
+
+/** Puts a group on this person's shelf, or takes it off. */
+export const setGroupArchived = (groupId: string, archived: boolean) =>
+  request<{ archived: boolean; layout: GroupRailLayout; ids: string[] }>(
+    "PUT",
+    `/groups/${enc(groupId)}/archive`,
+    { archived }
+  );
 
 // ─── Members ─────────────────────────────────────────────────────────────
 

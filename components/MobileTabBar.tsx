@@ -26,6 +26,8 @@ import { useT } from "@/lib/useI18n";
 import { avatarShapeClass } from "@/lib/avatarShape";
 import { useFeature } from "@/lib/features";
 import { HOME_REDESIGN_FEATURE } from "@/lib/homeRedesign";
+import { countedGroups } from "@/lib/groupRailLayout";
+import { useGroupOrganize } from "@/lib/groupOrganize";
 
 // The app's bottom tabs, below lg — see lib/mobileShell for which screens show
 // them and why the desktop app never does.
@@ -81,8 +83,11 @@ function TabBar({ pathname, counting }: { pathname: string; counting: boolean })
   useEffect(() => {
     if (counting && groups === null) void refreshGroups();
   }, [counting, groups]);
-  const groupMentions = (groups ?? []).reduce((sum, g) => sum + (g.suspended ? 0 : g.mentions), 0);
-  const groupUnread = (groups ?? []).some((g) => !g.suspended && g.unread);
+  // An archived group's marks stay on its shelf (experiment group-organize).
+  const organize = useGroupOrganize({ track: false });
+  const counted = countedGroups(groups ?? [], organize);
+  const groupMentions = counted.reduce((sum, g) => sum + (g.suspended ? 0 : g.mentions), 0);
+  const groupUnread = counted.some((g) => !g.suspended && g.unread);
 
   const path = pathname.replace(/\/+$/, "") || "/";
   const onGroups = path === "/groups" || path.startsWith("/groups/");

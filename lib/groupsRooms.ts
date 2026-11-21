@@ -24,8 +24,9 @@ export const GROUPS_ROOMS_EVENTS = {
 } as const;
 
 /** Where the list was opened from — the `open` event's value. */
-export type GroupsRoomsSource = "rail" | "home" | "address";
-const SOURCE_VALUE: Record<GroupsRoomsSource, number> = { rail: 1, home: 2, address: 3 };
+/** "hub": the home inside the groups layout (experiment groups-hub). */
+export type GroupsRoomsSource = "rail" | "home" | "address" | "hub";
+const SOURCE_VALUE: Record<GroupsRoomsSource, number> = { rail: 1, home: 2, address: 3, hub: 4 };
 
 let pendingSource: GroupsRoomsSource | null = null;
 

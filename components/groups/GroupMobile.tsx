@@ -3,6 +3,7 @@
 import { useState } from "react";
 import useNtPopups from "ntpopups";
 import {
+  MdAdd,
   MdArrowBack,
   MdChatBubbleOutline,
   MdContentCopy,
@@ -26,7 +27,10 @@ import { GroupSwitcher } from "@/components/groups/GroupSwitcher";
 import { GroupMenu, GroupRoomsPanel } from "@/components/groups/GroupSidebar";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
 import { copyText } from "@/lib/clipboard";
-import { groupPath, type GroupsRoute } from "@/lib/groupLinks";
+import { GROUPS_EXPLORE_PATH, groupPath, type GroupsRoute } from "@/lib/groupLinks";
+import { GlobeIcon } from "@/components/icons";
+import { useGroupsHub } from "@/lib/groupsHub";
+import { useGroupOrganize } from "@/lib/groupOrganize";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canManage } from "@/lib/groupPermissions";
 import type { GroupChannel, GroupDetail } from "@/lib/groupsApi";
@@ -84,8 +88,13 @@ export function GroupMobileBar({
 }) {
   const t = useT();
   const navigation = useGroupNavigation();
+  const { openPopup } = useNtPopups();
   const [roomMenu, setRoomMenu] = useState(false);
   const kind = route?.kind ?? "home";
+  // Whether /groups is the chat-app list (see GroupAppShell's GroupsView).
+  const hub = useGroupsHub({ track: false });
+  const organize = useGroupOrganize({ track: false });
+  const listed = hub || organize;
   const groupId = route && (route.kind === "group" || route.kind === "room") ? route.groupId : null;
 
   const back = () => {
@@ -107,9 +116,13 @@ export function GroupMobileBar({
       )}
 
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        {kind === "home" || kind === "rooms" ? (
+        {kind === "home" || kind === "rooms" || kind === "explore" ? (
           <h1 className="truncate px-1 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            {kind === "rooms" ? t("groups.roomsTab.title") : t("common.groups")}
+            {kind === "rooms"
+              ? t("groups.roomsTab.title")
+              : kind === "explore"
+                ? t("groups.groupDialogs.exploreGroups")
+                : t("common.groups")}
           </h1>
         ) : kind === "group" ? (
           <GroupSwitcher
@@ -165,6 +178,34 @@ export function GroupMobileBar({
               channel={channel}
               onOpenMembers={onOpenMembers}
             />
+          </>
+        )}
+        {/* The list of groups (see GroupsMobileList): the ways to more of
+            them, where a chat app puts "new chat". */}
+        {kind === "home" && listed && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                haptic("tap");
+                navigation.push(GROUPS_EXPLORE_PATH);
+              }}
+              aria-label={t("groups.groupDialogs.exploreGroups")}
+              className={barButton}
+            >
+              <GlobeIcon className="h-6 w-6" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                haptic("tap");
+                void openPopup("add_group", { data: {} });
+              }}
+              aria-label={t("groups.homeGroupsPanel.addGroup")}
+              className={barButton}
+            >
+              <MdAdd className="h-6 w-6" />
+            </button>
           </>
         )}
         {kind !== "room" && <NotificationInboxBell />}

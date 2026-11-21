@@ -14,6 +14,7 @@ import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { useT } from "@/lib/useI18n";
 import type { GroupVisibility } from "@/lib/groupsApi";
+import { useGroupOrganize } from "@/lib/groupOrganize";
 
 // Which group is open, and the way to every other one — a switcher in the top
 // bar, the same place the room shows its own name. From lg up the groups are
@@ -43,7 +44,11 @@ export function GroupSwitcher({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const { groups } = useMyGroups();
+  const { groups: all } = useMyGroups();
+  // The shelf stays the shelf here too (experiment group-organize): not
+  // listed, and its marks are not "something new elsewhere".
+  const organize = useGroupOrganize({ track: false });
+  const groups = all && organize ? all.filter((g) => !g.archived || g.id === activeGroupId) : all;
   const { account } = useAuth();
   const { openPopup } = useNtPopups();
   const navigation = useGroupNavigation();
@@ -56,7 +61,7 @@ export function GroupSwitcher({
   const iconUrl = active?.iconUrl ?? fallbackIconUrl ?? null;
   const flags = active?.flags ?? fallbackFlags ?? null;
   const elsewhereUnread = Boolean(
-    groups?.some((g) => g.id !== activeGroupId && (g.unread || g.mentions > 0))
+    groups?.some((g) => g.id !== activeGroupId && !(organize && g.archived) && (g.unread || g.mentions > 0))
   );
   const close = () => setOpen(false);
 

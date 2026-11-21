@@ -5,11 +5,11 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -17,11 +17,16 @@ import useNtPopups from "ntpopups";
 import {
   MdAdd,
   MdAlternateEmail,
+  MdArchive,
   MdArrowDownward,
   MdArrowUpward,
   MdClose,
   MdContentCopy,
+  MdCreateNewFolder,
   MdDoneAll,
+  MdDriveFileMove,
+  MdFolder,
+  MdFolderOff,
   MdGroups,
   MdHeadsetMic,
   MdKeyboardArrowDown,
@@ -29,8 +34,11 @@ import {
   MdKeyboardDoubleArrowLeft,
   MdKeyboardDoubleArrowRight,
   MdLink,
+  MdLiveTv,
+  MdOutlineFolderOpen,
   MdScreenShare,
   MdSearch,
+  MdUnarchive,
   MdVerticalAlignBottom,
   MdVerticalAlignTop,
   MdVideocam,
@@ -43,15 +51,48 @@ import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { nameMatches, searchWords, setGroupsHomeQuery } from "@/components/groups/groupSearch";
 import { copyText } from "@/lib/clipboard";
-import { GROUPS_ROOMS_PATH, groupPath } from "@/lib/groupLinks";
+import { GROUPS_EXPLORE_PATH, GROUPS_ROOMS_PATH, groupPath } from "@/lib/groupLinks";
 import { GROUPS_ROOMS_FEATURE, noteGroupsRoomsSource } from "@/lib/groupsRooms";
 import { useFeature } from "@/lib/features";
 import { useGroupNavigation } from "@/lib/groupNavigation";
-import type { GroupSummary } from "@/lib/groupsApi";
+import type { GroupFolder, GroupSummary } from "@/lib/groupsApi";
 import { useGroupVoiceSession } from "@/lib/groupVoiceSession";
-import { markGroupRead, prefetchGroup, reorderGroups, useMyGroups } from "@/lib/useGroups";
+import {
+  FOLDER_COLORS,
+  FOLDER_SWATCH,
+  FOLDER_TINT,
+  addToFolder,
+  archivedGroups,
+  countedGroups,
+  createFolder,
+  dissolveFolder,
+  flatIds,
+  folderColor,
+  folderNews,
+  layoutOf,
+  moveEntry,
+  moveInFolder,
+  railEntries,
+  removeFromFolder,
+  updateFolder,
+  type FolderColor,
+  type RailEntry,
+} from "@/lib/groupRailLayout";
+import { GROUP_ORGANIZE_EVENTS, trackGroupOrganize, useGroupOrganize } from "@/lib/groupOrganize";
+import { useGroupsHub } from "@/lib/groupsHub";
+import { setFolderOpen, useOpenFolders } from "@/lib/openFolders";
+import { useDragSort } from "@/lib/useDragSort";
+import {
+  archiveGroup,
+  markGroupRead,
+  prefetchGroup,
+  reorderGroups,
+  saveLayout,
+  useGroupRailLayout,
+  useMyGroups,
+} from "@/lib/useGroups";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { useT } from "@/lib/useI18n";
+import { useT, useTCount } from "@/lib/useI18n";
 
 // Every group this person is in, down the left edge of /groups — a dock
 // rather than a strip: a card like the columns beside it, icons only while it
@@ -69,33 +110,22 @@ import { useT } from "@/lib/useI18n";
 //     one is scrolled out of sight;
 //   - you are in a call there: a headset on the icon.
 //
-// The order is the person's own, saved on the server (see lib/useGroups'
-// reorderGroups), so every list of groups on the site follows it. Rearranged
-// by dragging a tile (a long press on a touchscreen), by Alt+↑/↓ on a focused
-// tile, or from the tile's right-click menu.
+// The order is the person's own, saved on the server, so every list of groups
+// on the site follows it. Rearranged by dragging a tile (a long press on a
+// touchscreen), by Alt+↑/↓ on a focused tile, or from the tile's right-click
+// menu. A group joined since lands on top.
+//
+// Experiment group-organize (lib/groupOrganize): folders — a tile of their
+// own holding several groups, opened in place — and a shelf at the end of the
+// list for groups put away ("Arquivados"). The order then lives in the
+// layout (lib/groupRailLayout), and each level is rearranged on its own: the
+// top level among itself, a folder's groups inside the folder. Moving a group
+// into or out of a folder is the menu's.
 
-/** A tile's height, and the step from one tile to the next. */
-const TILE_PX = 48;
-const PITCH_PX = 54;
-/** The list's own padding above its first tile. */
-const LIST_PAD_PX = 8;
-/** How far the pointer moves before a press becomes a drag. */
-const DRAG_SLOP_PX = 4;
-/** How long a finger holds a tile before it can be dragged. */
-const TOUCH_HOLD_MS = 380;
-/** How long the pointer has to stand still on the dock before the names slide out. */
-const REST_DELAY_MS = 650;
 const EXPANDED_KEY = "golive:groups:railExpanded";
 const XL_QUERY = "(min-width: 80rem)";
-
-type Drag = { id: string; from: number; to: number; top: number };
-
-function moved<T>(list: readonly T[], from: number, to: number): T[] {
-  const next = [...list];
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item);
-  return next;
-}
+/** How long the pointer has to stand still on the dock before the names slide out. */
+const REST_DELAY_MS = 650;
 
 function mentionLabel(t: ReturnType<typeof useT>, mentions: number): string {
   return mentions === 1
@@ -103,27 +133,51 @@ function mentionLabel(t: ReturnType<typeof useT>, mentions: number): string {
     : t("groups.homeGroupsPanel.mentionsMentions", { mentions });
 }
 
+/** Scrolls a group's tile into view once it is drawn (a folder may have just opened around it). */
+function revealGroup(groupId: string) {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-rail-group="${CSS.escape(groupId)}"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    })
+  );
+}
+
+type MenuTarget = { kind: "group" | "folder"; id: string; x: number; y: number; rename?: boolean };
+
 export function GroupRail({
   activeGroupId,
   roomsActive = false,
+  exploreActive = false,
   elsewhere = false,
 }: {
   activeGroupId: string | null;
   /** The public rooms are the page (experiment "groups-rooms") — their tile is the lit one. */
   roomsActive?: boolean;
+  /** Explorar grupos is the page (experiment "groups-hub") — its tile is the lit one. */
+  exploreActive?: boolean;
   /**
-   * The page is none of the rail's own — an ordinary room's, framed by the
-   * group shell (experiment "room-shell", see lib/roomShell) — so no tile is lit.
+   * The page is none of the rail's own — an ordinary room's, or another page
+   * of the site framed by the group shell (experiment "room-shell", see
+   * lib/roomShell) — so no tile is lit.
    */
   elsewhere?: boolean;
 }) {
   const t = useT();
+  const tc = useTCount();
   // The tile is where the experiment shows itself, so this is the exposure.
   const roomsTab = useFeature(GROUPS_ROOMS_FEATURE).enabled;
+  // Folders and the shelf: the rail is where they are drawn.
+  const organize = useGroupOrganize({ track: true });
+  // Explorar in the top tiles, and the live rooms' new icon.
+  const hub = useGroupsHub({ track: true });
   const { groups } = useMyGroups();
+  const layout = useGroupRailLayout();
   const navigation = useGroupNavigation();
   const voice = useGroupVoiceSession();
   const isXl = useMediaQuery(XL_QUERY);
+  const openFolders = useOpenFolders();
 
   // ── Names out or in ────────────────────────────────────────────────────
   // Read straight from storage: the dock is only ever drawn in the browser
@@ -163,39 +217,47 @@ export function GroupRail({
   const searchActive = searchFocused || filtering;
   const showNames = expanded || peek || searchActive;
 
-  // ── The list, and where the mentions are in it ─────────────────────────
-  const [drag, setDragState] = useState<Drag | null>(null);
-  // The same, readable from the window's listeners without waiting on a render.
-  const dragRef = useRef<Drag | null>(null);
-  const setDrag = useCallback((next: Drag | null) => {
-    dragRef.current = next;
-    setDragState(next);
-  }, []);
-  const list = groups ?? [];
-  const ids = list.map((g) => g.id);
-  // What is drawn: every group, or the ones the search matches. Rearranging
-  // is off while searching — "one place up" means nothing in a filtered list.
-  const visible = filtering ? list.filter((g) => nameMatches(g.name, words)) : list;
-  const shownIds = drag ? moved(ids, drag.from, drag.to) : visible.map((g) => g.id);
-  const slotOf = new Map(shownIds.map((id, i) => [id, i]));
+  // ── The list ───────────────────────────────────────────────────────────
+  const list = useMemo(() => groups ?? [], [groups]);
+  // Outside the experiment every group is a line of its own, in the order the
+  // server sent — which is already the person's, archived ones included.
+  const entries: RailEntry[] = useMemo(
+    () => (organize ? railEntries(list, layout) : list.map((g) => ({ kind: "group", id: g.id, group: g }))),
+    [organize, list, layout]
+  );
+  const shelf = useMemo(() => (organize ? archivedGroups(list) : []), [organize, list]);
+  const entryIds = useMemo(() => entries.map((e) => e.id), [entries]);
+  // The layout as drawn — what every change below starts from.
+  const drawn = useMemo(() => layoutOf(entries), [entries]);
+  // What a search draws: every group whose name matches, shelf included, flat.
+  const matches = filtering ? list.filter((g) => nameMatches(g.name, words)) : [];
 
-  const mentioned = list.filter((g) => !g.suspended && g.mentions > 0);
+  const counted = countedGroups(list, organize);
+  const mentioned = counted.filter((g) => !g.suspended && g.mentions > 0);
   const totalMentions = mentioned.reduce((n, g) => n + g.mentions, 0);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+
+  // ── Hints at the edges ─────────────────────────────────────────────────
+  // Read off the page: tiles are of more than one height now (a folder open
+  // is tall), so where a mention sits is a question for the layout.
   const [hints, setHints] = useState({ above: false, below: false });
-  const mentionIndexes = visible
-    .map((g, i) => (!g.suspended && g.mentions > 0 ? i : -1))
-    .filter((i) => i >= 0)
-    .join(",");
   const updateHints = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const indexes = mentionIndexes ? mentionIndexes.split(",").map(Number) : [];
-    const above = indexes.some((i) => LIST_PAD_PX + i * PITCH_PX + TILE_PX <= el.scrollTop + 4);
-    const below = indexes.some((i) => LIST_PAD_PX + i * PITCH_PX >= el.scrollTop + el.clientHeight - 4);
+    const box = el.getBoundingClientRect();
+    let above = false;
+    let below = false;
+    for (const tile of el.querySelectorAll<HTMLElement>("[data-rail-mention]")) {
+      const r = tile.getBoundingClientRect();
+      if (r.height === 0) continue;
+      if (r.bottom <= box.top + 4) above = true;
+      if (r.top >= box.bottom - 4) below = true;
+    }
     setHints((h) => (h.above === above && h.below === below ? h : { above, below }));
-  }, [mentionIndexes]);
+  }, []);
+  const mentionKey = mentioned.map((g) => g.id).join(",");
   useLayoutEffect(() => {
     updateHints();
     const el = scrollRef.current;
@@ -203,37 +265,48 @@ export function GroupRail({
     const observer = new ResizeObserver(updateHints);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [updateHints]);
-
-  function scrollToIndex(index: number) {
-    const el = scrollRef.current;
-    if (!el) return;
-    const top = LIST_PAD_PX + index * PITCH_PX;
-    if (top < el.scrollTop) el.scrollTo({ top: Math.max(0, top - 8), behavior: "smooth" });
-    else if (top + TILE_PX > el.scrollTop + el.clientHeight)
-      el.scrollTo({ top: top + TILE_PX - el.clientHeight + 8, behavior: "smooth" });
-  }
+  }, [updateHints, mentionKey, entries, openFolders, filtering]);
 
   function scrollToHint(direction: "above" | "below") {
     const el = scrollRef.current;
     if (!el) return;
-    const indexes = mentionIndexes.split(",").map(Number);
+    const box = el.getBoundingClientRect();
+    const tiles = [...el.querySelectorAll<HTMLElement>("[data-rail-mention]")];
     const target =
       direction === "above"
-        ? [...indexes].reverse().find((i) => LIST_PAD_PX + i * PITCH_PX + TILE_PX <= el.scrollTop + 4)
-        : indexes.find((i) => LIST_PAD_PX + i * PITCH_PX >= el.scrollTop + el.clientHeight - 4);
-    if (target !== undefined) scrollToIndex(target);
+        ? tiles.reverse().find((tile) => tile.getBoundingClientRect().bottom <= box.top + 4)
+        : tiles.find((tile) => tile.getBoundingClientRect().top >= box.bottom - 4);
+    target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  /** The folder a group is in, from the layout as drawn. */
+  const folderOf = useCallback(
+    (groupId: string) => drawn.folders.find((f) => f.groupIds.includes(groupId)) ?? null,
+    [drawn]
+  );
+
+  /** Opens whatever folder holds a group, and brings its tile into view. */
+  function reveal(groupId: string) {
+    const folder = folderOf(groupId);
+    if (folder) setFolderOpen(folder.id, true);
+    revealGroup(groupId);
   }
 
   /** The next group after the open one that holds a mention, round the end. */
   function jumpToNextMention() {
     if (mentioned.length === 0) return;
-    const activeIndex = list.findIndex((g) => g.id === activeGroupId);
-    const next =
-      list.find((g, i) => i > activeIndex && !g.suspended && g.mentions > 0) ?? mentioned[0];
+    const order = organize ? flatIds(drawn) : list.map((g) => g.id);
+    const byId = new Map(counted.map((g) => [g.id, g]));
+    const activeIndex = activeGroupId ? order.indexOf(activeGroupId) : -1;
+    const holds = (id: string) => {
+      const g = byId.get(id);
+      return Boolean(g && !g.suspended && g.mentions > 0);
+    };
+    const next = order.find((id, i) => i > activeIndex && holds(id)) ?? order.find(holds);
+    if (!next) return;
     if (filtering) setSearch("");
-    else scrollToIndex(list.indexOf(next));
-    navigation.push(groupPath(next.id));
+    reveal(next);
+    navigation.push(groupPath(next));
   }
 
   /** Out of the search: the field emptied and let go, so the dock can fold away. */
@@ -243,18 +316,19 @@ export function GroupRail({
   }
 
   function openFirstMatch() {
-    const first = visible[0];
+    const first = matches[0];
     if (!first) return;
     endSearch();
+    reveal(first.id);
     navigation.push(groupPath(first.id));
   }
 
-  /** The same words, looked for among public groups on /groups. */
+  /** The same words, looked for among public groups on /groups (or Explorar). */
   function searchPublicGroups() {
     const text = search.trim();
     endSearch();
     setGroupsHomeQuery(text);
-    navigation.push("/groups");
+    navigation.push(hub ? GROUPS_EXPLORE_PATH : "/groups");
   }
 
   // ── Rearranging ────────────────────────────────────────────────────────
@@ -264,169 +338,110 @@ export function GroupRail({
     const id = refocusId.current;
     if (!id) return;
     refocusId.current = null;
-    scrollRef.current?.querySelector<HTMLElement>(`[data-rail-group="${CSS.escape(id)}"]`)?.focus();
+    scrollRef.current?.querySelector<HTMLElement>(`[data-rail-focus="${CSS.escape(id)}"]`)?.focus();
   });
 
-  function moveGroup(id: string, to: number) {
-    const from = ids.indexOf(id);
-    const target = Math.max(0, Math.min(ids.length - 1, to));
-    if (from < 0 || from === target) return;
-    reorderGroups(moved(ids, from, target));
-    const group = list[from];
-    setAnnouncement(
-      t("groups.groupRail.movedToPosition", { name: group.name, position: target + 1, total: ids.length })
-    );
-    scrollToIndex(target);
-  }
-
-  const press = useRef<{
-    id: string;
-    pointerId: number;
-    touch: boolean;
-    startY: number;
-    startScroll: number;
-    lastY: number;
-    started: boolean;
-    holdTimer: ReturnType<typeof setTimeout> | null;
-    frame: number | null;
-  } | null>(null);
-  const suppressClick = useRef(false);
-  // The handlers the window listens to while a press is on, kept in a ref so
-  // the very functions added are the ones removed.
-  const handlers = useRef<{
-    move: (e: PointerEvent) => void;
-    up: (e: PointerEvent) => void;
-    key: (e: KeyboardEvent) => void;
-    touchMove: (e: TouchEvent) => void;
-  } | null>(null);
-  const idsRef = useRef(ids);
-  useLayoutEffect(() => {
-    idsRef.current = ids;
-  });
-
-  const place = useCallback(() => {
-    const p = press.current;
-    const el = scrollRef.current;
-    if (!p || !p.started || !el) return;
-    const count = idsRef.current.length;
-    // Looked up again each time: the list can change under a drag (a group
-    // joined or left on another device).
-    const from = idsRef.current.indexOf(p.id);
-    if (from < 0) return;
-    const raw = from * PITCH_PX + (p.lastY - p.startY) + (el.scrollTop - p.startScroll);
-    const top = Math.max(0, Math.min((count - 1) * PITCH_PX, raw));
-    const to = Math.round(top / PITCH_PX);
-    setDrag({ id: p.id, from, to, top });
-  }, [setDrag]);
-
-  const endPress = useCallback((commit: boolean) => {
-    const p = press.current;
-    if (!p) return;
-    if (p.holdTimer) clearTimeout(p.holdTimer);
-    if (p.frame !== null) cancelAnimationFrame(p.frame);
-    const h = handlers.current;
-    if (h) {
-      window.removeEventListener("pointermove", h.move);
-      window.removeEventListener("pointerup", h.up);
-      window.removeEventListener("pointercancel", h.up);
-      window.removeEventListener("keydown", h.key, true);
-      window.removeEventListener("touchmove", h.touchMove);
-    }
-    press.current = null;
-    if (!p.started) return;
-    document.body.style.userSelect = "";
-    // The click that follows the release is the end of the drag, not a visit.
-    suppressClick.current = true;
-    setTimeout(() => {
-      suppressClick.current = false;
-    }, 0);
-    const current = dragRef.current;
-    setDrag(null);
-    if (commit && current && current.from !== current.to) {
-      reorderGroups(moved(idsRef.current, current.from, current.to));
-    }
-  }, [setDrag]);
-
-  const startDrag = useCallback(() => {
-    const p = press.current;
-    if (!p || p.started) return;
-    p.started = true;
-    p.startScroll = scrollRef.current?.scrollTop ?? 0;
-    document.body.style.userSelect = "none";
-    // Near an edge of the list, it scrolls under the tile being carried.
-    const tick = () => {
-      const current = press.current;
-      const el = scrollRef.current;
-      if (!current || !el) return;
-      const rect = el.getBoundingClientRect();
-      const edge = 36;
-      let delta = 0;
-      if (current.lastY < rect.top + edge) delta = -Math.ceil((rect.top + edge - current.lastY) / 5);
-      else if (current.lastY > rect.bottom - edge) delta = Math.ceil((current.lastY - rect.bottom + edge) / 5);
-      if (delta !== 0) el.scrollTop += delta;
-      place();
-      current.frame = requestAnimationFrame(tick);
-    };
-    p.frame = requestAnimationFrame(tick);
-    place();
-  }, [place]);
-
-  function onTilePointerDown(e: ReactPointerEvent<HTMLAnchorElement>, id: string) {
-    if (e.button !== 0 || press.current || filtering) return;
-    const touch = e.pointerType !== "mouse";
-    press.current = {
-      id,
-      pointerId: e.pointerId,
-      touch,
-      startY: e.clientY,
-      startScroll: scrollRef.current?.scrollTop ?? 0,
-      lastY: e.clientY,
-      started: false,
-      holdTimer: touch ? setTimeout(startDrag, TOUCH_HOLD_MS) : null,
-      frame: null,
-    };
-    const move = (ev: PointerEvent) => {
-      const p = press.current;
-      if (!p || ev.pointerId !== p.pointerId) return;
-      p.lastY = ev.clientY;
-      if (p.started) return;
-      const distance = Math.abs(ev.clientY - p.startY);
-      if (!p.touch && distance > DRAG_SLOP_PX) startDrag();
-      // A finger that moves before the hold is up is scrolling, not dragging.
-      else if (p.touch && distance > 8) endPress(false);
-    };
-    const up = (ev: PointerEvent) => {
-      if (press.current && ev.pointerId === press.current.pointerId) endPress(ev.type === "pointerup");
-    };
-    const key = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape" && press.current?.started) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        endPress(false);
+  /** A line of the top level from one place to another. */
+  const moveTop = useCallback(
+    (from: number, to: number) => {
+      if (organize) saveLayout(moveEntry(drawn, from, to));
+      else {
+        const next = [...entryIds];
+        const [id] = next.splice(from, 1);
+        next.splice(to, 0, id);
+        reorderGroups(next);
       }
-    };
-    const touchMove = (ev: TouchEvent) => {
-      if (press.current?.started) ev.preventDefault();
-    };
-    handlers.current = { move, up, key, touchMove };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    window.addEventListener("keydown", key, true);
-    window.addEventListener("touchmove", touchMove, { passive: false });
+    },
+    [organize, drawn, entryIds]
+  );
+
+  /** A group inside a folder, from one place to another. */
+  const moveChild = useCallback(
+    (folderId: string, from: number, to: number) => saveLayout(moveInFolder(drawn, folderId, from, to)),
+    [drawn]
+  );
+
+  function announceMove(name: string, position: number, total: number) {
+    setAnnouncement(t("groups.groupRail.movedToPosition", { name, position, total }));
   }
 
-  useEffect(() => () => endPress(false), [endPress]);
+  /** Moves a line (top level, or inside its folder) to `to`, from the keyboard or the menu. */
+  function moveLine(kind: "group" | "folder", id: string, to: number) {
+    const folder = kind === "group" ? folderOf(id) : null;
+    const siblings = folder ? folder.groupIds : entryIds;
+    const from = siblings.indexOf(id);
+    const target = Math.max(0, Math.min(siblings.length - 1, to));
+    if (from < 0 || from === target) return;
+    if (folder) moveChild(folder.id, from, target);
+    else moveTop(from, target);
+    const name =
+      kind === "folder"
+        ? drawn.folders.find((f) => f.id === id)?.name || t("groups.organize.folder")
+        : list.find((g) => g.id === id)?.name ?? "";
+    announceMove(name, target + 1, siblings.length);
+    revealGroup(id);
+  }
 
-  function onTileKeyDown(e: ReactKeyboardEvent<HTMLAnchorElement>, id: string, index: number) {
+  function onLineKeyDown(e: ReactKeyboardEvent<HTMLElement>, kind: "group" | "folder", id: string) {
     if (!e.altKey || filtering || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
     e.preventDefault();
+    e.stopPropagation();
+    const folder = kind === "group" ? folderOf(id) : null;
+    const siblings = folder ? folder.groupIds : entryIds;
     refocusId.current = id;
-    moveGroup(id, index + (e.key === "ArrowUp" ? -1 : 1));
+    moveLine(kind, id, siblings.indexOf(id) + (e.key === "ArrowUp" ? -1 : 1));
   }
 
+  const topDrag = useDragSort({
+    ids: entryIds,
+    listRef,
+    scrollRef,
+    onMove: moveTop,
+    disabled: filtering,
+  });
+
+  // ── Folders and the shelf ──────────────────────────────────────────────
+  function newFolderWith(groupId: string, at: { x: number; y: number }) {
+    const { layout: next, folderId } = createFolder(drawn, [groupId]);
+    saveLayout(next);
+    setFolderOpen(folderId, true);
+    trackGroupOrganize(GROUP_ORGANIZE_EVENTS.folderCreate);
+    // Straight into naming it, where the menu was.
+    setMenu({ kind: "folder", id: folderId, x: at.x, y: at.y, rename: true });
+  }
+
+  function putInFolder(groupId: string, folderId: string) {
+    saveLayout(addToFolder(drawn, groupId, folderId));
+    setFolderOpen(folderId, true);
+    trackGroupOrganize(GROUP_ORGANIZE_EVENTS.folderAdd);
+    revealGroup(groupId);
+  }
+
+  function takeOutOfFolder(groupId: string) {
+    saveLayout(removeFromFolder(drawn, groupId));
+    revealGroup(groupId);
+  }
+
+  function ungroup(folderId: string) {
+    saveLayout(dissolveFolder(drawn, folderId));
+    trackGroupOrganize(GROUP_ORGANIZE_EVENTS.folderUngroup);
+  }
+
+  function setArchived(group: GroupSummary, archived: boolean) {
+    archiveGroup(group.id, archived);
+    trackGroupOrganize(archived ? GROUP_ORGANIZE_EVENTS.archive : GROUP_ORGANIZE_EVENTS.unarchive);
+    setAnnouncement(
+      archived ? t("groups.organize.archivedName", { name: group.name }) : t("groups.organize.unarchivedName", { name: group.name })
+    );
+    if (!archived) revealGroup(group.id);
+  }
+
+  const [shelfOpen, setShelfOpen] = useState(false);
+  const shelfMentions = shelf.reduce((n, g) => n + (g.suspended ? 0 : g.mentions), 0);
+  const shelfUnread = shelf.some((g) => !g.suspended && g.unread);
+
   // ── The right-click menu ───────────────────────────────────────────────
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [panel, setPanel] = useState<HTMLDivElement | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   useEffect(() => {
@@ -437,29 +452,62 @@ export function GroupRail({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [menu, closeMenu]);
-  const menuGroup = menu ? list.find((g) => g.id === menu.id) ?? null : null;
+  const menuGroup = menu?.kind === "group" ? list.find((g) => g.id === menu.id) ?? null : null;
+  const menuFolderEntry =
+    menu?.kind === "folder"
+      ? (entries.find((e) => e.kind === "folder" && e.id === menu.id) as Extract<RailEntry, { kind: "folder" }> | undefined) ??
+        null
+      : null;
+
+  function openMenu(e: ReactMouseEvent, kind: "group" | "folder", id: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    // A long press on a touchscreen is the start of a drag.
+    if (topDrag.touchPressing()) return;
+    setMenu({ kind, id, x: e.clientX, y: e.clientY });
+  }
 
   // Every move starts the wait over, so only a pointer that stops on the dock
   // opens it; once open, moving about inside it keeps it open.
   function onDockMove() {
-    if (expanded || peek || press.current) return;
+    if (expanded || peek || topDrag.drag) return;
     if (peekTimer.current) clearTimeout(peekTimer.current);
     peekTimer.current = setTimeout(() => setPeek(true), REST_DELAY_MS);
   }
   function onDockLeave() {
     if (peekTimer.current) clearTimeout(peekTimer.current);
-    // Not while a tile is being carried: the names folding away under it
-    // would be the dock moving under the pointer.
-    if (!press.current?.started) setPeek(false);
+    // Not while a tile is being carried, nor while a menu of the dock is
+    // open: the names folding away under it would be the dock moving under
+    // the pointer, and a menu that points at nothing.
+    if (!topDrag.drag && !menu) setPeek(false);
   }
   useEffect(() => {
-    if (!drag && peek && panel && !panel.matches(":hover")) setPeek(false);
-  }, [drag, peek, panel]);
-  useEffect(() => () => {
-    if (peekTimer.current) clearTimeout(peekTimer.current);
-  }, []);
+    if (!topDrag.drag && !menu && peek && panel && !panel.matches(":hover")) setPeek(false);
+  }, [topDrag.drag, menu, peek, panel]);
+  useEffect(
+    () => () => {
+      if (peekTimer.current) clearTimeout(peekTimer.current);
+    },
+    []
+  );
 
   const railWidth = expanded ? "w-60" : "w-[70px]";
+
+  const groupTile = (group: GroupSummary, extra?: { dragging?: boolean; nested?: boolean; shelved?: boolean }) => (
+    <GroupTile
+      group={group}
+      active={group.id === activeGroupId}
+      inCall={voice?.groupId === group.id}
+      showName={showNames}
+      dragging={Boolean(extra?.dragging)}
+      shelved={Boolean(extra?.shelved)}
+      onKeyDown={(e) => onLineKeyDown(e, "group", group.id)}
+      onClick={() => {
+        if (filtering) endSearch();
+      }}
+      onContextMenu={(e) => openMenu(e, "group", group.id)}
+    />
+  );
 
   return (
     <nav aria-label={t("common.yourGroups")} className={`relative hidden shrink-0 lg:block ${railWidth}`}>
@@ -471,7 +519,7 @@ export function GroupRail({
           showNames ? "w-60" : "w-[70px]"
         } ${showNames && !expanded ? "shadow-2xl shadow-black/20" : ""}`}
       >
-        {/* The fixed tiles: the search, every group, and the way to the next mention. */}
+        {/* The fixed tiles: the search, the ways to new things, and the way to the next mention. */}
         <div className="flex shrink-0 flex-col gap-1.5 px-[7px] pb-2 pt-[7px]">
           <RailSearch
             inputRef={searchRef}
@@ -482,19 +530,35 @@ export function GroupRail({
             onFocusChange={setSearchFocused}
             onEnter={openFirstMatch}
             onEscape={() => (search ? setSearch("") : searchRef.current?.blur())}
-            onArrowDown={() => scrollRef.current?.querySelector<HTMLElement>("[data-rail-group]")?.focus()}
+            onArrowDown={() => scrollRef.current?.querySelector<HTMLElement>("[data-rail-focus]")?.focus()}
           />
-          <RailTile
-            active={activeGroupId === null && !roomsActive && !elsewhere}
-            showName={showNames}
-            label={t("groups.groupSwitcher.allGroups")}
-            href="/groups"
-            face={
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-xl text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                <MdGroups />
-              </span>
-            }
-          />
+          {hub ? (
+            // Where new groups are found — the groups somebody is in are the
+            // list below, so this tile is for the ones they are not in yet.
+            <RailTile
+              active={exploreActive}
+              showName={showNames}
+              label={t("groups.groupDialogs.exploreGroups")}
+              href={GROUPS_EXPLORE_PATH}
+              face={
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                  <GlobeIcon className="h-5 w-5" />
+                </span>
+              }
+            />
+          ) : (
+            <RailTile
+              active={activeGroupId === null && !roomsActive && !exploreActive && !elsewhere}
+              showName={showNames}
+              label={t("groups.groupSwitcher.allGroups")}
+              href="/groups"
+              face={
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-xl text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                  <MdGroups />
+                </span>
+              }
+            />
+          )}
           {/* Every public room open right now — see GroupsRoomsView. */}
           {roomsTab && (
             <RailTile
@@ -506,7 +570,7 @@ export function GroupRail({
               badge={<NewBadge id={GROUPS_ROOMS_FEATURE} />}
               face={
                 <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                  <GlobeIcon className="h-5 w-5" />
+                  {hub ? <MdLiveTv className="h-5 w-5" /> : <GlobeIcon className="h-5 w-5" />}
                   <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-zinc-950" />
                 </span>
               }
@@ -544,58 +608,95 @@ export function GroupRail({
                   <span key={i} className="mx-1 h-10 w-10 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
                 ))}
               </div>
+            ) : filtering ? (
+              <>
+                <ul className="flex flex-col gap-1.5">
+                  {matches.map((group) => (
+                    <li key={group.id}>{groupTile(group, { shelved: Boolean(organize && group.archived) })}</li>
+                  ))}
+                </ul>
+                <div className={`flex flex-col gap-2 px-1 ${matches.length > 0 ? "pt-3" : ""}`}>
+                  {matches.length === 0 && (
+                    <p className="whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupRail.noMatches")}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={searchPublicGroups}
+                    className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-dashed border-zinc-300 px-2.5 py-2 text-left text-xs font-medium text-zinc-600 transition hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+                  >
+                    <MdSearch className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t("groups.groupRail.searchPublicGroups")}</span>
+                  </button>
+                </div>
+              </>
             ) : (
-              <ul
-                className="relative"
-                style={{ height: visible.length ? (visible.length - 1) * PITCH_PX + TILE_PX : 0 }}
-              >
-                {visible.map((group, index) => {
-                  const dragging = drag?.id === group.id;
-                  const y = dragging ? drag.top : (slotOf.get(group.id) ?? index) * PITCH_PX;
-                  return (
-                    <li
-                      key={group.id}
-                      className={`absolute inset-x-0 top-0 ${dragging ? "z-10" : "transition-transform duration-150 ease-out"}`}
-                      style={{ height: TILE_PX, transform: `translateY(${y}px)` }}
-                    >
-                      <GroupTile
-                        group={group}
-                        active={group.id === activeGroupId}
-                        inCall={voice?.groupId === group.id}
-                        showName={showNames}
-                        dragging={dragging}
-                        onPointerDown={(e) => onTilePointerDown(e, group.id)}
-                        onKeyDown={(e) => onTileKeyDown(e, group.id, index)}
-                        onClick={(e) => {
-                          if (suppressClick.current) e.preventDefault();
-                          else if (filtering) endSearch();
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          // A long press on a touchscreen is the start of a drag.
-                          if (press.current?.touch) return;
-                          setMenu({ id: group.id, x: e.clientX, y: e.clientY });
-                        }}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {filtering && groups !== null && (
-              <div className={`flex flex-col gap-2 px-1 ${visible.length > 0 ? "pt-3" : ""}`}>
-                {visible.length === 0 && (
-                  <p className="whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupRail.noMatches")}</p>
+              <>
+                <ul ref={listRef} className="flex flex-col gap-1.5">
+                  {entries.map((entry) => {
+                    const props = topDrag.itemProps(entry.id);
+                    const dragging = topDrag.drag?.id === entry.id;
+                    return (
+                      <li key={`${entry.kind}:${entry.id}`} {...props}>
+                        {entry.kind === "group" ? (
+                          groupTile(entry.group, { dragging })
+                        ) : (
+                          <FolderBlock
+                            folder={entry.folder}
+                            groups={entry.groups}
+                            open={openFolders.has(entry.id) && !dragging}
+                            dragging={dragging}
+                            showName={showNames}
+                            activeGroupId={activeGroupId}
+                            scrollRef={scrollRef}
+                            onToggle={() => setFolderOpen(entry.id, !openFolders.has(entry.id))}
+                            onKeyDown={(e) => onLineKeyDown(e, "folder", entry.id)}
+                            onContextMenu={(e) => openMenu(e, "folder", entry.id)}
+                            onMoveChild={(from, to) => moveChild(entry.id, from, to)}
+                            renderGroup={(group, childDragging) => groupTile(group, { dragging: childDragging, nested: true })}
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {/* The shelf: the groups put away, folded up at the end of the list. */}
+                {shelf.length > 0 && (
+                  <div className="mt-1.5 flex flex-col gap-1.5 border-t border-zinc-200 pt-1.5 dark:border-zinc-800">
+                    <RailTile
+                      showName={showNames}
+                      active={false}
+                      label={t("groups.organize.archived")}
+                      sublabel={tc("common.groupCount", shelf.length)}
+                      sublabelTone="muted"
+                      expanded={shelfOpen}
+                      onClick={() => {
+                        if (!shelfOpen) trackGroupOrganize(GROUP_ORGANIZE_EVENTS.archiveOpen);
+                        setShelfOpen(!shelfOpen);
+                      }}
+                      face={
+                        <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+                          <MdArchive className="h-5 w-5" />
+                          {shelfMentions > 0 ? (
+                            <span className="absolute -bottom-1 -right-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-zinc-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-zinc-950">
+                              {shelfMentions > 99 ? "99+" : shelfMentions}
+                            </span>
+                          ) : shelfUnread ? (
+                            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-zinc-400 ring-2 ring-white dark:ring-zinc-950" />
+                          ) : null}
+                        </span>
+                      }
+                    />
+                    {shelfOpen && (
+                      <ul className="flex flex-col gap-1.5">
+                        {shelf.map((group) => (
+                          <li key={group.id}>{groupTile(group, { shelved: true })}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
-                <button
-                  type="button"
-                  onClick={searchPublicGroups}
-                  className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-dashed border-zinc-300 px-2.5 py-2 text-left text-xs font-medium text-zinc-600 transition hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-                >
-                  <MdSearch className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{t("groups.groupRail.searchPublicGroups")}</span>
-                </button>
-              </div>
+              </>
             )}
           </div>
 
@@ -639,7 +740,7 @@ export function GroupRail({
       {panel && (
         <Tippy
           reference={panel}
-          visible={Boolean(menuGroup)}
+          visible={Boolean(menuGroup || menuFolderEntry)}
           getReferenceClientRect={() => new DOMRect(menu?.x ?? 0, menu?.y ?? 0, 0, 0)}
           onClickOutside={closeMenu}
           interactive
@@ -653,9 +754,29 @@ export function GroupRail({
             menuGroup ? (
               <GroupMenu
                 group={menuGroup}
-                index={ids.indexOf(menuGroup.id)}
-                total={ids.length}
-                onMove={(to) => moveGroup(menuGroup.id, to)}
+                siblings={folderOf(menuGroup.id)?.groupIds ?? entryIds}
+                organize={organize}
+                folders={drawn.folders}
+                currentFolder={folderOf(menuGroup.id)}
+                onMove={(to) => moveLine("group", menuGroup.id, to)}
+                onNewFolder={() => menu && newFolderWith(menuGroup.id, menu)}
+                onAddTo={(folderId) => putInFolder(menuGroup.id, folderId)}
+                onRemoveFromFolder={() => takeOutOfFolder(menuGroup.id)}
+                onArchive={(archived) => setArchived(menuGroup, archived)}
+                onClose={closeMenu}
+              />
+            ) : menuFolderEntry ? (
+              <FolderMenu
+                key={menuFolderEntry.id}
+                folder={menuFolderEntry.folder}
+                groups={menuFolderEntry.groups}
+                index={entryIds.indexOf(menuFolderEntry.id)}
+                total={entryIds.length}
+                startRenaming={Boolean(menu?.rename)}
+                onMove={(to) => moveLine("folder", menuFolderEntry.id, to)}
+                onRename={(name) => saveLayout(updateFolder(drawn, menuFolderEntry.id, { name }))}
+                onColor={(color) => saveLayout(updateFolder(drawn, menuFolderEntry.id, { color }))}
+                onUngroup={() => ungroup(menuFolderEntry.id)}
                 onClose={closeMenu}
               />
             ) : null
@@ -701,8 +822,10 @@ function RailTile({
   face,
   label,
   sublabel,
+  sublabelTone = "red",
   showName,
   active = false,
+  expanded,
   href,
   onClick,
   badge,
@@ -710,8 +833,11 @@ function RailTile({
   face: ReactNode;
   label: string;
   sublabel?: string;
+  sublabelTone?: "red" | "muted";
   showName: boolean;
   active?: boolean;
+  /** For a tile that opens something in place (the shelf): whether it is open. */
+  expanded?: boolean;
   href?: string;
   /** With `href`, runs before the navigation. */
   onClick?: () => void;
@@ -729,8 +855,22 @@ function RailTile({
           <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</span>
           {badge}
         </span>
-        {sublabel && <span className="truncate text-xs text-red-600 dark:text-red-400">{sublabel}</span>}
+        {sublabel && (
+          <span
+            className={`truncate text-xs ${
+              sublabelTone === "muted" ? "text-zinc-500 dark:text-zinc-400" : "text-red-600 dark:text-red-400"
+            }`}
+          >
+            {sublabel}
+          </span>
+        )}
       </TileText>
+      {expanded !== undefined && showName && (
+        <MdKeyboardArrowDown
+          aria-hidden
+          className={`mr-1 h-4 w-4 shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      )}
       <ActiveBar active={active} />
     </>
   );
@@ -745,7 +885,13 @@ function RailTile({
       {body}
     </GroupLink>
   ) : (
-    <button type="button" onClick={onClick} aria-label={sublabel ? `${label} — ${sublabel}` : label} className={className}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={sublabel ? `${label} — ${sublabel}` : label}
+      aria-expanded={expanded}
+      className={className}
+    >
       {body}
     </button>
   );
@@ -758,7 +904,7 @@ function GroupTile({
   inCall,
   showName,
   dragging,
-  onPointerDown,
+  shelved,
   onKeyDown,
   onClick,
   onContextMenu,
@@ -768,7 +914,8 @@ function GroupTile({
   inCall: boolean;
   showName: boolean;
   dragging: boolean;
-  onPointerDown: (e: ReactPointerEvent<HTMLAnchorElement>) => void;
+  /** On the shelf: drawn quieter, and its marks are not the totals'. */
+  shelved: boolean;
   onKeyDown: (e: ReactKeyboardEvent<HTMLAnchorElement>) => void;
   onClick: (e: ReactMouseEvent<HTMLAnchorElement>) => void;
   onContextMenu: (e: ReactMouseEvent<HTMLAnchorElement>) => void;
@@ -785,7 +932,7 @@ function GroupTile({
         : group.onlineCount
           ? t("groups.groupRail.onlineCount", { count: group.onlineCount })
           : null;
-  const voiceActivity = group.suspended ? undefined : group.voiceActivity;
+  const voiceActivity = group.suspended || shelved ? undefined : group.voiceActivity;
   const activityLabel =
     voiceActivity === "screen"
       ? t("groups.groupRail.callScreen")
@@ -800,10 +947,12 @@ function GroupTile({
     <GroupLink
       href={groupPath(group.id)}
       data-rail-group={group.id}
+      data-rail-focus={group.id}
+      // A shelved group's mention is the shelf's to show, not a hint's.
+      data-rail-mention={mentions > 0 && !shelved ? "" : undefined}
       draggable={false}
       aria-label={label}
       aria-current={active ? "page" : undefined}
-      onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       onClick={onClick}
       onContextMenu={onContextMenu}
@@ -815,7 +964,7 @@ function GroupTile({
           : active
             ? "bg-zinc-100 dark:bg-zinc-900"
             : "hover:bg-zinc-100/70 dark:hover:bg-zinc-900/70"
-      }`}
+      } ${shelved ? "opacity-70" : ""}`}
     >
       <span className={`relative shrink-0 transition-transform ${dragging ? "scale-105" : ""}`}>
         <GroupIcon
@@ -826,7 +975,11 @@ function GroupTile({
           className={`rounded-xl ${group.suspended ? "opacity-50 grayscale" : ""}`}
         />
         {mentions > 0 ? (
-          <span className="absolute -bottom-1 -right-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-zinc-950">
+          <span
+            className={`absolute -bottom-1 -right-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-zinc-950 ${
+              shelved ? "bg-zinc-500" : "bg-red-600"
+            }`}
+          >
             {mentions > 99 ? "99+" : mentions}
           </span>
         ) : unread ? (
@@ -873,7 +1026,7 @@ function GroupTile({
             className={`truncate text-xs ${
               group.suspended
                 ? "text-amber-600 dark:text-amber-400"
-                : mentions > 0
+                : mentions > 0 && !shelved
                   ? "font-medium text-red-600 dark:text-red-400"
                   : "text-zinc-500 dark:text-zinc-400"
             }`}
@@ -884,6 +1037,127 @@ function GroupTile({
       </TileText>
       <ActiveBar active={active && !dragging} />
     </GroupLink>
+  );
+}
+
+/**
+ * A folder on the rail: its tile — the faces of its first four groups on a
+ * tint of its colour while closed, an open folder while open — and, open, its
+ * groups under it, along a line of its colour. Its groups are rearranged among
+ * themselves here; the folder itself moves with the top level.
+ */
+function FolderBlock({
+  folder,
+  groups,
+  open,
+  dragging,
+  showName,
+  activeGroupId,
+  scrollRef,
+  onToggle,
+  onKeyDown,
+  onContextMenu,
+  onMoveChild,
+  renderGroup,
+}: {
+  folder: GroupFolder;
+  groups: GroupSummary[];
+  open: boolean;
+  dragging: boolean;
+  showName: boolean;
+  activeGroupId: string | null;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  onToggle: () => void;
+  onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => void;
+  onContextMenu: (e: ReactMouseEvent) => void;
+  onMoveChild: (from: number, to: number) => void;
+  renderGroup: (group: GroupSummary, dragging: boolean) => ReactNode;
+}) {
+  const t = useT();
+  const tc = useTCount();
+  const color = folderColor(folder.color);
+  const name = folder.name || t("groups.organize.folder");
+  const news = folderNews(groups);
+  const holdsActive = groups.some((g) => g.id === activeGroupId);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const ids = useMemo(() => groups.map((g) => g.id), [groups]);
+  const childDrag = useDragSort({ ids, listRef, scrollRef, onMove: onMoveChild, disabled: !open });
+
+  return (
+    <div
+      className={`flex flex-col rounded-xl ${open ? FOLDER_TINT[color].split(" ")[0] : ""} ${
+        dragging ? "shadow-lg shadow-black/15 ring-1 ring-zinc-200 dark:ring-zinc-700" : ""
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        onKeyDown={onKeyDown}
+        onContextMenu={onContextMenu}
+        data-rail-focus={`folder:${folder.id}`}
+        // Closed, its groups' mentions are its own to show.
+        data-rail-mention={!open && news.mentions > 0 ? "" : undefined}
+        aria-expanded={open}
+        aria-label={`${name} — ${tc("groups.organize.folderCount", groups.length)}${
+          news.mentions > 0 ? ` — ${mentionLabel(t, news.mentions)}` : ""
+        }`}
+        className={`${tileBase} touch-manipulation select-none ${
+          dragging ? "cursor-grabbing bg-white dark:bg-zinc-900" : "hover:bg-zinc-100/70 dark:hover:bg-zinc-900/70"
+        }`}
+      >
+        <span className="relative shrink-0">
+          {open ? (
+            <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${FOLDER_TINT[color]}`}>
+              <MdOutlineFolderOpen className="h-5 w-5" />
+            </span>
+          ) : (
+            <span className={`grid h-10 w-10 grid-cols-2 gap-0.5 rounded-xl p-1 ${FOLDER_TINT[color]}`}>
+              {groups.slice(0, 4).map((g) => (
+                <GroupIcon key={g.id} name={g.name} iconUrl={g.iconUrl} seed={g.id} size={15} className="rounded-[5px]" />
+              ))}
+            </span>
+          )}
+          {!open &&
+            (news.mentions > 0 ? (
+              <span className="absolute -bottom-1 -right-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-zinc-950">
+                {news.mentions > 99 ? "99+" : news.mentions}
+              </span>
+            ) : news.unread ? (
+              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-zinc-950 ring-2 ring-white dark:bg-zinc-50 dark:ring-zinc-950" />
+            ) : null)}
+        </span>
+        <TileText show={showName}>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${FOLDER_SWATCH[color]}`} />
+            <span
+              className={`truncate text-sm ${
+                news.unread && !open ? "font-semibold text-zinc-950 dark:text-zinc-50" : "font-medium text-zinc-700 dark:text-zinc-300"
+              }`}
+            >
+              {name}
+            </span>
+          </span>
+          <span
+            className={`truncate text-xs ${
+              !open && news.mentions > 0 ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"
+            }`}
+          >
+            {!open && news.mentions > 0 ? mentionLabel(t, news.mentions) : tc("groups.organize.folderCount", groups.length)}
+          </span>
+        </TileText>
+        {/* Closed over the group that is open: the folder is where you are. */}
+        <ActiveBar active={!open && holdsActive && !dragging} />
+      </button>
+      {open && (
+        <ul ref={listRef} className="flex flex-col gap-1.5 pb-1">
+          {groups.map((group) => (
+            <li key={group.id} {...childDrag.itemProps(group.id)}>
+              {renderGroup(group, childDrag.drag?.id === group.id)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -1025,36 +1299,84 @@ function AddGroupTile({ showName }: { showName: boolean }) {
   );
 }
 
-// ─── The right-click menu ───────────────────────────────────────────────
+// ─── The right-click menus ──────────────────────────────────────────────
+
+const menuItem =
+  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-900";
+const menuCard =
+  "flex w-60 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950";
+const menuDivider = <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />;
+
+/** Top, up, down, bottom — for a line among its siblings. */
+function MoveItems({ index, total, onMove, act }: { index: number; total: number; onMove: (to: number) => void; act: (fn: () => void) => () => void }) {
+  const t = useT();
+  return (
+    <>
+      <button type="button" disabled={index <= 0} onClick={act(() => onMove(0))} className={menuItem}>
+        <MdVerticalAlignTop className="h-4 w-4 shrink-0 opacity-70" />
+        {t("groups.groupRail.moveToTop")}
+      </button>
+      <button type="button" disabled={index <= 0} onClick={act(() => onMove(index - 1))} className={menuItem}>
+        <MdArrowUpward className="h-4 w-4 shrink-0 opacity-70" />
+        {t("groups.groupRail.moveUp")}
+        <kbd className="ml-auto text-[10px] text-zinc-400">Alt+↑</kbd>
+      </button>
+      <button type="button" disabled={index >= total - 1} onClick={act(() => onMove(index + 1))} className={menuItem}>
+        <MdArrowDownward className="h-4 w-4 shrink-0 opacity-70" />
+        {t("groups.groupRail.moveDown")}
+        <kbd className="ml-auto text-[10px] text-zinc-400">Alt+↓</kbd>
+      </button>
+      <button type="button" disabled={index >= total - 1} onClick={act(() => onMove(total - 1))} className={menuItem}>
+        <MdVerticalAlignBottom className="h-4 w-4 shrink-0 opacity-70" />
+        {t("groups.groupRail.moveToBottom")}
+      </button>
+    </>
+  );
+}
 
 function GroupMenu({
   group,
-  index,
-  total,
+  siblings,
+  organize,
+  folders,
+  currentFolder,
   onMove,
+  onNewFolder,
+  onAddTo,
+  onRemoveFromFolder,
+  onArchive,
   onClose,
 }: {
   group: GroupSummary;
-  index: number;
-  total: number;
+  /** The line's level: the top level, or its folder's groups. */
+  siblings: readonly string[];
+  organize: boolean;
+  folders: GroupFolder[];
+  currentFolder: GroupFolder | null;
   onMove: (to: number) => void;
+  onNewFolder: () => void;
+  onAddTo: (folderId: string) => void;
+  onRemoveFromFolder: () => void;
+  onArchive: (archived: boolean) => void;
   onClose: () => void;
 }) {
   const t = useT();
   // Which of the two copy items has just been used, so only its own label says so.
   const [copied, setCopied] = useState<"link" | "id" | null>(null);
-  const item =
-    "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-900";
+  const [picking, setPicking] = useState(false);
   const hasNews = !group.suspended && (group.unread || group.mentions > 0);
   const act = (fn: () => void) => () => {
     fn();
     onClose();
   };
+  const shelved = organize && Boolean(group.archived);
+  const index = siblings.indexOf(group.id);
+  const otherFolders = folders.filter((f) => f.id !== currentFolder?.id);
 
   return (
-    <div className="flex w-56 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+    <div className={menuCard}>
       <p className="truncate px-2 pb-1 pt-0.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">{group.name}</p>
-      <button type="button" disabled={!hasNews} onClick={act(() => void markGroupRead(group.id))} className={item}>
+      <button type="button" disabled={!hasNews} onClick={act(() => void markGroupRead(group.id))} className={menuItem}>
         <MdDoneAll className="h-4 w-4 shrink-0 opacity-70" />
         {t("groups.groupRail.markAsRead")}
       </button>
@@ -1068,7 +1390,7 @@ function GroupMenu({
             setTimeout(onClose, 700);
           });
         }}
-        className={item}
+        className={menuItem}
       >
         <MdLink className="h-4 w-4 shrink-0 opacity-70" />
         {copied === "link" ? t("common.linkCopied") : t("groups.groupRail.copyLink")}
@@ -1082,31 +1404,189 @@ function GroupMenu({
             setTimeout(onClose, 700);
           });
         }}
-        className={item}
+        className={menuItem}
       >
         <MdContentCopy className="h-4 w-4 shrink-0 opacity-70" />
         {copied === "id" ? t("groups.memberMenu.copied") : t("groups.memberMenu.copyId")}
       </button>
-      <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
-      <button type="button" disabled={index <= 0} onClick={act(() => onMove(0))} className={item}>
-        <MdVerticalAlignTop className="h-4 w-4 shrink-0 opacity-70" />
-        {t("groups.groupRail.moveToTop")}
+
+      {organize && !shelved && (
+        <>
+          {menuDivider}
+          {picking ? (
+            <>
+              <p className="px-2 pb-0.5 pt-0.5 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                {t("groups.organize.moveToFolder")}
+              </p>
+              {otherFolders.map((folder) => (
+                <button key={folder.id} type="button" onClick={act(() => onAddTo(folder.id))} className={menuItem}>
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${FOLDER_SWATCH[folderColor(folder.color)]}`} />
+                  <span className="truncate">{folder.name || t("groups.organize.folder")}</span>
+                </button>
+              ))}
+              {/* Not act(): the menu stays, turned into the new folder's, to name it. */}
+              <button type="button" onClick={onNewFolder} className={menuItem}>
+                <MdCreateNewFolder className="h-4 w-4 shrink-0 opacity-70" />
+                {t("groups.organize.newFolder")}
+              </button>
+            </>
+          ) : (
+            <>
+              {otherFolders.length > 0 ? (
+                <button type="button" onClick={() => setPicking(true)} className={menuItem}>
+                  <MdDriveFileMove className="h-4 w-4 shrink-0 opacity-70" />
+                  {t("groups.organize.moveToFolder")}
+                  <MdKeyboardArrowDown className="ml-auto h-4 w-4 -rotate-90 opacity-60" />
+                </button>
+              ) : (
+                // Keeps the menu open: the new folder is named right here (see newFolderWith).
+                <button type="button" onClick={onNewFolder} className={menuItem}>
+                  <MdCreateNewFolder className="h-4 w-4 shrink-0 opacity-70" />
+                  {t("groups.organize.newFolder")}
+                </button>
+              )}
+              {currentFolder && (
+                <button type="button" onClick={act(onRemoveFromFolder)} className={menuItem}>
+                  <MdFolderOff className="h-4 w-4 shrink-0 opacity-70" />
+                  {t("groups.organize.removeFromFolder")}
+                </button>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {!shelved && (
+        <>
+          {menuDivider}
+          <MoveItems index={index} total={siblings.length} onMove={onMove} act={act} />
+        </>
+      )}
+
+      {organize && (
+        <>
+          {menuDivider}
+          <button type="button" onClick={act(() => onArchive(!shelved))} className={menuItem}>
+            {shelved ? (
+              <MdUnarchive className="h-4 w-4 shrink-0 opacity-70" />
+            ) : (
+              <MdArchive className="h-4 w-4 shrink-0 opacity-70" />
+            )}
+            {shelved ? t("groups.organize.unarchive") : t("groups.organize.archive")}
+          </button>
+          {!shelved && (
+            <p className="px-2 pt-0.5 text-[11px] leading-snug text-zinc-400 dark:text-zinc-500">
+              {t("groups.organize.archiveHint")}
+            </p>
+          )}
+        </>
+      )}
+
+      {!organize && <p className="px-2 pt-1 text-[11px] text-zinc-400 dark:text-zinc-500">{t("groups.groupRail.dragHint")}</p>}
+    </div>
+  );
+}
+
+function FolderMenu({
+  folder,
+  groups,
+  index,
+  total,
+  startRenaming,
+  onMove,
+  onRename,
+  onColor,
+  onUngroup,
+  onClose,
+}: {
+  folder: GroupFolder;
+  groups: GroupSummary[];
+  index: number;
+  total: number;
+  startRenaming: boolean;
+  onMove: (to: number) => void;
+  onRename: (name: string) => void;
+  onColor: (color: FolderColor) => void;
+  onUngroup: () => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [name, setName] = useState(folder.name);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!startRenaming) return;
+    // After the menu's own entrance, or the focus lands on a box still moving.
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [startRenaming]);
+  const act = (fn: () => void) => () => {
+    fn();
+    onClose();
+  };
+  const commitName = () => {
+    if (name.trim() !== folder.name) onRename(name);
+  };
+  const hasNews = groups.some((g) => !g.suspended && (g.unread || g.mentions > 0));
+  const current = folderColor(folder.color);
+
+  return (
+    <div className={menuCard}>
+      <label className="px-2 pt-0.5 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400" htmlFor={`folder-name-${folder.id}`}>
+        {t("groups.organize.folderName")}
+      </label>
+      <input
+        id={`folder-name-${folder.id}`}
+        ref={inputRef}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commitName();
+            onClose();
+          }
+        }}
+        maxLength={32}
+        placeholder={t("groups.organize.folder")}
+        className="mx-1 mb-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+      />
+      <div role="radiogroup" aria-label={t("groups.organize.folderColor")} className="flex flex-wrap gap-1.5 px-2 pb-1.5">
+        {FOLDER_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            role="radio"
+            aria-checked={color === current}
+            aria-label={color}
+            onClick={() => onColor(color)}
+            className={`h-5 w-5 cursor-pointer rounded-full ${FOLDER_SWATCH[color]} transition ${
+              color === current ? "ring-2 ring-zinc-950 ring-offset-2 ring-offset-white dark:ring-zinc-50 dark:ring-offset-zinc-950" : "hover:scale-110"
+            }`}
+          />
+        ))}
+      </div>
+      {menuDivider}
+      <button
+        type="button"
+        disabled={!hasNews}
+        onClick={act(() => {
+          for (const g of groups) if (g.unread || g.mentions > 0) void markGroupRead(g.id);
+        })}
+        className={menuItem}
+      >
+        <MdDoneAll className="h-4 w-4 shrink-0 opacity-70" />
+        {t("groups.organize.markFolderRead")}
       </button>
-      <button type="button" disabled={index <= 0} onClick={act(() => onMove(index - 1))} className={item}>
-        <MdArrowUpward className="h-4 w-4 shrink-0 opacity-70" />
-        {t("groups.groupRail.moveUp")}
-        <kbd className="ml-auto text-[10px] text-zinc-400">Alt+↑</kbd>
+      <button type="button" onClick={act(onUngroup)} className={menuItem}>
+        <MdFolder className="h-4 w-4 shrink-0 opacity-70" />
+        {t("groups.organize.ungroup")}
       </button>
-      <button type="button" disabled={index >= total - 1} onClick={act(() => onMove(index + 1))} className={item}>
-        <MdArrowDownward className="h-4 w-4 shrink-0 opacity-70" />
-        {t("groups.groupRail.moveDown")}
-        <kbd className="ml-auto text-[10px] text-zinc-400">Alt+↓</kbd>
-      </button>
-      <button type="button" disabled={index >= total - 1} onClick={act(() => onMove(total - 1))} className={item}>
-        <MdVerticalAlignBottom className="h-4 w-4 shrink-0 opacity-70" />
-        {t("groups.groupRail.moveToBottom")}
-      </button>
-      <p className="px-2 pt-1 text-[11px] text-zinc-400 dark:text-zinc-500">{t("groups.groupRail.dragHint")}</p>
+      {menuDivider}
+      <MoveItems index={index} total={total} onMove={onMove} act={act} />
     </div>
   );
 }

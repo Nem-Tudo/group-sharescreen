@@ -41,7 +41,14 @@ export function GroupIcon({
   className?: string;
 }) {
   const [failed, setFailed] = useState<string | null>(null);
-  const style = { width: size, height: size, fontSize: Math.max(11, Math.round(size * 0.36)) };
+  // Tiny (a folder's tile on the rail holds four of these): one letter, sized
+  // to the square, rather than two at a floor of 11px spilling out of it.
+  const tiny = size < 24;
+  const style = {
+    width: size,
+    height: size,
+    fontSize: tiny ? Math.max(7, Math.round(size * 0.55)) : Math.max(11, Math.round(size * 0.36)),
+  };
   if (iconUrl && failed !== iconUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -60,7 +67,7 @@ export function GroupIcon({
       style={style}
       className={`flex shrink-0 select-none items-center justify-center font-semibold text-white ${colorFor(seed ?? name)} ${className}`}
     >
-      {groupInitials(name)}
+      {tiny ? [...groupInitials(name)][0] : groupInitials(name)}
     </span>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdExplore, MdLink } from "react-icons/md";
 import { BetaMark } from "@/components/BetaMark";
@@ -22,6 +22,21 @@ import { useT } from "@/lib/useI18n";
 import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { requestExploreGroups } from "@/components/groups/groupSearch";
 import { translate, translateCount } from "@/lib/i18n";
+import { GROUPS_EXPLORE_PATH } from "@/lib/groupLinks";
+import type { GroupSummary } from "@/lib/groupsApi";
+import {
+  FOLDER_SWATCH,
+  folderColor,
+  layoutOf,
+  moveEntry,
+  moveInFolder,
+  railEntries,
+  type RailEntry,
+} from "@/lib/groupRailLayout";
+import { GROUP_ORGANIZE_EVENTS, trackGroupOrganize, useGroupOrganize } from "@/lib/groupOrganize";
+import { useGroupsHub } from "@/lib/groupsHub";
+import { useDragSort } from "@/lib/useDragSort";
+import { saveLayout, useGroupRailLayout } from "@/lib/useGroups";
 
 // The groups list beside the home page's room form — the counterpart of the
 // friends list on the other side of it (see HomeFriendsPanel), drawn the same
@@ -221,6 +236,10 @@ function GroupsPanelBody({
   const router = useRouter();
   const groupMenu = useGroupContextMenu(router.push);
   const [addOpen, setAddOpen] = useState(false);
+  // Folders, the shelf and rearranging from here (experiment group-organize).
+  const organize = useGroupOrganize({ track: true });
+  // Explorar has a page of its own (experiment groups-hub).
+  const hub = useGroupsHub({ track: false });
   // Somebody logging in on this page must not keep the guest's list on screen.
   useEffect(() => {
     syncGroupsIdentity(identity);
@@ -237,8 +256,6 @@ function GroupsPanelBody({
 
   // A guest with no groups sees the page they always saw — see the header.
   if (!isAccount && (!groups || groups.length === 0)) return null;
-
-  const mentions = (groups ?? []).reduce((n, g) => n + g.mentions, 0);
   // Only once the list has answered, so it never flashes up for somebody who
   // turns out to be in it already.
   const offerOfficial = fresh !== null && !fresh.some((g) => g.id === OFFICIAL_GROUP_ID);
@@ -252,7 +269,7 @@ function GroupsPanelBody({
       className={`${PANEL_CLASS} ${className}`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <GroupsHeading count={groups?.length} />
+        <GroupsHeading count={organize ? groups?.filter((g) => !g.archived).length : groups?.length} />
         <span className="flex shrink-0 items-center gap-2">
           {/* One "+" for both ways of getting another group — joining one
               somebody invited you to, or making your own — rather than two
@@ -272,7 +289,7 @@ function GroupsPanelBody({
                   onClick={() => {
                     setAddOpen(false);
                     requestExploreGroups();
-                    router.push("/groups");
+                    router.push(hub ? GROUPS_EXPLORE_PATH : "/groups");
                   }}
                   className={MENU_ITEM}
                 >
@@ -376,61 +393,192 @@ function GroupsPanelBody({
         // Each group as a card — the same one the official group has in the
         // "+" menu: its face, its name, who and how many, and a button. The
         // whole card is the link; "Abrir" is drawn on it, not a second target.
-        <ul className="content-in mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1">
-          {groups.map((group) => (
-            <li key={group.id}>
-              <Link
-                href={groupPath(group.id)}
-                onContextMenu={(e) => groupMenu(e, group)}
-                className={`group/card flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600 ${
-                  group.suspended ? "opacity-60" : ""
-                }`}
-              >
-                <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={32} className="rounded-lg" />
-                <span className="min-w-0 flex-1">
-                  <GroupName
-                    name={group.name}
-                    flags={group.flags}
-                    className={`flex w-full text-sm ${
-                      group.unread
-                        ? "font-semibold text-zinc-950 dark:text-zinc-50"
-                        : "font-medium text-zinc-900 dark:text-zinc-100"
-                    }`}
-                  />
-                  <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-                    {group.suspended ? (
-                      <span className="font-medium text-amber-600 dark:text-amber-400">{t("common.suspended")}</span>
-                    ) : (
-                      [
-                        ROLE_LABEL[group.role],
-                        describeCounts(group.memberCount, group.onlineCount),
-                        group.unread ? "mensagens novas" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    )}
-                  </span>
-                </span>
-                {group.suspended ? null : group.mentions > 0 ? (
-                  <Tooltip content={group.mentions === 1 ? t("groups.homeGroupsPanel.n1Mention") : t("groups.homeGroupsPanel.mentionsMentions", { mentions: group.mentions })}>
-                    <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold text-white">
-                      {group.mentions > 99 ? "99+" : group.mentions}
-                    </span>
-                  </Tooltip>
-                ) : group.unread ? (
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label={t("common.newMessages")} />
-                ) : null}
-                <span
-                  aria-hidden
-                  className={`${CARD_ACTION} bg-zinc-950 text-white group-hover/card:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:group-hover/card:bg-zinc-200`}
-                >
-                  {t("groups.homeGroupsPanel.open")}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomeGroupList groups={groups} groupMenu={groupMenu} organize={organize} />
       )}
     </aside>
+  );
+}
+
+type GroupMenuHandler = (event: ReactMouseEvent, group: GroupSummary) => void;
+
+/**
+ * The panel's list. Outside the experiment group-organize, every group as a
+ * card, as it always was. In it: the shelf left out, folders as a heading of
+ * their colour over their groups, and the order rearranged by dragging a card
+ * — the top level among itself, a folder's groups inside it (see
+ * lib/useDragSort) — saved as the rail's own (see lib/useGroups' saveLayout).
+ */
+function HomeGroupList({
+  groups,
+  groupMenu,
+  organize,
+}: {
+  groups: GroupSummary[];
+  groupMenu: GroupMenuHandler;
+  organize: boolean;
+}) {
+  const t = useT();
+  const layout = useGroupRailLayout();
+  const entries: RailEntry[] = useMemo(
+    () => (organize ? railEntries(groups, layout) : groups.map((g) => ({ kind: "group", id: g.id, group: g }))),
+    [organize, groups, layout]
+  );
+  const drawn = useMemo(() => layoutOf(entries), [entries]);
+  const ids = useMemo(() => entries.map((e) => e.id), [entries]);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const drag = useDragSort({
+    ids,
+    listRef,
+    scrollRef: listRef,
+    disabled: !organize,
+    onMove: (from, to) => {
+      saveLayout(moveEntry(drawn, from, to));
+      trackGroupOrganize(GROUP_ORGANIZE_EVENTS.homeReorder);
+    },
+  });
+
+  if (entries.length === 0) {
+    return <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t("groups.organize.allArchived")}</p>;
+  }
+
+  return (
+    // Capped and scrolled, like the friends list, so a long list does not
+    // decide how tall the page is.
+    <ul
+      ref={listRef}
+      className="content-in mt-3 flex max-h-[26rem] min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1"
+    >
+      {entries.map((entry) => (
+        <li key={`${entry.kind}:${entry.id}`} {...drag.itemProps(entry.id)}>
+          {entry.kind === "group" ? (
+            <HomeGroupRow group={entry.group} groupMenu={groupMenu} dragging={drag.drag?.id === entry.id} />
+          ) : (
+            <HomeFolder
+              folderId={entry.id}
+              name={entry.folder.name || t("groups.organize.folder")}
+              color={entry.folder.color}
+              groups={entry.groups}
+              groupMenu={groupMenu}
+              dragging={drag.drag?.id === entry.id}
+              onMove={(from, to) => {
+                saveLayout(moveInFolder(drawn, entry.id, from, to));
+                trackGroupOrganize(GROUP_ORGANIZE_EVENTS.homeReorder);
+              }}
+              scrollRef={listRef}
+            />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function HomeFolder({
+  folderId,
+  name,
+  color,
+  groups,
+  groupMenu,
+  dragging,
+  onMove,
+  scrollRef,
+}: {
+  folderId: string;
+  name: string;
+  color: string;
+  groups: GroupSummary[];
+  groupMenu: GroupMenuHandler;
+  dragging: boolean;
+  onMove: (from: number, to: number) => void;
+  scrollRef: RefObject<HTMLUListElement | null>;
+}) {
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const ids = useMemo(() => groups.map((g) => g.id), [groups]);
+  const drag = useDragSort({ ids, listRef, scrollRef, onMove });
+  return (
+    <div
+      data-folder={folderId}
+      className={`flex flex-col gap-1.5 rounded-xl ${dragging ? "bg-white shadow-lg ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-700" : ""}`}
+    >
+      <p className="flex cursor-grab items-center gap-1.5 px-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 select-none dark:text-zinc-400">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${FOLDER_SWATCH[folderColor(color)]}`} />
+        <span className="truncate">{name}</span>
+      </p>
+      <ul ref={listRef} className="flex flex-col gap-1.5 border-l-2 border-zinc-200 pl-2 dark:border-zinc-800">
+        {groups.map((group) => (
+          <li key={group.id} {...drag.itemProps(group.id)}>
+            <HomeGroupRow group={group} groupMenu={groupMenu} dragging={drag.drag?.id === group.id} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** One group as a card: its face, its name, who and how many, and "Abrir". The whole card is the link. */
+function HomeGroupRow({
+  group,
+  groupMenu,
+  dragging,
+}: {
+  group: GroupSummary;
+  groupMenu: GroupMenuHandler;
+  dragging: boolean;
+}) {
+  const t = useT();
+  return (
+    <Link
+      href={groupPath(group.id)}
+      draggable={false}
+      onContextMenu={(e) => groupMenu(e, group)}
+      className={`group/card flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600 ${
+        group.suspended ? "opacity-60" : ""
+      } ${dragging ? "cursor-grabbing shadow-lg ring-1 ring-zinc-300 dark:ring-zinc-700" : ""}`}
+    >
+      <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={32} className="rounded-lg" />
+      <span className="min-w-0 flex-1">
+        <GroupName
+          name={group.name}
+          flags={group.flags}
+          className={`flex w-full text-sm ${
+            group.unread ? "font-semibold text-zinc-950 dark:text-zinc-50" : "font-medium text-zinc-900 dark:text-zinc-100"
+          }`}
+        />
+        <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+          {group.suspended ? (
+            <span className="font-medium text-amber-600 dark:text-amber-400">{t("common.suspended")}</span>
+          ) : (
+            [
+              ROLE_LABEL[group.role],
+              describeCounts(group.memberCount, group.onlineCount),
+              group.unread ? t("common.newMessages").toLowerCase() : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          )}
+        </span>
+      </span>
+      {group.suspended ? null : group.mentions > 0 ? (
+        <Tooltip
+          content={
+            group.mentions === 1
+              ? t("groups.homeGroupsPanel.n1Mention")
+              : t("groups.homeGroupsPanel.mentionsMentions", { mentions: group.mentions })
+          }
+        >
+          <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold text-white">
+            {group.mentions > 99 ? "99+" : group.mentions}
+          </span>
+        </Tooltip>
+      ) : group.unread ? (
+        <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-950 dark:bg-zinc-50" aria-label={t("common.newMessages")} />
+      ) : null}
+      <span
+        aria-hidden
+        className={`${CARD_ACTION} bg-zinc-950 text-white group-hover/card:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:group-hover/card:bg-zinc-200`}
+      >
+        {t("groups.homeGroupsPanel.open")}
+      </span>
+    </Link>
   );
 }

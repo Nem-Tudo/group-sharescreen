@@ -63,7 +63,9 @@ export type GroupsRoute =
   /** The private messages, expanded into a page of their own — no group behind them. */
   | { kind: "dms"; withUserId: string | null }
   /** Every public room open right now, inside the group shell (experiment "groups-rooms"). */
-  | { kind: "rooms" };
+  | { kind: "rooms" }
+  /** Public groups to find and join (experiment "groups-hub", see lib/groupsHub). */
+  | { kind: "explore" };
 
 /** The segment the expanded private messages live under — see dmPath. */
 const DMS_SEGMENT = "messages";
@@ -74,6 +76,10 @@ const DMS_SEGMENT = "messages";
  */
 const ROOMS_SEGMENT = "rooms";
 export const GROUPS_ROOMS_PATH = `/groups/${ROOMS_SEGMENT}`;
+
+/** Where public groups are explored. Seven letters — a group's id is always ten (see the API's newGroupId). */
+const EXPLORE_SEGMENT = "explore";
+export const GROUPS_EXPLORE_PATH = `/groups/${EXPLORE_SEGMENT}`;
 
 /** Where the expanded private messages are: the list, or one person's thread. */
 export function dmPath(withUserId?: string | null): string {
@@ -87,6 +93,7 @@ export function parseGroupsPath(pathname: string | null | undefined): GroupsRout
   if (parts.length === 1) return { kind: "home" };
   if (parts[1] === DMS_SEGMENT) return { kind: "dms", withUserId: parts[2] ? decodeURIComponent(parts[2]) : null };
   if (parts[1] === ROOMS_SEGMENT && parts.length === 2) return { kind: "rooms" };
+  if (parts[1] === EXPLORE_SEGMENT && parts.length === 2) return { kind: "explore" };
   const groupId = decodeURIComponent(parts[1]);
   if (parts.length === 2) return { kind: "group", groupId };
   return { kind: "room", groupId, roomId: decodeURIComponent(parts[2]) };

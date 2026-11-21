@@ -28,6 +28,11 @@ import { GroupMemberMenuHost, GroupProfileHost } from "@/components/groups/Group
 import { GroupRail } from "@/components/groups/GroupRail";
 import { GroupIndex, GroupRoom } from "@/components/groups/GroupPages";
 import { GroupsHome } from "@/components/groups/GroupsHome";
+import { GroupsExplore, GroupsHubHome } from "@/components/groups/GroupsHub";
+import { GroupsMobileList } from "@/components/groups/GroupsMobileList";
+import { GroupLink } from "@/components/groups/GroupLink";
+import { useGroupsHub } from "@/lib/groupsHub";
+import { useGroupOrganize } from "@/lib/groupOrganize";
 import { GroupsRoomsPage } from "@/components/groups/GroupsRoomsView";
 import {
   GroupActions,
@@ -146,7 +151,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // The exposure is counted here, the one place the frame is drawn.
   const roomShell = useRoomShell(roomHandle, { track: true, page: shellPage !== null });
   // Whether this shell draws its frame — the bar, the rail, the columns. On
-  // every group page; on a room's page only in the experiment (xl up).
+  // every group page; on a room's page, or another page of the site, only in
+  // the experiment (xl up).
   const framed = route !== null || roomShell.on;
   // One of the site's other pages, framed: it scrolls inside the frame, and
   // its own top bar steps aside (see SiteHeader, which reads RoomShellHostContext).
@@ -168,6 +174,8 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // whoever has the redesign; its exposure is the room's to count.
   const roomRedesignOn = useFeature(ROOM_REDESIGN_FEATURE, { track: false }).enabled;
   const roomTint = roomShell.on && roomRedesignOn;
+  // The house in the bar leads to the home inside the layout (see GroupsView).
+  const hub = useGroupsHub({ track: false });
   // The expanded private messages are a page of their own: no group behind them.
   const groupId = route && (route.kind === "group" || route.kind === "room") ? route.groupId : null;
   const roomId = route?.kind === "room" ? route.roomId : null;
@@ -505,15 +513,35 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             }
           >
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <Tooltip content={t("common.backToHome")} placement="bottom">
-                <Link
-                  href="/"
-                  aria-label={t("common.home")}
-                  className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                >
-                  <MdHome />
-                </Link>
-              </Tooltip>
+              {/* The house: the home inside this layout (experiment
+                  groups-hub) — starting and joining rooms without leaving it —
+                  or, outside the experiment, the site's own home. */}
+              {hub ? (
+                <Tooltip content={t("groups.hub.title")} placement="bottom">
+                  <GroupLink
+                    href="/groups"
+                    aria-label={t("groups.hub.title")}
+                    aria-current={route?.kind === "home" ? "page" : undefined}
+                    className={`flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg transition hover:bg-zinc-100 hover:text-zinc-950 dark:hover:bg-zinc-900 dark:hover:text-zinc-50 ${
+                      route?.kind === "home"
+                        ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
+                        : "text-zinc-600 dark:text-zinc-400"
+                    }`}
+                  >
+                    <MdHome />
+                  </GroupLink>
+                </Tooltip>
+              ) : (
+                <Tooltip content={t("common.backToHome")} placement="bottom">
+                  <Link
+                    href="/"
+                    aria-label={t("common.home")}
+                    className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                  >
+                    <MdHome />
+                  </Link>
+                </Tooltip>
+              )}
               <span className="hidden h-6 w-px shrink-0 bg-zinc-200 sm:block dark:bg-zinc-800" />
               {/* An ordinary room's name, code and description, portalled in
                   by the room while its page is the one on screen (see
@@ -608,6 +636,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
               <GroupRail
                 activeGroupId={groupId}
                 roomsActive={route?.kind === "rooms"}
+                exploreActive={route?.kind === "explore"}
                 elsewhere={route === null}
               />
             </div>
@@ -867,7 +896,19 @@ function RoomShellPageEvents({ pathname, eligibleRoom }: { pathname: string; eli
  * being written) belongs to that room.
  */
 function GroupsView({ route }: { route: GroupsRoute | null }) {
-  if (!route || route.kind === "home" || route.kind === "dms") return <GroupsHome />;
+  const isWide = useMediaQuery(LG_BREAKPOINT_QUERY);
+  // Exposure is the rail's (desktop) and the list's (phone), where they show.
+  const hub = useGroupsHub({ track: false });
+  const organize = useGroupOrganize({ track: false });
+  if (!route || route.kind === "home" || route.kind === "dms") {
+    // A phone's /groups is the list of groups — the rail's job there — drawn
+    // the chat-app way once either experiment has something to put in it.
+    if (!isWide && (hub || organize)) return <GroupsMobileList />;
+    // A desktop's is the home inside the layout (experiment groups-hub).
+    if (isWide && hub) return <GroupsHubHome />;
+    return <GroupsHome />;
+  }
+  if (route.kind === "explore") return <GroupsExplore />;
   if (route.kind === "rooms") return <GroupsRoomsPage />;
   if (route.kind === "group") return <GroupIndex key={route.groupId} groupId={route.groupId} />;
   return <GroupRoom key={`${route.groupId}/${route.roomId}`} groupId={route.groupId} roomId={route.roomId} />;

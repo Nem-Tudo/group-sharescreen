@@ -2,13 +2,23 @@
 
 import { useCallback, type MouseEvent } from "react";
 import useNtPopups from "ntpopups";
-import { MdContentCopy, MdDoneAll, MdGroups, MdLink, MdLogout, MdOpenInNew } from "react-icons/md";
+import {
+  MdArchive,
+  MdContentCopy,
+  MdDoneAll,
+  MdGroups,
+  MdLink,
+  MdLogout,
+  MdOpenInNew,
+  MdUnarchive,
+} from "react-icons/md";
 import { copyText } from "@/lib/clipboard";
 import { openContextMenu } from "@/lib/contextMenu";
 import { groupPath } from "@/lib/groupLinks";
+import { GROUP_ORGANIZE_EVENTS, trackGroupOrganize, useGroupOrganize } from "@/lib/groupOrganize";
 import { getGroupVoiceSession, setGroupVoiceSession } from "@/lib/groupVoiceSession";
 import { leaveGroup, type GroupSummary } from "@/lib/groupsApi";
-import { forgetGroup, markGroupRead } from "@/lib/useGroups";
+import { archiveGroup, forgetGroup, markGroupRead } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
 
 // The right button on a group, wherever a group is listed outside the rail —
@@ -23,6 +33,8 @@ import { useT } from "@/lib/useI18n";
 export function useGroupContextMenu(open: (path: string) => void, afterLeave?: (group: GroupSummary) => void) {
   const t = useT();
   const { openPopup } = useNtPopups();
+  // "Arquivar" (experiment group-organize), wherever a group is listed.
+  const organize = useGroupOrganize({ track: false });
 
   const confirmLeave = useCallback(
     (group: GroupSummary) => {
@@ -76,6 +88,15 @@ export function useGroupContextMenu(open: (path: string) => void, afterLeave?: (
             onSelect: () => void copyText(`${window.location.origin}${path}`),
           },
           { label: t("groups.memberMenu.copyId"), icon: <MdContentCopy className="h-4 w-4" />, onSelect: () => void copyText(group.id) },
+          organize && { type: "divider" },
+          organize && {
+            label: group.archived ? t("groups.organize.unarchive") : t("groups.organize.archive"),
+            icon: group.archived ? <MdUnarchive className="h-4 w-4" /> : <MdArchive className="h-4 w-4" />,
+            onSelect: () => {
+              archiveGroup(group.id, !group.archived);
+              trackGroupOrganize(group.archived ? GROUP_ORGANIZE_EVENTS.unarchive : GROUP_ORGANIZE_EVENTS.archive);
+            },
+          },
           group.role !== "owner" && { type: "divider" },
           group.role !== "owner" && {
             label: t("common.leaveTheGroup"),
@@ -86,6 +107,6 @@ export function useGroupContextMenu(open: (path: string) => void, afterLeave?: (
         ],
       });
     },
-    [t, open, confirmLeave]
+    [t, open, confirmLeave, organize]
   );
 }

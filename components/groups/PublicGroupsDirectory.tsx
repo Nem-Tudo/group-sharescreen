@@ -54,7 +54,16 @@ function bannerFor(id: string): string {
   return `linear-gradient(135deg, hsl(${hue} 65% 52%), hsl(${(hue + 40) % 360} 60% 30%))`;
 }
 
-export function PublicGroupsDirectory({ query, myGroupIds }: { query: string; myGroupIds: ReadonlySet<string> }) {
+export function PublicGroupsDirectory({
+  query,
+  myGroupIds,
+  onOpenGroup,
+}: {
+  query: string;
+  myGroupIds: ReadonlySet<string>;
+  /** Told which group's card was opened (Explorar counts the joins that follow, see lib/groupsHub). */
+  onOpenGroup?: (groupId: string) => void;
+}) {
   const { t, tc } = useI18n();
   const [debounced, setDebounced] = useState(query);
   const [sort, setSort] = useState<PublicGroupSort>("online");
@@ -230,7 +239,12 @@ export function PublicGroupsDirectory({ query, myGroupIds }: { query: string; my
             }`}
           >
             {groups.map((group) => (
-              <PublicGroupCard key={group.id} group={group} member={group.member || myGroupIds.has(group.id)} />
+              <PublicGroupCard
+                key={group.id}
+                group={group}
+                member={group.member || myGroupIds.has(group.id)}
+                onOpen={onOpenGroup}
+              />
             ))}
           </ul>
           {page?.hasMore && !unsupported && (
@@ -253,12 +267,21 @@ export function PublicGroupsDirectory({ query, myGroupIds }: { query: string; my
 }
 
 /** One public group: its face on a colour of its own, its blurb, how alive it is, and the way in. */
-function PublicGroupCard({ group, member }: { group: PublicGroupListing; member: boolean }) {
+function PublicGroupCard({
+  group,
+  member,
+  onOpen,
+}: {
+  group: PublicGroupListing;
+  member: boolean;
+  onOpen?: (groupId: string) => void;
+}) {
   const { t, tc } = useI18n();
   return (
     <li className="min-w-0">
       <GroupLink
         href={groupPath(group.id)}
+        onClick={() => onOpen?.(group.id)}
         onMouseEnter={() => (member ? prefetchGroup(group.id) : undefined)}
         className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
       >
