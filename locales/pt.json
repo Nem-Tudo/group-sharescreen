@@ -2221,6 +2221,7 @@
   "groups.groupPages.useYourAccountOrOpenThe": "Use sua conta, ou abra o link de convite que te mandaram.",
   "groups.groupPages.whileTheSuspensionLastsNobodyCan": "Enquanto a suspensão durar, ninguém consegue usar o grupo.",
   "groups.groupPages.youCanSeeWhoIsIn": "Você pode ver quem está nesta sala de voz, mas não tem permissão para entrar nela.",
+  "groups.groupRail.inThisRoom": "Você está nesta sala",
   "groups.groupRail.callCamera": "Alguém com a câmera ligada",
   "groups.groupRail.callScreen": "Alguém transmitindo a tela",
   "groups.groupRail.callVoice": "Gente em call",

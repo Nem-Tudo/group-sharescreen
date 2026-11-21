@@ -58,6 +58,9 @@ import { useFeature } from "@/lib/features";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import type { GroupFolder, GroupSummary } from "@/lib/groupsApi";
 import { useGroupVoiceSession } from "@/lib/groupVoiceSession";
+import { callNameFor, callPathFor, useCallSession } from "@/lib/callSession";
+import { recentRoomPresentation } from "@/lib/recentRooms";
+import { usePathname } from "next/navigation";
 import {
   FOLDER_COLORS,
   FOLDER_SWATCH,
@@ -169,6 +172,12 @@ export function GroupRail({
   const tc = useTCount();
   // The tile is where the experiment shows itself, so this is the exposure.
   const roomsTab = useFeature(GROUPS_ROOMS_FEATURE).enabled;
+  // An ordinary room this tab is in (not a group's voice room, not a direct
+  // call): a tile of its own under "Salas ao vivo", the way back to it from
+  // anywhere in the layout — and lit while it is the page on screen.
+  const call = useCallSession();
+  const pathname = usePathname();
+  const roomCall = call && !call.group && !call.dm ? call : null;
   // Folders and the shelf: the rail is where they are drawn.
   const organize = useGroupOrganize({ track: true });
   // Explorar in the top tiles, and the live rooms' new icon.
@@ -573,6 +582,24 @@ export function GroupRail({
                 <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                   {hub ? <MdLiveTv className="h-5 w-5" /> : <GlobeIcon className="h-5 w-5" />}
                   <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-zinc-950" />
+                </span>
+              }
+            />
+          )}
+          {roomCall && (
+            <RailTile
+              active={pathname === callPathFor(roomCall)}
+              showName={showNames}
+              label={callNameFor(roomCall)}
+              sublabel={t("groups.groupRail.inThisRoom")}
+              sublabelTone="muted"
+              href={callPathFor(roomCall)}
+              face={
+                <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-base font-semibold text-white">
+                  {recentRoomPresentation(roomCall.handle).name.charAt(0).toUpperCase() || <MdVolumeUp className="h-5 w-5" />}
+                  <span className="absolute -bottom-1 -right-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-white text-emerald-600 ring-2 ring-white dark:bg-zinc-950 dark:text-emerald-400 dark:ring-zinc-950">
+                    <MdVolumeUp className="h-3 w-3" />
+                  </span>
                 </span>
               }
             />
