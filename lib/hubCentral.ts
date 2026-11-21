@@ -10,7 +10,10 @@ import { trackFeatureEvent, useFeature } from "./features";
 // happened (the bell's list, without opening the bell). Accounts only: a guest
 // has none of the three and keeps the page as it was.
 //
-// A layout, not a switch: on for the person, it is the home.
+// A layout, not a switch: on for the person, it is the home. Three layouts,
+// one per variant (see components/groups/HubCentral): "now" (who is around
+// leads), "inbox" (one reading column, what is waiting leads) and "bento"
+// (tiles of different sizes). Compare them by the events below per group.
 
 export const HUB_CENTRAL_FEATURE = "hub-central";
 
@@ -31,7 +34,17 @@ export const HUB_CENTRAL_EVENTS = {
   friendAdd: "central_friend_add",
   /** The pending friend requests line opened. */
   requests: "central_requests_open",
+  /** "Começar uma sala" opened its form (the layouts that keep it behind a button). */
+  roomOpen: "central_room_open",
+  /** One of the ways out (explore, rooms, map, invite, new group). Tag `to`: which. */
+  link: "central_link",
 } as const;
+
+export type HubCentralLayout = "now" | "inbox" | "bento";
+// The variants in the admin are "on", "inbox" and "bento": "on" is the now
+// layout (the name the feature had before there were layouts, kept so the
+// overrides already on it stay valid).
+const VARIANT_LAYOUT: Record<string, HubCentralLayout> = { on: "now", now: "now", inbox: "inbox", bento: "bento" };
 
 export function trackHubCentral(
   event: (typeof HUB_CENTRAL_EVENTS)[keyof typeof HUB_CENTRAL_EVENTS],
@@ -40,6 +53,9 @@ export function trackHubCentral(
   trackFeatureEvent(event, { feature: HUB_CENTRAL_FEATURE, ...extra });
 }
 
-export function useHubCentral({ track }: { track: boolean }): boolean {
-  return useFeature(HUB_CENTRAL_FEATURE, { track }).enabled;
+/** The layout this person gets, or null outside the experiment. */
+export function useHubCentral({ track }: { track: boolean }): HubCentralLayout | null {
+  const feature = useFeature(HUB_CENTRAL_FEATURE, { track });
+  if (!feature.enabled) return null;
+  return VARIANT_LAYOUT[feature.variant ?? ""] ?? "now";
 }
