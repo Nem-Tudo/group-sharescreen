@@ -54,6 +54,10 @@ export type WorldMapProps = {
   // result frames it — and, when `onPick` is also given, drops the pin there
   // as a starting point.
   searchable?: boolean;
+  // Whether the mouse wheel zooms straight away. Off for a map inside a page
+  // that scrolls (see groups/ExploreMap): there the wheel scrolls the page
+  // until the map is clicked, and goes back to scrolling once it is left.
+  wheelZoom?: boolean;
   className?: string;
 };
 

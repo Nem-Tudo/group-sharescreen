@@ -19,6 +19,7 @@ import { forgetGroup, refreshGroup, refreshGroups, useGroupDetail, useMyGroups }
 import { useT } from "@/lib/useI18n";
 import { translate } from "@/lib/i18n";
 import { GROUPS_HUB_EVENTS, takeExploreVisit, trackGroupsHub } from "@/lib/groupsHub";
+import { EXPLORE_MAP_EVENTS, trackExploreMap } from "@/lib/exploreMap";
 
 // The two pages inside a group. Both read the same store the shell does, so
 // they never fetch the group twice.
@@ -163,7 +164,12 @@ function GroupGate({ groupId, status }: { groupId: string; status: number }) {
             const result = await joinPublicGroup(groupId, name);
             if (!result.ok) return { ok: false, error: result.error };
             // Reached from Explorar's card (experiment groups-hub).
-            if (takeExploreVisit(groupId)) trackGroupsHub(GROUPS_HUB_EVENTS.exploreJoin);
+            // Reached from Explorar's list or its map: counted for groups-hub
+            // and, on both sides, for explore-map (see lib/exploreMap).
+            if (takeExploreVisit(groupId)) {
+              trackGroupsHub(GROUPS_HUB_EVENTS.exploreJoin);
+              trackExploreMap(EXPLORE_MAP_EVENTS.join);
+            }
             // The group's page is already this one: once the store has the
             // group, GroupIndex/GroupRoom carry on as for any member.
             await Promise.all([refreshGroups(), refreshGroup(groupId)]);

@@ -458,6 +458,7 @@ export default function WorldMapImpl({
   // must not drive the map ends up driving it.
   zoom: zoomProp,
   searchable = false,
+  wheelZoom = true,
   className = "",
 }: WorldMapProps) {
   const t = useT();
@@ -521,8 +522,14 @@ export default function WorldMapImpl({
       maxBoundsViscosity: 1,
       zoomControl: true,
       attributionControl: true,
+      scrollWheelZoom: wheelZoom,
     });
     mapRef.current = map;
+    // Initial only, like center/zoom: see `wheelZoom` in WorldMap.
+    if (!wheelZoom) {
+      map.on("click", () => map.scrollWheelZoom.enable());
+      map.on("mouseout", () => map.scrollWheelZoom.disable());
+    }
     markerLayerRef.current = L.layerGroup().addTo(map);
     const pins = pinsRef.current;
     // Regroups the pins and their names for the new scale — see layoutPlaces.

@@ -19,6 +19,8 @@ import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { PublicGroupsDirectory } from "@/components/groups/PublicGroupsDirectory";
+import { ExploreMap } from "@/components/groups/ExploreMap";
+import { useExploreMap } from "@/lib/exploreMap";
 import { setGroupsHomeQuery, useGroupsHomeQuery } from "@/components/groups/groupSearch";
 import { RoomStartForm } from "@/components/RoomStartForm";
 import { useAuth } from "@/lib/AuthContext";
@@ -214,6 +216,9 @@ export function GroupsExplore() {
   const query = useGroupsHomeQuery();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const myIds = useMemo(() => new Set((groups ?? []).map((g) => g.id)), [groups]);
+  // The rooms-and-groups map on top (experiment explore-map). Exposure: this
+  // page open, on both sides.
+  const exploreMap = useExploreMap({ track: true });
 
   useEffect(() => {
     trackGroupsHub(GROUPS_HUB_EVENTS.exploreOpen);
@@ -259,6 +264,8 @@ export function GroupsExplore() {
             </button>
           </div>
         </div>
+
+        {exploreMap && <ExploreMap />}
 
         <div className="relative mt-6">
           <MdSearch className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" />
