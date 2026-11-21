@@ -2055,9 +2055,9 @@ function WatchRoomView({
   // element, so the redesign's layer in globals.css finds them through this
   // mark on <html> — only while the room is the page on screen, so a docked
   // call does not restyle whatever page somebody walked off to.
-  // A page framed by the group shell wears the shell's colours the same way:
-  // the rail and the bar around it are not the redesign's.
-  const redesignInGroup = Boolean(group) || hostedPage;
+  // A page framed by the group shell (hostedPage) keeps an ordinary room's
+  // colours: the shell tints its frame to match (GroupAppShell's data-rr-tint).
+  const redesignInGroup = Boolean(group);
   useEffect(() => {
     if (!roomRedesign || !visible) return;
     const root = document.documentElement;
@@ -9429,8 +9429,8 @@ function WatchRoomView({
   // exists there — outside a group that node stays in the room's own right
   // zone (see moreOptions).
   //
-  // "start" is the left of that bar, after "início" and the conversations:
-  // where an ordinary room's page framed by the group shell puts its name,
+  // "start" is the left of that bar, right after "início" and before the
+  // conversations: where an ordinary room's page framed by the group shell puts its name,
   // code and description (see hostedPage). Without the bar it is the left of
   // the room's own header, where it always was.
   function inHeaderSlot(slot: "start" | "center" | "right" | "end", node: ReactNode): ReactNode {
@@ -9741,8 +9741,8 @@ function WatchRoomView({
       data-room-page=""
       // The redesign's scope: every rule of it in globals.css hangs off this.
       data-room-redesign={roomRedesign ? "" : undefined}
-      // A group's room wears the group's colours, not the redesign's — and so
-      // does a page framed by the group shell (see hostedPage).
+      // A group's room wears the group's colours, not the redesign's. A page
+      // framed by the group shell (see hostedPage) keeps the redesign's.
       data-rr-group={roomRedesign && redesignInGroup ? "" : undefined}
       className={`flex min-h-0 flex-1 flex-col ${
         // The conversation's own card is what this is drawn on.
@@ -9868,9 +9868,6 @@ function WatchRoomView({
                 says where you are in its own way. */}
             {!group && !callLayout && inHeaderSlot("start", (
             <>
-            {headerSlots?.start && hostedPage && (
-              <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />
-            )}
             <div className="flex min-w-0 items-center gap-2">
               {/* For a private room the code is split out of the handle and
                   shown on its own: it's the room's whole secret now (see
@@ -9945,6 +9942,11 @@ function WatchRoomView({
                 category={state.roomCategory}
                 canEdit={isRoomManager}
               />
+            )}
+            {/* In the shell's bar the room comes first, right after "início",
+                and this rule parts it from the conversations that follow. */}
+            {headerSlots?.start && hostedPage && (
+              <span className="hidden h-6 w-px shrink-0 bg-zinc-200 lg:block dark:bg-zinc-800" />
             )}
             </>
             ))}

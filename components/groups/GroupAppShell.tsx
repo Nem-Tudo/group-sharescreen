@@ -56,6 +56,7 @@ import {
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
 import { parseWatchPath, RoomShellHostContext, useRoomShell, useRoomShellPageEvents } from "@/lib/roomShell";
+import { ROOM_REDESIGN_FEATURE } from "@/lib/roomRedesign";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRoom } from "@/lib/signalingSelectors";
 import { onGroupRemoved, refreshGroups, resetGroups, useGroupDetail } from "@/lib/useGroups";
@@ -137,6 +138,12 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // Whether this shell draws its frame — the bar, the rail, the columns. On
   // every group page; on a room's page only in the experiment (xl up).
   const framed = route !== null || roomShell.on;
+  // A framed room keeps an ordinary room's colours — the redesign's faint blue
+  // (see globals.css, data-rr-tint) — and the frame around it wears them too,
+  // so the rail and the bar do not sit grey around a bluish room. Only for
+  // whoever has the redesign; its exposure is the room's to count.
+  const roomRedesignOn = useFeature(ROOM_REDESIGN_FEATURE, { track: false }).enabled;
+  const roomTint = roomShell.on && roomRedesignOn;
   // The expanded private messages are a page of their own: no group behind them.
   const groupId = route && (route.kind === "group" || route.kind === "room") ? route.groupId : null;
   const roomId = route?.kind === "room" ? route.roomId : null;
@@ -177,6 +184,9 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   // headerSlots. State rather than refs, so the room re-renders once they exist.
   // `start` is where an ordinary room's page puts its name and description.
   const [startSlot, setStartSlot] = useState<HTMLDivElement | null>(null);
+  // The conversations after it, which slide over as a room's name comes and goes.
+  const [dmStrip, setDmStrip] = useState<HTMLDivElement | null>(null);
+  useSlideAfterSlot(startSlot, dmStrip);
   const [centerSlot, setCenterSlot] = useState<HTMLDivElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLDivElement | null>(null);
   const [endSlot, setEndSlot] = useState<HTMLDivElement | null>(null);
@@ -424,6 +434,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
       <div
         data-group-shell={framed ? "" : undefined}
         data-room-page={framed ? "" : undefined}
+        data-rr-tint={roomTint ? "" : undefined}
         className={`flex min-h-0 flex-1 flex-col ${framed ? "bg-zinc-50 dark:bg-black" : ""} ${
           // A framed room keeps its text selectable, as it always was.
           route ? "select-none" : ""
@@ -476,20 +487,27 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                 </Link>
               </Tooltip>
               <span className="hidden h-6 w-px shrink-0 bg-zinc-200 sm:block dark:bg-zinc-800" />
+              {/* An ordinary room's name, code and description, portalled in
+                  by the room while its page is the one on screen (see
+                  WatchRoom's inHeaderSlot "start") — first, since on a room's
+                  page where you are is the first thing the bar says. Empty,
+                  and so not there at all, everywhere else. A box rather than
+                  `contents`, so its coming and going can be measured (see
+                  useSlideAfterSlot). */}
+              <div ref={setStartSlot} className="flex min-w-0 items-center gap-2 empty:hidden" />
               {/* The groups are the column down the left (see GroupRail), so
                   the switcher would only repeat it: its place goes to the
                   private conversations. A phone has its own bar (GroupMobile).
-                  On a room's page they share the left with the room's name
-                  and description, so fewer faces there. */}
-              <DmRecentStrip
-                leading
-                compact={headerFit >= 1}
-                maxFaces={roomHandle !== null ? 3 : undefined}
-              />
-              {/* An ordinary room's name, code and description, portalled in
-                  by the room while its page is the one on screen (see
-                  WatchRoom's inHeaderSlot "start"). Empty everywhere else. */}
-              <div ref={setStartSlot} className="contents" />
+                  On a room's page they come after the room's name and
+                  description, so fewer faces there. They slide rather than
+                  jump when the name arrives or leaves. */}
+              <div ref={setDmStrip} className="flex shrink-0 items-center">
+                <DmRecentStrip
+                  leading
+                  compact={headerFit >= 1}
+                  maxFaces={roomHandle !== null ? 3 : undefined}
+                />
+              </div>
             </div>
 
             {/* The middle: the call's own controls — mic, sound, screen,
@@ -711,6 +729,80 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
       </div>
     </GroupNavContext.Provider>
   );
+}
+
+const SLIDE_MS = 320;
+const SLIDE_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+const FADE_IN_MS = 220;
+
+/**
+ * Slides `mover` from where it was to where it now is whenever `slot`'s
+ * content changes — a room's name arriving in the bar or leaving it — instead
+ * of letting it jump (FLIP: the new place is laid out, and the element is
+ * animated in from the old one with a transform). The name fades in as it
+ * arrives.
+ *
+ * Watched with a MutationObserver because the content is portalled in by the
+ * room, whose commits are not this component's: its callback runs after the
+ * DOM changed and before the frame is painted, so the old position is still
+ * the one remembered and nothing is drawn at the new one first. A
+ * ResizeObserver only keeps that remembered position up to date as the name
+ * truncates with the window, without animating anything.
+ */
+function useSlideAfterSlot(slot: HTMLElement | null, mover: HTMLElement | null): void {
+  useEffect(() => {
+    if (!slot || !mover || typeof MutationObserver === "undefined") return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    // offsetLeft is the laid-out place, untouched by the animation's transform.
+    let last = mover.offsetLeft;
+    let wasEmpty = slot.childElementCount === 0;
+    let running: Animation | null = null;
+
+    const mutations = new MutationObserver(() => {
+      const next = mover.offsetLeft;
+      const empty = slot.childElementCount === 0;
+      if (!reduced && next !== last && typeof mover.animate === "function") {
+        // From wherever it is on screen right now — mid-slide included, so a
+        // quick back-and-forth turns around instead of snapping.
+        let from = last - next;
+        if (running) {
+          const transform = getComputedStyle(mover).transform;
+          if (transform && transform !== "none") from += new DOMMatrixReadOnly(transform).m41;
+          running.cancel();
+        }
+        const animation = mover.animate(
+          [{ transform: `translateX(${from}px)` }, { transform: "translateX(0)" }],
+          { duration: SLIDE_MS, easing: SLIDE_EASING }
+        );
+        running = animation;
+        const done = () => {
+          if (running === animation) running = null;
+        };
+        animation.onfinish = done;
+        animation.oncancel = done;
+      }
+      if (!reduced && wasEmpty && !empty && typeof slot.animate === "function") {
+        slot.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FADE_IN_MS, easing: "ease-out" });
+      }
+      wasEmpty = empty;
+      last = next;
+    });
+    mutations.observe(slot, { childList: true, subtree: true, characterData: true });
+
+    const resize =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            last = mover.offsetLeft;
+          });
+    resize?.observe(slot);
+
+    return () => {
+      mutations.disconnect();
+      resize?.disconnect();
+      running?.cancel();
+    };
+  }, [slot, mover]);
 }
 
 /**

@@ -474,6 +474,7 @@ html[data-room-redesign-on] :is(.tippy-box, .ntpopups-main, .golive-dialog-card,
    with a fifth of a blue-grey of the same lightness mixed in: a full slate
    read as too blue. */
 html:not([data-room-theme]) [data-room-redesign]:not([data-rr-group]),
+html:not([data-room-theme]) [data-rr-tint],
 html[data-room-redesign-on=""]:not([data-room-theme]) :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
   --color-zinc-50: color-mix(in oklab, #fafafa 80%, #f8fafc);
   --color-zinc-100: color-mix(in oklab, #f4f4f5 80%, #f1f5f9);
@@ -491,9 +492,14 @@ html[data-room-redesign-on=""]:not([data-room-theme]) :is(.tippy-box, .ntpopups-
 /* The page under the room: `bg-black` in the dark theme, which is not a zinc
    token (and is also every dialog backdrop and video letterbox, so it is set
    here rather than through the token). Below the cards' #161b22. */
-html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-page]:not([data-rr-group]) {
+html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-page]:not([data-rr-group]),
+html:not([data-room-theme])[data-theme="dark"] [data-rr-tint] {
   background-color: #0d1117;
 }
+
+/* data-rr-tint: the group shell framing an ordinary room's page (experiment
+   room-shell, see GroupAppShell) — only the colours above, so the rail and the
+   bar match the room inside them; none of the redesign's shapes or type. */
 
 /* The dark theme's surfaces, lifted: the original black page with near-black
    cards read as too dark once the cards lost their weight, and a neutral
@@ -501,6 +507,7 @@ html:not([data-room-theme])[data-theme="dark"] [data-room-redesign][data-room-pa
    (cards over the page, borders over the cards), with the same faint lean
    toward blue as the light end. */
 html:not([data-room-theme])[data-theme="dark"] [data-room-redesign]:not([data-rr-group]),
+html:not([data-room-theme])[data-theme="dark"] [data-rr-tint],
 html[data-room-redesign-on=""]:not([data-room-theme])[data-theme="dark"] :is(.tippy-box, .ntpopups-main, .golive-dialog-card, [role="dialog"], [role="menu"], [data-room-floating]) {
   --color-zinc-950: #161b22;
   --color-zinc-900: #1c222b;
