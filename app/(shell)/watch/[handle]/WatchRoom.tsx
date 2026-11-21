@@ -1842,10 +1842,10 @@ function RoomMusicBar({
   const isMusicController = isRoomManager || isMusicOwner;
   return (
     <MusicBar
-      // A group room's bar goes to the strip under the group's header and
-      // its player out of the room altogether, so opening the voice room
-      // or moving to another of the group's rooms never restarts the
-      // song. An ordinary room's is drawn and played right here, as ever.
+      // A group room's bar goes to the strip under the group's header; an
+      // ordinary room's is drawn right here. Either way the player itself
+      // lives out of the room altogether (keepPlayerInPlace), so walking
+      // to another page and back never restarts the song.
       slot={slot}
       keepPlayerInPlace={keepPlayerInPlace}
       music={music}
@@ -10223,7 +10223,13 @@ function WatchRoomView({
 
       <RoomMusicBar
         slot={groupMusicSlot}
-        keepPlayerInPlace={Boolean(group)}
+        // Every room's player, not only a group's: an ordinary room's call is
+        // carried around the site too (see RoomCallHost), and with the player
+        // inside the bar every page change moved its iframe — which the
+        // browser reloads, restarting the song and leaving the player's API
+        // talking to a page that no longer listens. The room-shell frame made
+        // that a click away (the rail, the conversations, the groups).
+        keepPlayerInPlace
         isRoomManager={isRoomManager}
         selfUserId={state.selfUserId}
         peers={state.peers}

@@ -224,9 +224,9 @@ export function MusicBar({
   slot?: HTMLElement | null;
   /**
    * Keep the player outside the room, in the node nothing moves (see
-   * getPlayerHost). Set for a group's voice rooms, whose call is carried from
-   * page to page with the person. An ordinary room keeps its player inside the
-   * bar, exactly as it always has.
+   * getPlayerHost). Set by every room: any call is carried from page to page
+   * with the person (see RoomCallHost), and a player inside the bar would be
+   * reloaded by each move. False only for a bar that is never moved.
    */
   keepPlayerInPlace?: boolean;
 }) {
