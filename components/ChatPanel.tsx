@@ -1180,6 +1180,9 @@ export function ChatPanel({
           onContextMenu={
             hasMenu
               ? (e) => {
+                  // A picture keeps its own menu (the browser's, or the
+                  // groups' stand-in with "Copiar imagem").
+                  if ((e.target as Element).closest("img")) return;
                   e.preventDefault();
                   if (hasAuthorMenu) setAuthorMenuFor((open) => (open === m.id ? null : m.id));
                   else handlers.authorContextMenu(m.from, m.name);

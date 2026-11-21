@@ -1717,6 +1717,7 @@
   "groups.textChannelView.newMessagesBelow.one": "{count} mensaje nuevo",
   "groups.textChannelView.newMessagesBelow.other": "{count} mensajes nuevos",
   "contextMenu.copyLink": "Copiar enlace",
+  "contextMenu.copyImage": "Copiar imagen",
   "contextMenu.cut": "Cortar",
   "contextMenu.openLink": "Abrir enlace",
   "contextMenu.paste": "Pegar",

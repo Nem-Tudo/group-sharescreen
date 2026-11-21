@@ -7,12 +7,13 @@ import {
   MdContentCopy,
   MdContentCut,
   MdContentPaste,
+  MdImage,
   MdLink,
   MdOpenInNew,
   MdSelectAll,
 } from "react-icons/md";
 import { MobileSheet } from "@/components/MobileSheet";
-import { copyText } from "@/lib/clipboard";
+import { copyImageOrLink, copyText } from "@/lib/clipboard";
 import { isTouchPointer, useCoarsePointer } from "@/lib/messageGestures";
 import {
   closeContextMenu,
@@ -310,6 +311,11 @@ function fallbackEntries(event: MouseEvent): ContextMenuEntries {
       onSelect: () => void copyText(link.href),
     },
     { type: "divider" },
+    imageSrc && {
+      label: translate("contextMenu.copyImage"),
+      icon: <MdImage className={icon} />,
+      onSelect: () => void copyImageOrLink(imageSrc),
+    },
     imageSrc && {
       label: translate("groups.contextMenu.openImage"),
       icon: <MdOpenInNew className={icon} />,

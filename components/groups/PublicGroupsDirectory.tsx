@@ -205,7 +205,7 @@ export function PublicGroupsDirectory({
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-3">
           {Array.from({ length: 6 }, (_, index) => (
             <li key={index} className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <span className="block h-14 animate-pulse bg-zinc-100 dark:bg-zinc-900" />
+              <span className="block h-20 animate-pulse bg-zinc-100 dark:bg-zinc-900" />
               <span className="m-3 block h-3 w-2/3 animate-pulse rounded bg-zinc-100 dark:bg-zinc-900" />
               <span className="mx-3 mb-3 block h-8 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
             </li>
@@ -285,7 +285,13 @@ function PublicGroupCard({
         onMouseEnter={() => (member ? prefetchGroup(group.id) : undefined)}
         className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
       >
-        <span className="block h-14 w-full shrink-0" style={{ background: bannerFor(group.id) }} />
+        {/* The group's own banner when it has one (GroupInfo.bannerUrl), its colour otherwise. */}
+        {group.bannerUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
+          <img src={group.bannerUrl} alt="" loading="lazy" draggable={false} className="block h-20 w-full shrink-0 object-cover" />
+        ) : (
+          <span className="block h-20 w-full shrink-0" style={{ background: bannerFor(group.id) }} />
+        )}
         <span className="flex flex-1 flex-col gap-1.5 px-3 pb-3">
           <span className="-mt-7 self-start rounded-xl bg-white ring-4 ring-white dark:bg-zinc-950 dark:ring-zinc-950">
             <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={52} className="rounded-xl" />

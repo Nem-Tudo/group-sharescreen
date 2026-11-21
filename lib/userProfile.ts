@@ -22,6 +22,8 @@ export type ProfileGroup = {
   name: string;
   description: string;
   iconUrl: string | null;
+  /** The group's wide picture, or null for none. Absent from an older API. */
+  bannerUrl?: string | null;
   flags: string[];
   memberCount: number;
   onlineCount: number;

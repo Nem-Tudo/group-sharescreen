@@ -59,3 +59,48 @@ export async function copyText(text: string): Promise<boolean> {
   }
   return copyViaExecCommand(text);
 }
+
+/**
+ * Copies the picture itself (not its address), as a PNG — the one image type
+ * every browser's clipboard accepts. A GIF goes as its first frame.
+ *
+ * The bytes are fetched again rather than read off the <img>: drawing a
+ * cross-origin <img> on a canvas taints it, while a CORS fetch of the same
+ * address does not (our uploads and the CDN answer with CORS). Returns false
+ * when the browser refuses or the host has no CORS, so the caller can fall
+ * back to the link.
+ */
+export async function copyImage(src: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") return false;
+    // The promise goes into the ClipboardItem as is, not awaited first:
+    // Safari only allows the write inside the click, and the fetch would
+    // outlive it.
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": imageAsPng(src) })]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function imageAsPng(src: string): Promise<Blob> {
+  const response = await fetch(src, { mode: "cors", credentials: "omit" });
+  if (!response.ok) throw new Error(`image ${response.status}`);
+  const blob = await response.blob();
+  if (blob.type === "image/png") return blob;
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((png) => (png ? resolve(png) : reject(new Error("toBlob"))), "image/png")
+  );
+}
+
+/** "Copiar imagem" for a context menu: the picture, or its address when the browser will not take the picture. */
+export async function copyImageOrLink(src: string): Promise<void> {
+  if (await copyImage(src)) return;
+  if (!src.startsWith("data:")) await copyText(src);
+}

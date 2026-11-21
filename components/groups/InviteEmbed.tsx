@@ -153,7 +153,12 @@ function InviteEmbed({ code }: { code: string }) {
     "shrink-0 cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
-    <div className={frame}>
+    <div className={group.bannerUrl ? "w-full max-w-sm overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800" : "contents"}>
+      {group.bannerUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
+        <img src={group.bannerUrl} alt="" loading="lazy" draggable={false} className="block h-16 w-full object-cover" />
+      )}
+    <div className={group.bannerUrl ? `${frame} !max-w-none !rounded-none !border-0` : frame}>
       <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={40} className="shrink-0 rounded-xl" />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -188,6 +193,7 @@ function InviteEmbed({ code }: { code: string }) {
           {busy ? t("common.joining2") : t("groups.inviteEmbed.join")}
         </button>
       )}
+    </div>
     </div>
   );
 }

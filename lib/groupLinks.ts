@@ -142,6 +142,8 @@ export interface InvitePreview {
     name: string;
     description: string;
     iconUrl: string | null;
+    /** The group's wide picture, or null for none. Absent from an older API. */
+    bannerUrl?: string | null;
     /** "VERIFIED" draws the badge beside the name. Absent from an older API. */
     flags?: string[];
     memberCount: number;

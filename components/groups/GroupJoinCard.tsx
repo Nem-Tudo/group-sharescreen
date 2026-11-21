@@ -94,7 +94,23 @@ export function GroupJoinCard({
 
   return (
     <>
-      <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={80} className="rounded-3xl" />
+      {/* The group's banner over the card, with the icon sitting on its edge. */}
+      {group.bannerUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
+        <img
+          src={group.bannerUrl}
+          alt=""
+          draggable={false}
+          className="aspect-[16/7] w-full max-w-md rounded-2xl object-cover"
+        />
+      )}
+      <GroupIcon
+        name={group.name}
+        iconUrl={group.iconUrl}
+        seed={group.id}
+        size={80}
+        className={`rounded-3xl ${group.bannerUrl ? "-mt-14 ring-4 ring-white dark:ring-zinc-950" : ""}`}
+      />
       <p className="text-sm text-zinc-500 dark:text-zinc-400">{headline}</p>
       <h1 className="flex max-w-full justify-center text-2xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
         <GroupName name={group.name} flags={group.flags} badgeClassName="h-6 w-6" />

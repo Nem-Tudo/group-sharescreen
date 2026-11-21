@@ -25,6 +25,7 @@ import {
   MdClose,
   MdCloseFullscreen,
   MdContentCopy,
+  MdImage,
   MdDeleteOutline,
   MdDoneAll,
   MdEdit,
@@ -62,7 +63,7 @@ import { Twemoji } from "@/components/Twemoji";
 import { QuickReactionsRow, ReactionPicker, openReactionSheet } from "@/components/groups/ReactionPicker";
 import { MessageGesturesTip } from "@/components/MessageGesturesTip";
 import { MessagePreviewCard } from "@/components/MessageActionSheet";
-import { copyText } from "@/lib/clipboard";
+import { copyImageOrLink, copyText } from "@/lib/clipboard";
 import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { openContextMenu } from "@/lib/contextMenu";
 import { useMessageGestures, useCoarsePointer } from "@/lib/messageGestures";
@@ -2368,6 +2369,9 @@ export function DirectMessagesModal({
   function messageMenu(event: ReactMouseEvent, bubble: Bubble) {
     if ((event.target as Element).closest("a[href]")) return;
     const me = account?.id ?? "";
+    // The picture under the pointer, when the press was on one.
+    const image = (event.target as Element).closest("img");
+    const imageSrc = image?.currentSrc || image?.getAttribute("src") || "";
     const delivered = Boolean(bubble.messageId);
     // On a touch screen the menu is a sheet, opened by a finger that was
     // covering the message: it starts by showing which message it is about.
@@ -2433,6 +2437,11 @@ export function DirectMessagesModal({
           label: t("groups.contextMenu.copyText"),
           icon: <MdContentCopy className="h-4 w-4" />,
           onSelect: () => void copyText(bubble.text),
+        },
+        imageSrc && {
+          label: t("contextMenu.copyImage"),
+          icon: <MdImage className="h-4 w-4" />,
+          onSelect: () => void copyImageOrLink(imageSrc),
         },
         finder.enabled &&
           bubble.messageId && {

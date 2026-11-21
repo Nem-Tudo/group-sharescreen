@@ -70,8 +70,15 @@ export function ProfileGroupCard({
     "shrink-0 cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
+    <div className={group.bannerUrl ? "w-full overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800" : "contents"}>
+      {group.bannerUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
+        <img src={group.bannerUrl} alt="" loading="lazy" draggable={false} className="block h-16 w-full object-cover" />
+      )}
     <div
-      className="flex w-full items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-left text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-100"
+      className={`flex w-full items-center gap-3 border-zinc-200 bg-zinc-50 p-3 text-left text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-100 ${
+        group.bannerUrl ? "" : "rounded-xl border"
+      }`}
       style={theme ? { background: theme.surface, borderColor: theme.border, color: theme.text } : undefined}
     >
       <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={48} className="shrink-0 rounded-xl" />
@@ -119,6 +126,7 @@ export function ProfileGroupCard({
           {busy ? t("common.joining2") : t("groups.inviteEmbed.join")}
         </button>
       )}
+    </div>
     </div>
   );
 }

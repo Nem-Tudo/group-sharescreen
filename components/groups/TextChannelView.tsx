@@ -24,6 +24,7 @@ import {
   MdChatBubbleOutline,
   MdClose,
   MdContentCopy,
+  MdImage,
   MdDeleteOutline,
   MdEdit,
   MdEmojiEmotions,
@@ -60,7 +61,7 @@ import { MessageGesturesTip } from "@/components/MessageGesturesTip";
 import { MessagePreviewCard } from "@/components/MessageActionSheet";
 import { ReactionsDialog } from "@/components/groups/ReactionsDialog";
 import { useOpenChannelSettings } from "@/components/groups/ChannelSettingsDialog";
-import { copyText } from "@/lib/clipboard";
+import { copyImageOrLink, copyText } from "@/lib/clipboard";
 import { CopyMessageButton } from "@/components/CopyMessageButton";
 import { SwipeReplyHint } from "@/components/SwipeReplyHint";
 import { openContextMenu } from "@/lib/contextMenu";
@@ -1545,6 +1546,11 @@ export const TextChannelView = memo(function TextChannelView({
           label: t("groups.contextMenu.copyText"),
           icon: <MdContentCopy className="h-4 w-4" />,
           onSelect: () => void copyText(readable),
+        },
+        imageSrc && {
+          label: t("contextMenu.copyImage"),
+          icon: <MdImage className="h-4 w-4" />,
+          onSelect: () => void copyImageOrLink(imageSrc),
         },
         imageSrc && {
           label: t("groups.contextMenu.openImage"),
