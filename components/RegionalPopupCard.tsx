@@ -5,7 +5,6 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/useI18n";
 import { RubyVerifiedBadgeIcon } from "@/components/icons";
 import { SITE_URL } from "@/lib/seo";
-import { currentAnnouncementDevice } from "@/lib/announcement";
 import {
   REGIONAL_EVENTS,
   REGIONAL_HOME_KM,
@@ -157,31 +156,18 @@ function bezier(p0: Pt, c: Pt, p1: Pt, t: number): Pt {
   return { x: u * u * p0.x + 2 * u * t * c.x + t * t * p1.x, y: u * u * p0.y + 2 * u * t * c.y + t * t * p1.y };
 }
 
-/** The closest town seat, when the visitor is basically in it. */
 /**
- * "region_city.pouso-alegre": the town as a feature event name. The prefix is
- * short on purpose: events stop at 40 characters, and the longest seat
- * ("sao-sebastiao-da-bela-vista") needs 27 of them. Every name is in the
- * feature's site events (the list was generated from REGIONAL_TOWNS_ALL).
+ * "pouso-alegre": the town as an attribute value (the `city` of every popup
+ * event); "unknown" when no seat is close enough.
  */
-export function regionalCityEvent(town: string | null): string {
-  if (!town) return "region_city.unknown";
-  const slug = town
+export function regionalCitySlug(town: string | null): string {
+  if (!town) return "unknown";
+  return town
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-  return `region_city.${slug}`;
-}
-
-/** desktop-browser, desktop-app, mobile-browser, android-app or ios-app. */
-function safePlatform(): string {
-  try {
-    return currentAnnouncementDevice();
-  } catch {
-    return "unknown";
-  }
 }
 
 /** windows, mac, linux, android, ios or other, from the user agent. */
@@ -196,6 +182,7 @@ function operatingSystem(): string {
   return "other";
 }
 
+/** The closest town seat, when the visitor is basically in it. */
 function guessTown(spot: RegionalSpot): string | null {
   let best: string | null = null;
   let bestKm = TOWN_GUESS_KM;
@@ -700,8 +687,15 @@ export function RegionalPopupCard({
   const home = km < REGIONAL_HOME_KM;
   const town = home ? null : guessTown(spot);
 
+  // Every popup event carries where it was seen — city and system — so the
+  // numbers cross ("on a phone in Taubaté"); the API adds the platform. The
+  // feature declares these in its attributes (clientTags).
+  const tags = useMemo(
+    () => ({ city: regionalCitySlug(home ? "Santa Rita do Sapucaí" : town), os: operatingSystem() }),
+    [home, town]
+  );
   const track = (name: string, value?: number) => {
-    if (!preview) trackRegional(name, value);
+    if (!preview) trackRegional(name, value, tags);
   };
 
   // How it ended, for the numbers: seconds open on every way out, a try to
@@ -734,16 +728,14 @@ export function RegionalPopupCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Which town saw it: the same guess as the title (Santa Rita when home,
-  // "unknown" when no seat is close enough). Once per opening.
-  const cityEvent = regionalCityEvent(home ? "Santa Rita do Sapucaí" : town);
+  // The opening itself (value = km to Santa Rita), here rather than in
+  // RegionalPopup so it carries the attributes too.
+  const shownRef = useRef(false);
   useEffect(() => {
-    if (!preview) {
-      trackRegional(cityEvent);
-      // Where it was seen: the site's own platform split, and the system.
-      trackRegional(`regional_platform.${safePlatform()}`);
-      trackRegional(`regional_os.${operatingSystem()}`);
-    }
+    // Once, even when effects run twice (React's dev double-invoke).
+    if (shownRef.current) return;
+    shownRef.current = true;
+    track(REGIONAL_EVENTS.show, Math.max(1, Math.round(km)));
     // Counted for the popup's one opening, not on re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

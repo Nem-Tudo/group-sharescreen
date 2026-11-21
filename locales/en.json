@@ -6735,5 +6735,17 @@
   "regional.share": "Tell my friends",
   "regional.proLink": "What comes with Pro Ultra?",
   "regional.close": "Close",
-  "regional.shareText": "Did you know Go Live is from Santa Rita do Sapucaí? If you see someone wearing a Go Live shirt, stop them and ask for a gift: 1 month of Pro Ultra, free!"
+  "regional.shareText": "Did you know Go Live is from Santa Rita do Sapucaí? If you see someone wearing a Go Live shirt, stop them and ask for a gift: 1 month of Pro Ultra, free!",
+  "admin.features.attributes": "Event attributes",
+  "admin.features.attributesHint": "Names events may carry so their numbers can be crossed (e.g. city, os). Use trackFeatureEvent(name, { tags: { city: \"taubate\" } }). \"platform\" is filled in by the API itself, the site never sends it. Up to 8 names (a-z, 0-9, _).",
+  "admin.features.breakdown": "Break down by attribute",
+  "admin.features.breakdownRows": "Rows",
+  "admin.features.breakdownCols": "Columns",
+  "admin.features.breakdownNone": "(none)",
+  "admin.features.breakdownAllGroups": "all summed",
+  "admin.features.breakdownTotal": "Total",
+  "admin.features.breakdownShowAll": "Show all ({count})",
+  "admin.features.breakdownFewer": "Show fewer",
+  "admin.features.breakdownHint": "Counts (not unique people) since the attribute was declared, no day filter. \"—\" = the event came without that attribute. Hover a cell to see its value.",
+  "admin.features.reason.tag_overflow": "attributes dropped (too many combinations)"
 }

@@ -268,7 +268,37 @@ function currentPlatform(): FeaturePlatform | null {
 // Reporting
 
 type Exposure = { key: string; id?: string };
-type ClientEvent = { name: string; room?: string; group?: string; value?: number; feature?: string };
+type ClientEvent = { name: string; room?: string; group?: string; value?: number; feature?: string; tags?: Record<string, string> };
+
+// Attributes an event carries (see the API's featureStatsStore): counted per
+// combination by every feature that declares their names in "Atributos", so
+// its numbers can be crossed (city x platform). Same rules as the API, so a
+// bad one is dropped here, visibly, rather than silently there. "platform" is
+// added by the API itself from the request and is never sent.
+const TAG_NAME_RE = /^[a-z][a-z0-9_]{0,23}$/;
+const TAG_VALUE_RE = /^[a-z0-9][a-z0-9_.-]{0,39}$/;
+const MAX_TAGS = 6;
+
+export type FeatureEventTags = Record<string, string | number | boolean | null | undefined>;
+
+function cleanTags(tags: FeatureEventTags | undefined): Record<string, string> | undefined {
+  if (!tags) return undefined;
+  const out: Record<string, string> = {};
+  let count = 0;
+  for (const [rawName, rawValue] of Object.entries(tags)) {
+    if (count >= MAX_TAGS) break;
+    if (rawValue === null || rawValue === undefined) continue;
+    const name = rawName.toLowerCase();
+    const value = String(rawValue).toLowerCase();
+    if (name === "platform" || !TAG_NAME_RE.test(name) || !TAG_VALUE_RE.test(value)) {
+      if (process.env.NODE_ENV !== "production") console.warn(`[features] attribute dropped: ${name}=${value}`);
+      continue;
+    }
+    out[name] = value;
+    count += 1;
+  }
+  return count > 0 ? out : undefined;
+}
 
 const pendingExposures: Exposure[] = [];
 const pendingEvents: ClientEvent[] = [];
@@ -323,8 +353,16 @@ function reportExposure(key: string, target: FeatureTarget, id: string) {
  */
 export function trackFeatureEvent(
   name: string,
-  targets: { room?: string | null; group?: string | null; value?: number; feature?: string | null } = {}
+  targets: {
+    room?: string | null;
+    group?: string | null;
+    value?: number;
+    feature?: string | null;
+    /** Attributes to cross the numbers by: { city: "taubate", os: "android" }. */
+    tags?: FeatureEventTags;
+  } = {}
 ) {
+  const tags = cleanTags(targets.tags);
   pendingEvents.push({
     name,
     // Counted for this feature only, not every feature the person is in.
@@ -332,6 +370,7 @@ export function trackFeatureEvent(
     ...(targets.room ? { room: targets.room } : {}),
     ...(targets.group ? { group: targets.group } : {}),
     ...(targets.value ? { value: targets.value } : {}),
+    ...(tags ? { tags } : {}),
   });
   scheduleTrack();
 }

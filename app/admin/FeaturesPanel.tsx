@@ -17,6 +17,7 @@ import {
   type FeatureOverride,
   type FeaturePlatform,
   type FeatureStats,
+  type FeatureTagRow,
   type FeatureTarget,
   type FeatureWrite,
   type PremiumCellCohort,
@@ -789,6 +790,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
   const [includeGuests, setIncludeGuests] = useState(feature.includeGuests);
   const [serverOnly, setServerOnly] = useState(feature.serverOnly);
   const [siteEvents, setSiteEvents] = useState((feature.clientEvents ?? []).join(", "));
+  const [attributes, setAttributes] = useState((feature.clientTags ?? []).join(", "));
   const [dataDraft, setDataDraft] = useState(() => featureDataDraft(feature.data));
   const [overrides, setOverrides] = useState<FeatureOverride[]>(feature.overrides);
   const [newId, setNewId] = useState("");
@@ -962,6 +964,20 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
             <span className="font-normal text-zinc-500">{t("admin.features.siteEventsHint")}</span>
           </label>
         )}
+
+        {!serverOnly && (
+          <label className={labelClass}>
+            {t("admin.features.attributes")}
+            <input
+              value={attributes}
+              onChange={(e) => setAttributes(e.target.value)}
+              placeholder="platform, city, os"
+              spellCheck={false}
+              className={`${inputClass} font-mono`}
+            />
+            <span className="font-normal text-zinc-500">{t("admin.features.attributesHint")}</span>
+          </label>
+        )}
       </div>
 
       <div className={cardClass}>
@@ -1038,6 +1054,7 @@ function TargetingSection({ feature, busy, save }: { feature: AdminFeature; busy
               includeGuests,
               serverOnly,
               clientEvents: nextSiteEvents,
+              clientTags: splitList(attributes.toLowerCase()),
               data: dataJson,
               // A site event added here is one this feature exists to measure,
               // so it starts pinned in its stats. Only the newly added ones:
@@ -1257,6 +1274,9 @@ function StatsSection({
               </tbody>
             </table>
             <p className="mt-2 text-[11px] text-zinc-500">{t("admin.features.exposuresHint")}</p>
+            {stats.tags && Object.keys(stats.tags.exposures).length > 0 && (
+              <TagBreakdown byGroup={stats.tags.exposures} groups={groups} />
+            )}
           </div>
 
           {stats.events[PARTNER_EVENTS.impression] && <PartnerCtrTable groups={groups} stats={stats} />}
@@ -1444,7 +1464,187 @@ function EventTable({
         </tbody>
       </table>
       <p className="mt-2 text-[11px] text-zinc-500">{t("admin.features.rateHint")}</p>
+      {stats.tags?.events[event] && (
+        <TagBreakdown byGroup={stats.tags.events[event]} groups={groups} money={isMoney(event)} />
+      )}
     </div>
+  );
+}
+
+const ALL_GROUPS = "__all";
+const NO_VALUE = "—";
+const MAX_COLUMNS = 12;
+const ROWS_FOLDED = 25;
+
+/**
+ * An event's counts crossed by two of its attributes (see the API's
+ * featureStatsStore): rows by one, columns by another, for one group or all
+ * of them summed. Every cell is a sum over the stored combinations, so any
+ * pair can be picked after the fact. Counts, not distinct people.
+ */
+function TagBreakdown({
+  byGroup,
+  groups,
+  money = false,
+  defaultOpen = false,
+}: {
+  byGroup: Record<string, FeatureTagRow[]>;
+  groups: string[];
+  money?: boolean;
+  defaultOpen?: boolean;
+}) {
+  const t = useT();
+  const names = useMemo(() => {
+    const set = new Set<string>();
+    for (const rows of Object.values(byGroup)) for (const row of rows) for (const name of Object.keys(row.tags)) set.add(name);
+    // The platform last: it is usually the column.
+    return [...set].sort((a, b) => (a === "platform" ? 1 : b === "platform" ? -1 : a.localeCompare(b)));
+  }, [byGroup]);
+  const withData = [...groups, ...Object.keys(byGroup)].filter(
+    (group, index, list) => list.indexOf(group) === index && (byGroup[group]?.length ?? 0) > 0
+  );
+  const [group, setGroup] = useState(ALL_GROUPS);
+  const [rowKey, setRowKey] = useState(names[0] ?? "");
+  const [colKey, setColKey] = useState(names.length > 1 ? names[names.length - 1] : "");
+  const [showAll, setShowAll] = useState(false);
+
+  const table = useMemo(() => {
+    const source = group === ALL_GROUPS ? Object.values(byGroup).flat() : byGroup[group] ?? [];
+    const cells = new Map<string, Map<string, { count: number; value: number }>>();
+    const rowTotals = new Map<string, number>();
+    const colTotals = new Map<string, number>();
+    let total = 0;
+    let totalValue = 0;
+    for (const entry of source) {
+      const r = entry.tags[rowKey] ?? NO_VALUE;
+      const c = colKey ? entry.tags[colKey] ?? NO_VALUE : "";
+      const row = cells.get(r) ?? new Map<string, { count: number; value: number }>();
+      cells.set(r, row);
+      const cell = row.get(c) ?? { count: 0, value: 0 };
+      cell.count += entry.count;
+      cell.value += entry.value;
+      row.set(c, cell);
+      rowTotals.set(r, (rowTotals.get(r) ?? 0) + entry.count);
+      colTotals.set(c, (colTotals.get(c) ?? 0) + entry.count);
+      total += entry.count;
+      totalValue += entry.value;
+    }
+    const rows = [...rowTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+    const cols = [...colTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name).slice(0, MAX_COLUMNS);
+    return { cells, rows, cols, rowTotals, colTotals, total, totalValue };
+  }, [byGroup, group, rowKey, colKey]);
+
+  const formatValue = (value: number) =>
+    money ? (value / 100).toLocaleString(formatLocale(), { style: "currency", currency: "BRL" }) : number(value);
+  const cellTitle = (cell: { count: number; value: number } | undefined) =>
+    cell && cell.value ? `${t("admin.features.value")}: ${formatValue(cell.value)}` : undefined;
+  const visibleRows = showAll ? table.rows : table.rows.slice(0, ROWS_FOLDED);
+
+  if (names.length === 0) return null;
+  return (
+    <details className="mt-3 border-t border-zinc-100 pt-2 dark:border-zinc-900" open={defaultOpen}>
+      <summary className="cursor-pointer text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+        {t("admin.features.breakdown")}
+      </summary>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+        <label className="flex items-center gap-1">
+          {t("admin.features.breakdownRows")}
+          <select value={rowKey} onChange={(e) => setRowKey(e.target.value)} className={`${inputClass} w-auto py-0.5 text-[11px]`}>
+            {names.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-1">
+          {t("admin.features.breakdownCols")}
+          <select value={colKey} onChange={(e) => setColKey(e.target.value)} className={`${inputClass} w-auto py-0.5 text-[11px]`}>
+            <option value="">{t("admin.features.breakdownNone")}</option>
+            {names
+              .filter((name) => name !== rowKey)
+              .map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+          </select>
+        </label>
+        {withData.length > 1 && (
+          <label className="flex items-center gap-1">
+            {t("admin.features.group")}
+            <select value={group} onChange={(e) => setGroup(e.target.value)} className={`${inputClass} w-auto py-0.5 text-[11px]`}>
+              <option value={ALL_GROUPS}>{t("admin.features.breakdownAllGroups")}</option>
+              {withData.map((name) => (
+                <option key={name} value={name}>
+                  {name === "control" ? t("admin.features.control") : name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-xs tabular-nums">
+          <thead>
+            <tr className="text-left text-zinc-500">
+              <th className="py-1 pr-3 font-mono font-medium">{rowKey}</th>
+              {colKey &&
+                table.cols.map((col) => (
+                  <th key={col} className="py-1 pr-3 text-right font-mono font-medium">
+                    {col}
+                  </th>
+                ))}
+              <th className="py-1 text-right font-medium">{t("admin.features.breakdownTotal")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row) => {
+              const cells = table.cells.get(row);
+              const rowTotal = table.rowTotals.get(row) ?? 0;
+              return (
+                <tr key={row} className="border-t border-zinc-100 dark:border-zinc-900">
+                  <td className="py-1 pr-3 font-mono">{row}</td>
+                  {colKey &&
+                    table.cols.map((col) => {
+                      const cell = cells?.get(col);
+                      return (
+                        <td key={col} className="py-1 pr-3 text-right" title={cellTitle(cell)}>
+                          {cell?.count ? number(cell.count) : <span className="text-zinc-300 dark:text-zinc-700">0</span>}
+                        </td>
+                      );
+                    })}
+                  <td className="py-1 text-right font-semibold">
+                    {number(rowTotal)}
+                    <span className="ml-1 font-normal text-zinc-400">
+                      {table.total ? `${((rowTotal / table.total) * 100).toFixed(1)}%` : ""}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="border-t border-zinc-200 font-semibold dark:border-zinc-800">
+              <td className="py-1 pr-3">{t("admin.features.breakdownTotal")}</td>
+              {colKey &&
+                table.cols.map((col) => (
+                  <td key={col} className="py-1 pr-3 text-right">
+                    {number(table.colTotals.get(col) ?? 0)}
+                  </td>
+                ))}
+              <td className="py-1 text-right" title={table.totalValue ? `${t("admin.features.value")}: ${formatValue(table.totalValue)}` : undefined}>
+                {number(table.total)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {table.rows.length > ROWS_FOLDED && (
+        <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 text-[11px] text-blue-600 hover:underline dark:text-blue-400">
+          {showAll ? t("admin.features.breakdownFewer") : t("admin.features.breakdownShowAll", { count: table.rows.length })}
+        </button>
+      )}
+      <p className="mt-1 text-[11px] text-zinc-500">{t("admin.features.breakdownHint")}</p>
+    </details>
   );
 }
 

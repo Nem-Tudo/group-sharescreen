@@ -6735,5 +6735,17 @@
   "regional.share": "Avisar a galera",
   "regional.proLink": "O que vem no Pro Ultra?",
   "regional.close": "Fechar",
-  "regional.shareText": "Sabia que o Go Live é aqui de Santa Rita do Sapucaí? Se você vir alguém com a camisa do Go Live na rua, pode parar e pedir um presente: 1 mês de Pro Ultra grátis!"
+  "regional.shareText": "Sabia que o Go Live é aqui de Santa Rita do Sapucaí? Se você vir alguém com a camisa do Go Live na rua, pode parar e pedir um presente: 1 mês de Pro Ultra grátis!",
+  "admin.features.attributes": "Atributos dos eventos",
+  "admin.features.attributesHint": "Nomes que os eventos podem levar para cruzar os números (ex.: city, os). Use trackFeatureEvent(nome, { tags: { city: \"taubate\" } }). \"platform\" é preenchido pela própria API, sem o site mandar. Até 8 nomes (a-z, 0-9, _).",
+  "admin.features.breakdown": "Detalhar por atributo",
+  "admin.features.breakdownRows": "Linhas",
+  "admin.features.breakdownCols": "Colunas",
+  "admin.features.breakdownNone": "(nenhuma)",
+  "admin.features.breakdownAllGroups": "todos somados",
+  "admin.features.breakdownTotal": "Total",
+  "admin.features.breakdownShowAll": "Mostrar todas ({count})",
+  "admin.features.breakdownFewer": "Mostrar menos",
+  "admin.features.breakdownHint": "Contagens (não pessoas únicas) desde que o atributo foi declarado, sem filtro de dias. \"—\" = o evento veio sem esse atributo. Passe o mouse numa célula para ver o value.",
+  "admin.features.reason.tag_overflow": "atributos descartados (combinações demais)"
 }

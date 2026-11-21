@@ -1,6 +1,6 @@
 "use client";
 
-import { trackFeatureEvent } from "@/lib/features";
+import { trackFeatureEvent, type FeatureEventTags } from "@/lib/features";
 
 // "Uai, cê é aqui da região!" — a one-time popup for people within ~100 km of
 // Santa Rita do Sapucaí, where Go Live is made: who makes it, and the deal
@@ -51,21 +51,16 @@ export const REGIONAL_EVENTS = {
   far: "regional_geo.far",
 } as const;
 
-/** Sent once per opening by the card, besides region_city.<town>. */
-export const REGIONAL_PLATFORMS = ["desktop-browser", "desktop-app", "mobile-browser", "android-app", "ios-app", "unknown"] as const;
-export const REGIONAL_SYSTEMS = ["windows", "mac", "linux", "android", "ios", "other"] as const;
-
 export function regionalEventNames(): string[] {
-  return [
-    ...Object.values(REGIONAL_EVENTS),
-    ...REGIONAL_PLATFORMS.map((p) => `regional_platform.${p}`),
-    ...REGIONAL_SYSTEMS.map((o) => `regional_os.${o}`),
-  ];
+  return Object.values(REGIONAL_EVENTS);
 }
 
-export function trackRegional(name: string, value?: number) {
-  trackFeatureEvent(name, { feature: REGIONAL_FEATURE, ...(value ? { value } : {}) });
+export function trackRegional(name: string, value?: number, tags?: FeatureEventTags) {
+  trackFeatureEvent(name, { feature: REGIONAL_FEATURE, ...(value ? { value } : {}), ...(tags ? { tags } : {}) });
 }
+
+/** Attributes the card puts on every event (the API adds "platform"). The feature declares all three. */
+export const REGIONAL_TAGS = ["city", "os", "platform"] as const;
 
 // ---------------------------------------------------------------------------
 // Distance

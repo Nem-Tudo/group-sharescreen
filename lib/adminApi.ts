@@ -1801,6 +1801,8 @@ export interface AdminFeature {
   serverOnly: boolean;
   /** Events the site may report while this feature is live. Absent on an older API. */
   clientEvents?: string[];
+  /** Attribute names its events are broken down by ("platform" is filled by the API). Absent on an older API. */
+  clientTags?: string[];
   /** Values the experiment reads on the API, as JSON. Absent on an older API. */
   data?: Record<string, unknown>;
   /** Events shown first in the stats, shared by every admin. Absent on an older API. */
@@ -1829,6 +1831,7 @@ export interface FeatureWrite {
   includeGuests?: boolean;
   serverOnly?: boolean;
   clientEvents?: string[];
+  clientTags?: string[];
   data?: Record<string, unknown>;
   pinnedEvents?: string[];
   enabled?: boolean;
@@ -1842,6 +1845,17 @@ export interface FeatureStats {
   skipped?: Record<string, Record<string, number>>;
   events: Record<string, Record<string, { count: number; unique: number; value: number }>>;
   daily: { day: string; exposures: Record<string, number>; events: Record<string, Record<string, number>> }[];
+  /** Counts per combination of attributes (lifetime), when the feature declares any. Absent on an older API. */
+  tags?: {
+    events: Record<string, Record<string, FeatureTagRow[]>>;
+    exposures: Record<string, FeatureTagRow[]>;
+  };
+}
+
+export interface FeatureTagRow {
+  tags: Record<string, string>;
+  count: number;
+  value: number;
 }
 
 export interface FeatureCheck {

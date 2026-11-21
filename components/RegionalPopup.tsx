@@ -7,7 +7,6 @@ import { useAuth } from "@/lib/AuthContext";
 import { useFeature } from "@/lib/features";
 import { arrivedBefore } from "@/lib/newcomer";
 import {
-  REGIONAL_EVENTS,
   REGIONAL_FEATURE,
   REGIONAL_HQ,
   REGIONAL_RADIUS_KM,
@@ -15,7 +14,6 @@ import {
   locateVisitor,
   markRegionalPopupSeen,
   regionalPopupSeen,
-  trackRegional,
   type RegionalSpot,
 } from "@/lib/regional";
 
@@ -136,7 +134,7 @@ export function RegionalPopup() {
       markRegionalPopupSeen();
       setSeen(true);
       setOpen(true);
-      trackRegional(REGIONAL_EVENTS.show, Math.max(1, Math.round(km)));
+      // The card counts the opening itself (with its attributes).
     };
     timer = setTimeout(attempt, SHOW_AFTER_MS);
     return () => clearTimeout(timer);
