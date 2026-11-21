@@ -333,7 +333,26 @@ function countsOf(result: { total?: unknown; online?: unknown }): MemberCounts |
 // members column and the text room share it, the same way they shared the
 // whole list before.
 
-type OnlineEntry = { list: GroupMember[]; counts: MemberCounts; fetchedAt: number; key: string };
+type OnlineEntry = {
+  list: GroupMember[];
+  counts: MemberCounts;
+  fetchedAt: number;
+  key: string;
+  /**
+   * Who was in an earlier online list and is not in this one: they went
+   * offline while the screen was open. The offline pages are read once per
+   * listing and never polled, so somebody who disconnected after their page
+   * arrived would be in neither list — the column showed "Offline — 1" with
+   * three members and one online. The column merges these into its offline
+   * section. Cleared when the key moves, since the offline listing restarts
+   * then and reads everybody fresh.
+   */
+  left: GroupMember[];
+};
+
+// How many departures are remembered — a long session in a big group would
+// otherwise collect one per person who ever logged off.
+const MAX_LEFT = 500;
 const onlineMembers = new Map<string, OnlineEntry>();
 const onlineListeners = new Set<() => void>();
 const onlineInFlight = new Map<string, Promise<void>>();
@@ -343,6 +362,21 @@ function subscribeOnline(listener: () => void) {
   return () => {
     onlineListeners.delete(listener);
   };
+}
+
+/**
+ * The departures carried forward: the held ones still away, plus whoever was
+ * in the held online list and is missing from `now`. Somebody who came back is
+ * dropped — they are in `now`.
+ */
+function departures(held: OnlineEntry | null, now: GroupMember[]): GroupMember[] {
+  if (!held) return [];
+  const here = new Set(now.map((m) => m.id));
+  const out = new Map<string, GroupMember>();
+  for (const m of held.left) if (!here.has(m.id)) out.set(m.id, m);
+  for (const m of held.list) if (!here.has(m.id)) out.set(m.id, { ...m, online: false });
+  const list = [...out.values()];
+  return list.length > MAX_LEFT ? list.slice(list.length - MAX_LEFT) : list;
 }
 
 export function refreshOnlineMembers(groupId: string, key?: string): Promise<void> {
@@ -371,7 +405,8 @@ export function refreshOnlineMembers(groupId: string, key?: string): Promise<voi
         held.fetchedAt = Date.now();
         return;
       }
-      onlineMembers.set(groupId, { list, counts, fetchedAt: Date.now(), key: nextKey });
+      const left = departures(held && held.key === nextKey ? held : null, list);
+      onlineMembers.set(groupId, { list, counts, fetchedAt: Date.now(), key: nextKey, left });
       onlineListeners.forEach((l) => l());
     })
     .catch(() => {})

@@ -19,6 +19,7 @@ import {
   hoistedRoleOf,
   memberCanInChannel,
   membersRevalidateKey,
+  rankOf,
   roleColorOf,
   rolesInOrder,
 } from "@/lib/groupPermissions";
@@ -65,6 +66,10 @@ const LOAD_AHEAD_ROWS = 20;
 
 // One stable empty list while the online members have not arrived.
 const NO_ONE: GroupMember[] = [];
+
+// The API sorts members by name with this collator (see its memberOrder);
+// departures merged into the offline section must land where a page would.
+const NAME_ORDER = new Intl.Collator("pt-BR");
 
 /** One flattened list entry: the headings and the people, in display order. */
 type Row =
@@ -204,15 +209,50 @@ export function GroupMembersPanel({
   // membership — twice for the split, then once more for the sections, each
   // with a permission lookup per member — and none of it changes when the
   // panel re-renders for something else.
-  const online = onlineHere ?? NO_ONE;
+  // The offline pages are read once per listing and never polled, while the
+  // online list is re-read every REFRESH_MS. Somebody who went offline after
+  // their page was read is in neither — the column used to lose them until the
+  // group changed. The online list remembers who dropped out of it
+  // (`left`), and they are merged in here, in the API's order (rank, then
+  // name, then id — see the API's memberOrder). While more pages are still to
+  // come, only those who sort before the last loaded row are merged: anybody
+  // after it will arrive with a later page.
+  const { hasMore, loading: loadingMore, loadMore } = offlinePaged;
+  const offlineAll = useMemo(() => {
+    const departed = onlineEntry?.left ?? NO_ONE;
+    if (departed.length === 0) return offlinePaged.list;
+    const loaded = new Set(offlinePaged.list.map((m) => m.id));
+    const rank = (m: GroupMember) => rankOf(detail, { id: m.id, roleIds: m.roleIds });
+    const compare = (a: GroupMember, b: GroupMember) =>
+      rank(b) - rank(a) || NAME_ORDER.compare(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const last = offlinePaged.list[offlinePaged.list.length - 1];
+    const extra = departed.filter(
+      (m) =>
+        !loaded.has(m.id) &&
+        (!textChannel ||
+          memberCanInChannel(detail, textChannel, { id: m.id, roleIds: m.roleIds }, "viewChannel")) &&
+        (!hasMore || (last !== undefined && compare(m, last) < 0))
+    );
+    if (extra.length === 0) return offlinePaged.list;
+    return [...offlinePaged.list, ...extra].sort(compare);
+  }, [offlinePaged.list, onlineEntry, hasMore, textChannel, detail]);
+
+  // Anybody standing in a voice room is connected by definition — the room's
+  // people are pushed, the online list only polled, so for a moment somebody
+  // can be in a room yet still listed as offline. They go up with the online
+  // ones rather than vanishing from both sections.
+  const online = useMemo(() => {
+    const base = onlineHere ?? NO_ONE;
+    const here = new Set(base.map((m) => m.id));
+    const inVoice = offlineAll.filter((m) => voiceRoomOf.has(m.id) && !here.has(m.id));
+    return inVoice.length === 0 ? base : [...base, ...inVoice.map((m) => ({ ...m, online: true }))];
+  }, [onlineHere, offlineAll, voiceRoomOf]);
   // An offline page can be older than the online list: somebody who connected
-  // since it was fetched would otherwise be listed in both sections. Anybody
-  // standing in a voice room is connected by definition, so they never belong
-  // down here either.
+  // since it was fetched would otherwise be listed in both sections.
   const offline = useMemo(() => {
     const here = new Set(online.map((m) => m.id));
-    return offlinePaged.list.filter((m) => !here.has(m.id) && !voiceRoomOf.has(m.id));
-  }, [offlinePaged.list, online, voiceRoomOf]);
+    return offlineAll.filter((m) => !here.has(m.id));
+  }, [offlineAll, online]);
   // How many are offline in all, not merely how many pages have arrived — so
   // the heading says the real number before the list has been scrolled to.
   // The counts for what the column lists, from whichever answer has them
@@ -221,7 +261,13 @@ export function GroupMembersPanel({
   // group-wide), and the first offline page arrives only once the list has
   // scrolled near its end — so the room's counts are asked for on their own.
   const counts = offlinePaged.counts ?? (textChannel ? roomCounts : onlineEntry?.counts ?? null);
-  const offlineTotal = counts ? Math.max(0, counts.total - counts.online) : offline.length;
+  // The total from the counts (it only moves with membership, which restarts
+  // the listing), but who is online from the live list: the counts' own online
+  // number is as old as the answer that carried it, and the first offline page
+  // is never re-read.
+  const offlineTotal = counts
+    ? Math.max(offline.length, counts.total - online.length)
+    : offline.length;
 
   // The header's two numbers. Online is the list's own length so the header
   // never disagrees with the sections below it; null until the online list has
@@ -328,7 +374,6 @@ export function GroupMembersPanel({
   // or so of the end of what has arrived. With a small group the window is the
   // whole list, so this reads the pages back to back until they run out — a
   // handful of requests. With a large one it waits for the scroll.
-  const { hasMore, loading: loadingMore, loadMore } = offlinePaged;
   const nearEnd = end >= rows.length - LOAD_AHEAD_ROWS;
   useEffect(() => {
     if (onlineEntry && hasMore && !loadingMore && nearEnd) loadMore();
