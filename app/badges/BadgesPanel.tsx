@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { MdCheck } from "react-icons/md";
 import { useAuth } from "@/lib/AuthContext";
-import { getUserBadges, useBadgesCatalog, type BadgeDefinition } from "@/lib/badges";
+import {
+  NAME_BADGES_EVENTS,
+  NAME_BADGES_FEATURE,
+  canHideInName,
+  getUserBadges,
+  isNameBadgeHidden,
+  useBadgesCatalog,
+  type BadgeDefinition,
+} from "@/lib/badges";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
 import {
   isPlanBadge,
@@ -54,11 +62,17 @@ function BadgeCard({
   owned,
   ladder,
   level,
+  visibleInName,
+  savingInName,
+  onToggleInName,
 }: {
   badge: BadgeDefinition;
   owned: boolean;
   ladder: boolean;
   level: number;
+  visibleInName?: boolean;
+  savingInName?: boolean;
+  onToggleInName?: () => void;
 }) {
   const t = useT();
   return (
@@ -95,6 +109,27 @@ function BadgeCard({
       </div>
 
       {ladder && isPlanBadge(badge.id) && <ProBadgeLadder badge={badge} current={owned ? level : null} />}
+
+      {owned && canHideInName(badge) && onToggleInName && (
+        <div className="mt-auto border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <button
+            type="button"
+            disabled={savingInName}
+            aria-pressed={visibleInName}
+            onClick={onToggleInName}
+            className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+              visibleInName
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            <span>{t("badges.badgesPanel.showInMyName")}</span>
+            <span className="font-semibold">
+              {visibleInName ? t("badges.badgesPanel.shownInName") : t("badges.badgesPanel.hiddenInName")}
+            </span>
+          </button>
+        </div>
+      )}
     </li>
   );
 }
@@ -102,7 +137,7 @@ function BadgeCard({
 export function BadgesPanel() {
   const t = useT();
   const badges = useBadgesCatalog();
-  const { account } = useAuth();
+  const { account, updateProfile, refresh } = useAuth();
   // The same function the profile uses, so this page and a profile can never
   // disagree about who has what.
   const owned = account ? getUserBadges(account, true, badges) : [];
@@ -110,6 +145,28 @@ export function BadgesPanel() {
   const { enabled: ladder } = useFeature(PRO_BADGE_FEATURE);
   const [now] = useState(() => Date.now());
   const level = proBadgeLevel(account?.premium?.streakStartedAt, now);
+  const [togglingBadgeId, setTogglingBadgeId] = useState<string | null>(null);
+  // The "show in my name" switch only exists for who is in the experiment.
+  const { enabled: nameBadges } = useFeature(NAME_BADGES_FEATURE, { track: false });
+
+  async function handleToggleInName(badgeId: string) {
+    if (!account || togglingBadgeId) return;
+    const currentHidden = Array.isArray(account.hiddenNameBadges)
+      ? account.hiddenNameBadges
+      : badges.filter((b) => isNameBadgeHidden(b.id, account.flags)).map((b) => b.id);
+    const hidden = currentHidden.includes(badgeId);
+    const next = hidden
+      ? currentHidden.filter((id) => id !== badgeId)
+      : [...currentHidden, badgeId];
+    setTogglingBadgeId(badgeId);
+    trackFeatureEvent(hidden ? NAME_BADGES_EVENTS.show : NAME_BADGES_EVENTS.hide, { feature: NAME_BADGES_FEATURE });
+    try {
+      await updateProfile({ hiddenNameBadges: next });
+      await refresh();
+    } finally {
+      setTogglingBadgeId(null);
+    }
+  }
 
   useEffect(() => {
     if (ladder) trackFeatureEvent("pro_badge_ladder_view", { feature: PRO_BADGE_FEATURE });
@@ -143,7 +200,16 @@ export function BadgesPanel() {
       ) : (
         <ul className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {badges.map((badge) => (
-            <BadgeCard key={badge.id} badge={badge} owned={ownedIds.has(badge.id)} ladder={ladder} level={level} />
+            <BadgeCard
+              key={badge.id}
+              badge={badge}
+              owned={ownedIds.has(badge.id)}
+              ladder={ladder}
+              level={level}
+              visibleInName={!isNameBadgeHidden(badge.id, account?.flags)}
+              savingInName={togglingBadgeId === badge.id}
+              onToggleInName={nameBadges ? () => void handleToggleInName(badge.id) : undefined}
+            />
           ))}
         </ul>
       )}

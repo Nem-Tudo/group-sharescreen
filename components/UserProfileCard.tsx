@@ -6,7 +6,7 @@ import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
 import { MicIcon, ScreenIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
-import { Popover } from "@/components/Tooltip";
+import { Popover, Tooltip } from "@/components/Tooltip";
 import { BotTag } from "@/components/BotTag";
 import { botAddPath } from "@/lib/botsApi";
 import { BsCoin, BsClock, BsShop } from "react-icons/bs";
@@ -29,6 +29,7 @@ import {
   fetchAvatarOptions,
   fetchUsernameChangeAllowance,
   getAccountToken,
+  type Account,
   type AvatarOptions,
   type UsernameChangeAllowance,
 } from "@/lib/accountApi";
@@ -67,6 +68,15 @@ import { fetchMyGroups, type GroupSummary } from "@/lib/groupsApi";
 import useNtPopups from "ntpopups";
 import { nameStyleOf } from "@/lib/nameStyle";
 import { UserBadges } from "@/components/UserBadges";
+import {
+  NAME_BADGES_EVENTS,
+  NAME_BADGES_FEATURE,
+  canHideInName,
+  getUserBadges,
+  isNameBadgeHidden,
+  useBadgesCatalog,
+} from "@/lib/badges";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
 import { useOpenPro } from "@/lib/proModal";
 import { useI18n } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
@@ -201,6 +211,11 @@ function InlineEdit({
 /** The link to put back in the field for a song already saved. */
 function songLinkOf(song: { videoId: string } | null | undefined): string {
   return song ? `https://www.youtube.com/watch?v=${song.videoId}` : "";
+}
+
+function savedHiddenNameBadgesOf(acc: Account, catalog: readonly { id: string }[]): string[] {
+  if (Array.isArray(acc.hiddenNameBadges)) return acc.hiddenNameBadges;
+  return catalog.filter((b) => isNameBadgeHidden(b.id, acc.flags)).map((b) => b.id);
 }
 
 function PlanSection({
@@ -664,6 +679,12 @@ function ProfileContent({
     account.verifiedTone ?? null
   );
   const [verifiedTonePickerOpen, setVerifiedTonePickerOpen] = useState(false);
+  const badgesCatalog = useBadgesCatalog();
+  // Experiment "name-badges": the badges after the name and the switch to hide them.
+  const nameBadgesOn = useFeature(NAME_BADGES_FEATURE, { track: false }).enabled;
+  const [editHiddenNameBadges, setEditHiddenNameBadges] = useState<string[]>(() =>
+    savedHiddenNameBadgesOf(account, badgesCatalog)
+  );
   const [editLinks, setEditLinks] = useState<ProfileLink[]>(account.profileLinks ?? []);
   const [myGroups, setMyGroups] = useState<GroupSummary[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -690,6 +711,7 @@ function ProfileContent({
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
     setEditVerifiedTone(account.verifiedTone ?? null);
+    setEditHiddenNameBadges(savedHiddenNameBadgesOf(account, badgesCatalog));
     setEditProfileGroup(account.profileGroupId ?? null);
     setEditLinks(account.profileLinks ?? []);
   }, [account]);
@@ -902,6 +924,7 @@ function ProfileContent({
     setEditSong(songLinkOf(account.profileSong));
     setEditSongVolume(account.profileSong?.volume ?? DEFAULT_SONG_VOLUME);
     setEditVerifiedTone(account.verifiedTone ?? null);
+    setEditHiddenNameBadges(savedHiddenNameBadgesOf(account, badgesCatalog));
     setEditProfileGroup(account.profileGroupId ?? null);
     setEditLinks(account.profileLinks ?? []);
     setAvatarPickerOpen(false);
@@ -966,11 +989,22 @@ function ProfileContent({
         // edit must not be refused over a badge choice the plan no longer
         // affords.
         ...(editVerifiedTone !== (account.verifiedTone ?? null) ? { verifiedTone: editVerifiedTone } : {}),
+        ...(nameBadgesOn && hiddenNameBadgesChanged ? { hiddenNameBadges: editHiddenNameBadges } : {}),
       });
 
       // The card is built by GET /users/:id, not by the save, so a changed
       // group is read back from there.
       trackAvatarBuilderSave(avatarDataUrl);
+      if (nameBadgesOn && hiddenNameBadgesChanged) {
+        const before = new Set(savedHiddenNameBadges);
+        const after = new Set(editHiddenNameBadges);
+        for (const id of after) {
+          if (!before.has(id)) trackFeatureEvent(NAME_BADGES_EVENTS.hide, { feature: NAME_BADGES_FEATURE });
+        }
+        for (const id of before) {
+          if (!after.has(id)) trackFeatureEvent(NAME_BADGES_EVENTS.show, { feature: NAME_BADGES_FEATURE });
+        }
+      }
       const reread = profileGroupChanged ? await fetchUserProfile(account.id).catch(() => null) : null;
       onProfileUpdated?.(reread ?? { ...profile, account: updatedAccount });
 
@@ -1064,6 +1098,15 @@ function ProfileContent({
         : headerVerifiedTone === "blue"
           ? ["VERIFIED"]
           : [];
+  const savedHiddenNameBadges = savedHiddenNameBadgesOf(account, badgesCatalog);
+  const hiddenNameBadgesChanged =
+    JSON.stringify([...editHiddenNameBadges].sort()) !== JSON.stringify([...savedHiddenNameBadges].sort());
+  const earnedBadges = getUserBadges(account, isOwner, badgesCatalog);
+  // The ones the owner may switch off — Pro badges always show, so they get no chip.
+  const eligibleNameBadges = nameBadgesOn ? earnedBadges.filter(canHideInName) : [];
+  // Badges after the name are only drawn in a call (DisplayUserName's inCall),
+  // never on the profile — here there is only the switch to hide them.
+  const headerNameBadges: typeof earnedBadges = [];
   const savedAvatarShape = account.avatarShape ?? avatarShapeOf(account.avatarUrl);
   const avatarShapeChanged = editAvatarShape !== savedAvatarShape;
   // What the card draws: the choice being edited, or the one everybody else
@@ -1624,6 +1667,18 @@ function ProfileContent({
                   {isEditing ? editDisplayName : account.displayName}
                 </span>
                 <VerifiedBadge flags={headerVerifiedFlags} className="h-6 w-6 shrink-0" />
+                {headerNameBadges.map((badge) => (
+                  <Tooltip key={badge.id} content={badge.name}>
+                    <span className="inline-flex shrink-0 items-center self-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={badge.iconUrl}
+                        alt={badge.name}
+                        className="h-5 w-5 shrink-0 object-contain pointer-events-none select-none"
+                      />
+                    </span>
+                  </Tooltip>
+                ))}
                 {isEditing && VERIFIED_TONE_OPTIONS.length > 0 && (
                   <Popover
                     open={verifiedTonePickerOpen}
@@ -1739,6 +1794,45 @@ function ProfileContent({
               {account.bot && <BotTag />}
               <UserBadges account={account} isOwner={isOwner} theme={theme ?? undefined} />
             </div>
+            {isEditing && isOwner && eligibleNameBadges.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span
+                  className="text-xs text-zinc-500 dark:text-zinc-400"
+                  style={themedHint}
+                >
+                  {t("userProfileCard.showBadgeInName")}
+                </span>
+                {eligibleNameBadges.map((badge) => {
+                  const isPublic = !editHiddenNameBadges.includes(badge.id);
+                  return (
+                    <button
+                      key={badge.id}
+                      type="button"
+                      aria-pressed={isPublic}
+                      onClick={() =>
+                        setEditHiddenNameBadges((prev) =>
+                          prev.includes(badge.id)
+                            ? prev.filter((id) => id !== badge.id)
+                            : [...prev, badge.id]
+                        )
+                      }
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium transition ${
+                        isPublic
+                          ? badge.chipClass ?? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                          : "border-zinc-300 bg-transparent text-zinc-500 opacity-60 hover:opacity-100 dark:border-zinc-700 dark:text-zinc-400"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={badge.iconUrl} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
+                      <span>{badge.name}</span>
+                      <span className="text-[10px] opacity-80">
+                        {isPublic ? `(${t("badges.badgesPanel.shownInName")})` : `(${t("badges.badgesPanel.hiddenInName")})`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <span
             className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${theme

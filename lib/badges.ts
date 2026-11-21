@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
-import { withPlanTheme } from "./proBadge";
+import { isPlanBadge, withPlanTheme } from "./proBadge";
 
 export type BadgeId =
   | "staff"
@@ -29,6 +29,7 @@ export interface BadgeDefinition {
   borderClass?: string; // Classes Tailwind de borda
   requiredFlag?: string;// Flag requerida na conta (ex: "STAFF", "BUG_HUNTER")
   requiredPlan?: string;// Plano requerido (ex: "pro")
+  showInName?: boolean; // Também aparece na frente do nome (além do perfil)
   createdAt: number;
 }
 
@@ -175,6 +176,7 @@ export const BADGE_DEFINITIONS: Record<string, BadgeDefinition> = Object.fromEnt
 
 let cachedBadges: BadgeDefinition[] = DEFAULT_BADGES;
 let isFetching = false;
+let hasFetched = false;
 const listeners = new Set<(badges: BadgeDefinition[]) => void>();
 
 export async function fetchBadgesCatalog(signal?: AbortSignal): Promise<BadgeDefinition[]> {
@@ -182,6 +184,7 @@ export async function fetchBadgesCatalog(signal?: AbortSignal): Promise<BadgeDef
     const res = await fetch(`${getSignalingHttpBase()}/badges`, { signal });
     if (!res.ok) return cachedBadges;
     const data = (await res.json()) as { badges?: BadgeDefinition[] };
+    hasFetched = true;
     if (Array.isArray(data?.badges) && data.badges.length > 0) {
       cachedBadges = data.badges.map(withPlanTheme);
       listeners.forEach((listener) => listener(cachedBadges));
@@ -200,7 +203,7 @@ export function useBadgesCatalog(): BadgeDefinition[] {
     const listener = (newBadges: BadgeDefinition[]) => setBadges(newBadges);
     listeners.add(listener);
 
-    if (!isFetching) {
+    if (!hasFetched && !isFetching) {
       isFetching = true;
       fetchBadgesCatalog().finally(() => {
         isFetching = false;
@@ -342,6 +345,53 @@ export function getUserBadges(
   // }feat: Badge
 
   return activeCatalog.filter((badge) => userHasBadge(badge, account, isOwner));
+}
+
+/**
+ * Experiment: badges marked `showInName` in /admin drawn after people's names
+ * (DisplayUserName, the profile card), and the switch to hide one's own. Off,
+ * names look as they always did. Target `user` — the person looking.
+ */
+export const NAME_BADGES_FEATURE = "name-badges";
+export const NAME_BADGES_EVENTS = {
+  hide: "name_badge_hide",
+  show: "name_badge_show",
+} as const;
+
+export const HIDE_NAME_BADGE_FLAG_PREFIX = "HIDE_NAME_BADGE_";
+
+/** The plan badges, and any badge a plan unlocks. See canShowInName / canHideInName. */
+export function isProBadge(badge: Pick<BadgeDefinition, "id" | "requiredPlan">): boolean {
+  return isPlanBadge(badge.id) || Boolean(badge.requiredPlan);
+}
+
+/**
+ * Whether a badge goes after the name in a call: the admin turned `showInName`
+ * on, and it is not a Pro one — for the plans, the verified mark already there
+ * is the only thing shown.
+ */
+export function canShowInName(badge: BadgeDefinition): boolean {
+  return badge.showInName === true && !isProBadge(badge);
+}
+
+/** Whether the owner may hide it from their name — every badge that can show there. */
+export function canHideInName(badge: BadgeDefinition): boolean {
+  return canShowInName(badge);
+}
+
+export function isNameBadgeHidden(badgeId: string, flags?: readonly string[] | null): boolean {
+  if (!flags) return false;
+  return flags.includes(`${HIDE_NAME_BADGE_FLAG_PREFIX}${badgeId.toUpperCase()}`);
+}
+
+export function getUserNameBadges(
+  flags: readonly string[] | undefined | null,
+  catalog: BadgeDefinition[] = cachedBadges
+): BadgeDefinition[] {
+  if (!flags || flags.length === 0) return [];
+  return getUserBadges({ flags: [...flags] }, false, catalog).filter(
+    (badge) => canShowInName(badge) && !isNameBadgeHidden(badge.id, flags)
+  );
 }
 
 

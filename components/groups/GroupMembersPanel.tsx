@@ -133,6 +133,7 @@ const MemberRow = memo(function MemberRow({
               name={member.name}
               isGuest={member.guest}
               verified={verifiedBadge(member.flags)}
+              flags={member.flags}
               bot={member.bot}
               color={color ?? member.nameColor}
               aura={aura}

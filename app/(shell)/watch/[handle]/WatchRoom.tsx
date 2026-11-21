@@ -6545,6 +6545,8 @@ function WatchRoomView({
               name={peer?.name ?? translate("common.someone")}
               isGuest={peer?.isGuest}
               verified={verifiedBadge(peer?.flags)}
+              flags={peer?.flags}
+              inCall
               bot={peer?.bot}
               color={peer?.nameColor}
             />
@@ -6601,6 +6603,8 @@ function WatchRoomView({
                 name={peer?.name ?? translate("common.someone")}
                 isGuest={peer?.isGuest}
                 verified={verifiedBadge(peer?.flags)}
+                flags={peer?.flags}
+                inCall
                 bot={peer?.bot}
                 color={peer?.nameColor}
               />
@@ -6655,6 +6659,8 @@ function WatchRoomView({
                 name={peer?.name ?? translate("common.someone")}
                 isGuest={peer?.isGuest}
                 verified={verifiedBadge(peer?.flags)}
+                flags={peer?.flags}
+                inCall
                 bot={peer?.bot}
                 color={peer?.nameColor}
               />
@@ -6710,6 +6716,8 @@ function WatchRoomView({
                 name={peer?.name ?? translate("common.someone")}
                 isGuest={peer?.isGuest}
                 verified={verifiedBadge(peer?.flags)}
+                flags={peer?.flags}
+                inCall
                 bot={peer?.bot}
                 color={peer?.nameColor}
               />
@@ -6762,6 +6770,8 @@ function WatchRoomView({
               name={peer?.name ?? translate("common.someone")}
               isGuest={peer?.isGuest}
               verified={verifiedBadge(peer?.flags)}
+              flags={peer?.flags}
+              inCall
               bot={peer?.bot}
               color={peer?.nameColor}
             />
@@ -6805,7 +6815,7 @@ function WatchRoomView({
       id: tileId("screen", peer.id),
       render: (fill) => (
         <StoppedPeerTile
-          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} flags={peer.flags} inCall bot={peer.bot} />}
           fill={fill}
           onResume={() => resumeWatchingPeer(peer.id)}
         />
@@ -6843,7 +6853,7 @@ function WatchRoomView({
       id: tileId("camera2", peer.id),
       render: (fill) => (
         <StoppedPeerTile
-          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} flags={peer.flags} inCall bot={peer.bot} />}
           fill={fill}
           onResume={() => dualCamera.resumeWatchingPeer(peer.id)}
         />
@@ -6863,7 +6873,7 @@ function WatchRoomView({
       id: tileId("screen-extra", `${slot}:${peer.id}`),
       render: (fill) => (
         <StoppedPeerTile
-          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} flags={peer.flags} inCall bot={peer.bot} />}
           fill={fill}
           onResume={() => extraScreens[slot].resumeWatchingPeer(peer.id)}
         />
@@ -6883,7 +6893,7 @@ function WatchRoomView({
       id: tileId("camera-extra", `${slot}:${peer.id}`),
       render: (fill) => (
         <StoppedPeerTile
-          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} flags={peer.flags} inCall bot={peer.bot} />}
           fill={fill}
           onResume={() => extraCameras[slot].resumeWatchingPeer(peer.id)}
         />
@@ -6903,7 +6913,7 @@ function WatchRoomView({
       id: tileId("camera", peer.id),
       render: (fill) => (
         <StoppedPeerTile
-          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} flags={peer.flags} inCall bot={peer.bot} />}
           fill={fill}
           onResume={() => resumeWatchingCameraPeer(peer.id)}
         />
@@ -6938,7 +6948,7 @@ function WatchRoomView({
       id: tileId("file", `${slot}:${peer.id}`),
       render: (fill) => (
         <StoppedPeerTile
-          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} bot={peer.bot} />}
+          label={<DisplayUserName name={peer.name} isGuest={peer.isGuest} flags={peer.flags} inCall bot={peer.bot} />}
           fill={fill}
           onResume={() => fileChannels[slot].resumeWatchingPeer(peer.id)}
         />
@@ -9029,6 +9039,7 @@ function WatchRoomView({
             : undefined,
         }}
         verified={verifiedBadge(state.account?.flags)}
+        flags={state.account?.flags}
         bot={state.account?.bot}
         nameColor={account?.equippedNameColor}
         micOn={isMicOn}
@@ -9073,6 +9084,7 @@ function WatchRoomView({
             tools={p.userId ? toolsByUser.get(p.userId) : undefined}
             presence={peerPresence(p)}
             verified={verifiedBadge(p?.flags)}
+            flags={p?.flags}
             bot={p.bot}
             nameColor={p.nameColor}
             micOn={p.mic && !isPeerSilenced(p)}

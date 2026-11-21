@@ -97,6 +97,7 @@ export type MemberActions = {
   name: string;
   isGuest?: boolean;
   verified?: VerifiedTone | boolean;
+  flags?: readonly string[] | null;
   bot?: boolean;
   nameColor?: string | null;
   avatarUrl?: string | null;
@@ -178,6 +179,7 @@ export function MemberActionsMenu({
     name,
     isGuest,
     verified,
+    flags,
     bot,
     nameColor,
     avatarUrl,
@@ -416,6 +418,7 @@ export function MemberActionsMenu({
           name={name}
           isGuest={isGuest}
           verified={verified}
+          flags={flags}
           bot={bot}
           color={nameColor}
           className="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"

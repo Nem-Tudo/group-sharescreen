@@ -1878,6 +1878,7 @@ export const TextChannelView = memo(function TextChannelView({
                   name={author.name}
                   isGuest={author.guest}
                   verified={verifiedBadge(author.flags)}
+                  flags={author.flags}
                   bot={author.bot}
                   webhook={author.webhook}
                   color={roleColorOf(detail, { id: author.id }) ?? author.nameColor}

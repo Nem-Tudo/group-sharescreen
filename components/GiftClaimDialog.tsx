@@ -330,6 +330,7 @@ export function GiftClaimDialog({
                     <DisplayUserName
                       name={gift.from.displayName}
                       verified={verifiedBadge(gift.from.flags)}
+                      flags={gift.from.flags}
                       bot={gift.from.bot}
                       color={gift.from.nameColor}
                       className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"

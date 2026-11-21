@@ -413,8 +413,42 @@ const enc = encodeURIComponent;
 export const fetchMyGroups = (signal?: AbortSignal) =>
   request<{ groups: GroupSummary[] }>("GET", "/groups", undefined, signal);
 
-export const createGroup = (name: string, visibility: GroupVisibility) =>
-  request<{ group: GroupInfo }>("POST", "/groups", { name, visibility });
+export const createGroup = (name: string, visibility: GroupVisibility, discordTemplate?: string | null) =>
+  request<{ group: GroupInfo }>("POST", "/groups", {
+    name,
+    visibility,
+    ...(discordTemplate ? { discordTemplate } : {}),
+  });
+
+/** A Discord server template, as the group it would become (see the API's discordTemplate.ts). */
+export interface DiscordTemplatePreview {
+  code: string;
+  name: string;
+  description: string;
+  usageCount: number;
+  /** Highest first. */
+  roles: { name: string; color: string | null; admin: boolean }[];
+  categories: { name: string; channels: { kind: GroupChannelKind; name: string }[] }[];
+  uncategorized: { kind: GroupChannelKind; name: string }[];
+  /** What does not fit under the group's limits and is left out. */
+  skipped: { roles: number; categories: number; channels: number };
+}
+
+/**
+ * The code out of a pasted discord.new / discord.com/template link, or the
+ * bare code. Null when it is neither — the API checks the same way.
+ */
+export function parseDiscordTemplateCode(raw: string): string | null {
+  let text = raw.trim();
+  const link = text.match(
+    /^(?:https?:\/\/)?(?:www\.)?(?:discord\.new|(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/template)\/([^/?#\s]+)/i
+  );
+  if (link) text = link[1];
+  return /^[A-Za-z0-9_-]{2,64}$/.test(text) ? text : null;
+}
+
+export const fetchDiscordTemplate = (code: string) =>
+  request<{ template: DiscordTemplatePreview }>("GET", `/discord-templates/${encodeURIComponent(code)}`);
 
 /** Opens the group to anybody, or closes it to invites only (owner). Going private takes it off the map. */
 export const setGroupVisibility = (groupId: string, visibility: GroupVisibility) =>

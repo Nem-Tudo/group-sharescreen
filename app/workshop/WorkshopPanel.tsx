@@ -227,6 +227,7 @@ function ThemeCard({
           <DisplayUserName
             name={theme.author.displayName}
             verified={verifiedBadge(theme.author.flags)}
+            flags={theme.author.flags}
             bot={theme.author.bot}
             color={theme.author.nameColor}
             className="truncate"

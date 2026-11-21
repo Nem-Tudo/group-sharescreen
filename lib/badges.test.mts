@@ -2,6 +2,9 @@
 import assert from "node:assert/strict";
 import {
   getUserBadges,
+  getUserNameBadges,
+  isNameBadgeHidden,
+  HIDE_NAME_BADGE_FLAG_PREFIX,
   useBadgesCatalog,
   fetchBadgesCatalog,
   DEFAULT_BADGES,
@@ -159,5 +162,50 @@ assert.equal(staffAgainstVipOnly.length, 0, "A badge absent from the catalog is 
 // flickering blank on load.
 const staffAgainstEmpty = getUserBadges({ username: "staff_user", flags: ["STAFF"] }, false, []);
 assert.ok(staffAgainstEmpty.some((b) => b.id === "staff"), "An empty catalog falls back to the defaults");
+
+// 7. Name-visible badges (showInName) and user opt-out via HIDE_NAME_BADGE_<ID>
+const nameBadgeCatalog: BadgeDefinition[] = [
+  ...DEFAULT_BADGES.map((b) => (b.id === "staff" ? { ...b, showInName: true } : b)),
+  {
+    id: "admin_badge",
+    name: "Admin",
+    flagTag: "ADMIN",
+    description: "Administrador",
+    iconUrl: "https://example.com/admin.svg",
+    requiredFlag: "ADMIN",
+    showInName: true,
+    createdAt: 1725753600000,
+  },
+];
+
+const shownNameBadges = getUserNameBadges(["ADMIN", "STAFF", "BUG_HUNTER"], nameBadgeCatalog);
+assert.deepEqual(
+  shownNameBadges.map((b) => b.id),
+  ["staff", "admin_badge"],
+  "Only earned badges with showInName=true appear in getUserNameBadges"
+);
+
+assert.equal(
+  isNameBadgeHidden("admin_badge", ["ADMIN", `${HIDE_NAME_BADGE_FLAG_PREFIX}ADMIN_BADGE`]),
+  true,
+  "isNameBadgeHidden detects HIDE_NAME_BADGE_<ID>"
+);
+assert.equal(
+  isNameBadgeHidden("staff", ["ADMIN", `${HIDE_NAME_BADGE_FLAG_PREFIX}ADMIN_BADGE`]),
+  false,
+  "isNameBadgeHidden returns false when not hidden"
+);
+
+const afterHide = getUserNameBadges(
+  ["ADMIN", "STAFF", `${HIDE_NAME_BADGE_FLAG_PREFIX}ADMIN_BADGE`],
+  nameBadgeCatalog
+);
+assert.deepEqual(
+  afterHide.map((b) => b.id),
+  ["staff"],
+  "Opting out hides the badge from getUserNameBadges while keeping other name badges"
+);
+
+assert.equal(getUserNameBadges(null, nameBadgeCatalog).length, 0, "Null flags yield no name badges");
 
 console.log("badges: ok");
