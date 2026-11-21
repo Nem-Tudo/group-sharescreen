@@ -1,5 +1,6 @@
 "use client";
 
+import { groupEntryPath } from "@/components/groups/lastChannel";
 import Tippy from "@tippyjs/react";
 import {
   useCallback,
@@ -945,7 +946,7 @@ function GroupTile({
 
   return (
     <GroupLink
-      href={groupPath(group.id)}
+      href={groupEntryPath(group.id)}
       data-rail-group={group.id}
       data-rail-focus={group.id}
       // A shelved group's mention is the shelf's to show, not a hint's.

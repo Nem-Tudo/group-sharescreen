@@ -1,5 +1,6 @@
 "use client";
 
+import { groupEntryPath } from "@/components/groups/lastChannel";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -25,7 +26,7 @@ import {
 } from "@/components/groups/groupSearch";
 import { useAuth } from "@/lib/AuthContext";
 import { useGroupOrganize } from "@/lib/groupOrganize";
-import { GROUPS_ROOMS_PATH, groupPath, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
+import { GROUPS_ROOMS_PATH, inviteCodeFromInput, invitePath } from "@/lib/groupLinks";
 import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useI18n } from "@/lib/useI18n";
@@ -286,7 +287,7 @@ function MyGroupRows({ groups }: { groups: GroupSummary[] }) {
       {groups.map((group) => (
         <li key={group.id}>
           <GroupLink
-            href={groupPath(group.id)}
+            href={groupEntryPath(group.id)}
             onMouseEnter={() => prefetchGroup(group.id)}
             onFocus={() => prefetchGroup(group.id)}
             onContextMenu={(e) => groupMenu(e, group)}

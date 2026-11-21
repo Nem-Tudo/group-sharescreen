@@ -1014,13 +1014,18 @@ export function GroupMessageComposer({
     addAnything(files);
   }, fileDrop.enabled && allow.images && !disabled && !editing);
 
+  const canSend = !disabled && (editing || Boolean(text.trim()) || images.length > 0 || uploads.items.length > 0);
+
   return (
     // The bottom padding clears an iPhone's home indicator: inside a room the
     // tab bar (which would) is not drawn — see components/MobileTabBar.
     <div
       data-composer
       {...dropProps}
-      className="relative shrink-0 border-t border-zinc-200 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-zinc-800"
+      className={`relative shrink-0 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] ${
+        // A phone's box floats on the conversation, Discord's way: no rule over it.
+        touch ? "pt-1.5" : "border-t border-zinc-200 dark:border-zinc-800"
+      }`}
     >
       <FileDropOverlay show={dragging} />
       {emoji.open && (
@@ -1186,6 +1191,17 @@ export function GroupMessageComposer({
       )}
 
       <div className="flex items-end gap-1.5">
+        {/* On a phone, one pill holds it all — the "+", the words, the GIF
+            and the emoji — the way Discord's does; the send button sits
+            beside it and only while there is something to send. `contents`
+            from a mouse, so the row there is exactly what it was. */}
+        <div
+          className={
+            touch
+              ? "flex min-w-0 flex-1 items-end gap-0.5 rounded-[24px] bg-zinc-100 px-1 dark:bg-zinc-800/90"
+              : "contents"
+          }
+        >
         {/* An edit changes the words only: nothing to attach, and a GIF
             picked here would go out as a new message. */}
         {allow.images && !editing && (
@@ -1221,7 +1237,12 @@ export function GroupMessageComposer({
           rows={1}
           disabled={disabled}
           placeholder={disabledReason ?? t("groups.groupMessageComposer.messageInChannelname", { channelName })}
-          className="min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+          className={
+            touch
+              ? // Inside the pill: no box of its own, the pill is the box.
+                "min-h-12 resize-none overflow-y-hidden bg-transparent px-1.5 py-[11px] text-base leading-6 text-zinc-950 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-50 dark:placeholder:text-zinc-400"
+              : "min-h-12 resize-none overflow-y-hidden rounded-lg border border-zinc-300 bg-white px-3 py-[11px] text-base leading-6 text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-950/10 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-white/10"
+          }
         />
         {/* On a phone, out of the way while something is being typed — the box
             gets its width back, and a GIF goes out as a message of its own
@@ -1272,15 +1293,27 @@ export function GroupMessageComposer({
           disabled={disabled}
           className={iconButton}
         />
+        </div>
         <button
           type="button"
           onClick={() => send()}
+          // On a phone, tapping send must not take the focus off the field:
+          // that would drop the keyboard after every message.
+          onPointerDown={touch ? (e) => e.preventDefault() : undefined}
           // An edit erased to nothing still goes: the room asks whether to delete.
-          disabled={disabled || (!editing && !text.trim() && images.length === 0 && uploads.items.length === 0)}
+          disabled={!canSend}
           aria-label={editing ? t("common.save") : t("common.send")}
-          className="mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          className={
+            touch
+              ? // Out of the way while there is nothing to send, folding in and
+                // out like the GIF button does, so the pill gets the width.
+                `mb-0.5 flex h-11 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white transition-[max-width,opacity,transform,margin] duration-200 ease-out active:scale-95 dark:bg-zinc-50 dark:text-zinc-950 ${
+                  canSend ? "w-11 max-w-11 scale-100 opacity-100" : "pointer-events-none -ml-1.5 w-11 max-w-0 scale-75 opacity-0"
+                }`
+              : "mb-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-zinc-950 text-white transition hover:bg-zinc-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          }
         >
-          {editing ? <MdCheck className="h-5 w-5" /> : <MdSend className="h-4 w-4" />}
+          {editing ? <MdCheck className="h-5 w-5" /> : <MdSend className={touch ? "h-5 w-5" : "h-4 w-4"} />}
         </button>
       </div>
       {(error || uploads.error) && <p className="mt-1 px-1 text-xs text-red-500">{error || uploads.error}</p>}

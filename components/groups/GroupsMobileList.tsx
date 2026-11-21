@@ -1,5 +1,6 @@
 "use client";
 
+import { groupEntryPath } from "@/components/groups/lastChannel";
 import { useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import useNtPopups from "ntpopups";
 import {
@@ -453,7 +454,7 @@ function GroupRow({
   return (
     <li className="relative">
       <GroupLink
-        href={groupPath(group.id)}
+        href={groupEntryPath(group.id)}
         onFocus={() => prefetchGroup(group.id)}
         onContextMenu={onLongPress}
         draggable={false}

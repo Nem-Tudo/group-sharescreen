@@ -1,5 +1,6 @@
 "use client";
 
+import { groupEntryPath } from "@/components/groups/lastChannel";
 import { useState } from "react";
 import useNtPopups from "ntpopups";
 import { MdAdd, MdCheck, MdGroups, MdLink, MdUnfoldMore } from "react-icons/md";
@@ -8,7 +9,6 @@ import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { useAuth } from "@/lib/AuthContext";
-import { groupPath } from "@/lib/groupLinks";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useGroupContextMenu } from "@/components/groups/groupMenus";
 import { useGroupNavigation } from "@/lib/groupNavigation";
@@ -81,7 +81,7 @@ export function GroupSwitcher({
             {groups?.map((group) => (
               <GroupLink
                 key={group.id}
-                href={groupPath(group.id)}
+                href={groupEntryPath(group.id)}
                 onClick={close}
                 onMouseEnter={() => prefetchGroup(group.id)}
                 onFocus={() => prefetchGroup(group.id)}

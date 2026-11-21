@@ -1,5 +1,6 @@
 "use client";
 
+import { groupEntryPath } from "@/components/groups/lastChannel";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
@@ -528,7 +529,7 @@ function HomeGroupRow({
   const t = useT();
   return (
     <Link
-      href={groupPath(group.id)}
+      href={groupEntryPath(group.id)}
       draggable={false}
       onContextMenu={(e) => groupMenu(e, group)}
       className={`group/card flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600 ${
