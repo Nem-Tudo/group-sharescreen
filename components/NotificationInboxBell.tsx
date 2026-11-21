@@ -34,7 +34,7 @@ import { useT } from "@/lib/useI18n";
 // them would give one button two unrelated jobs — "let us interrupt you" and
 // "what did we interrupt you about".
 
-function relativeTime(ts: number): string {
+export function relativeTime(ts: number): string {
   const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000));
   if (seconds < 60) return "agora";
   const minutes = Math.round(seconds / 60);
@@ -42,6 +42,33 @@ function relativeTime(ts: number): string {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours} h`;
   return `${Math.round(hours / 24)} d`;
+}
+
+/** The glyph for a notification's kind — shared with the home's card (components/groups/HubCentral). */
+export function NotificationKindIcon({ kind }: { kind: InboxNotification["kind"] }) {
+  return (
+    <>
+        {kind === "dm" ? (
+          <MdChatBubbleOutline className="h-4 w-4" />
+        ) : kind === "call-missed" ? (
+          // The one row here that is red. A missed call is the only thing in
+          // this list somebody was actively waiting on an answer to.
+          <MdCallMissed className="h-4 w-4 text-red-500" />
+        ) : kind === "gift" ? (
+          // The only good news in the list, and coloured like it — this is
+          // somebody having spent money on the person reading it.
+          <MdCardGiftcard className="h-4 w-4 text-emerald-500" />
+        ) : kind === "theme-like" || kind === "camera-effect-like" ? (
+          <MdFavorite className="h-4 w-4 text-pink-500" />
+        ) : kind === "profile-comment" ? (
+          <MdComment className="h-4 w-4 text-sky-500" />
+        ) : kind === "friend-accepted" ? (
+          <MdHowToReg className="h-4 w-4" />
+        ) : (
+          <MdPersonAdd className="h-4 w-4" />
+        )}
+    </>
+  );
 }
 
 function Item({
@@ -60,25 +87,7 @@ function Item({
       }`}
     >
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-        {notification.kind === "dm" ? (
-          <MdChatBubbleOutline className="h-4 w-4" />
-        ) : notification.kind === "call-missed" ? (
-          // The one row here that is red. A missed call is the only thing in
-          // this list somebody was actively waiting on an answer to.
-          <MdCallMissed className="h-4 w-4 text-red-500" />
-        ) : notification.kind === "gift" ? (
-          // The only good news in the list, and coloured like it — this is
-          // somebody having spent money on the person reading it.
-          <MdCardGiftcard className="h-4 w-4 text-emerald-500" />
-        ) : notification.kind === "theme-like" || notification.kind === "camera-effect-like" ? (
-          <MdFavorite className="h-4 w-4 text-pink-500" />
-        ) : notification.kind === "profile-comment" ? (
-          <MdComment className="h-4 w-4 text-sky-500" />
-        ) : notification.kind === "friend-accepted" ? (
-          <MdHowToReg className="h-4 w-4" />
-        ) : (
-          <MdPersonAdd className="h-4 w-4" />
-        )}
+        <NotificationKindIcon kind={notification.kind} />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">

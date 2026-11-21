@@ -31,6 +31,8 @@ import { GROUPS_HUB_EVENTS, noteExploreVisit, trackGroupsHub } from "@/lib/group
 import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
+import { HubCentralHome } from "@/components/groups/HubCentral";
+import { HUB_CENTRAL_EVENTS, trackHubCentral, useHubCentral } from "@/lib/hubCentral";
 
 // The two pages of the experiment groups-hub (see lib/groupsHub):
 //
@@ -57,6 +59,9 @@ export function GroupsHubHome() {
   const { account } = useAuth();
   const { groups } = useMyGroups();
   const roomsTab = useFeature(GROUPS_ROOMS_FEATURE, { track: false }).enabled;
+  // The central (friends, messages, notifications) is for accounts: a guest
+  // has none of the three, so only accounts count as exposed.
+  const central = useHubCentral({ track: Boolean(account) }) && Boolean(account);
 
   // Calls going on right now in the groups this person keeps on their list —
   // the one thing about their groups worth putting on a home: somebody is
@@ -69,21 +74,22 @@ export function GroupsHubHome() {
       .slice(0, 6);
   }, [groups]);
 
-  return (
-    // On a tall, wide screen the cards sit in the middle of the space (my-auto
-    // in a min-h-full column) instead of hugging the top with the rest of the
-    // screen empty below; when they don't fit, it scrolls from the top as usual.
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6 lg:my-auto lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:py-10 2xl:max-w-6xl 2xl:gap-6">
+  const startRoom = (
         <section className={card}>
           <h1 className={cardTitle}>{t("groups.hub.startRoom")}</h1>
           <p className={cardHint}>{t("groups.hub.startRoomHint")}</p>
           <div className="mt-4">
-            <RoomStartForm onStart={(mode) => trackGroupsHub(GROUPS_HUB_EVENTS.roomStart, ROOM_MODE_VALUE[mode])} />
+            <RoomStartForm
+              onStart={(mode) => {
+                trackGroupsHub(GROUPS_HUB_EVENTS.roomStart, ROOM_MODE_VALUE[mode]);
+                if (account) trackHubCentral(HUB_CENTRAL_EVENTS.roomStart, { value: ROOM_MODE_VALUE[mode] });
+              }}
+            />
           </div>
         </section>
+  );
 
-        <div className="flex min-w-0 flex-col gap-4">
+  const happening = (
           <section className={card}>
             <h2 className={cardTitle}>{t("groups.hub.happening")}</h2>
             {groups === null ? (
@@ -102,7 +108,9 @@ export function GroupsHubHome() {
               </ul>
             )}
           </section>
+  );
 
+  const discover = (
           <section className={card}>
             <h2 className={cardTitle}>{t("groups.hub.discover")}</h2>
             <ul className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -138,6 +146,20 @@ export function GroupsHubHome() {
               {t("common.newGroup")}
             </button>
           </section>
+  );
+
+  if (central) return <HubCentralHome startRoom={startRoom} happening={happening} discover={discover} />;
+
+  return (
+    // On a tall, wide screen the cards sit in the middle of the space (my-auto
+    // in a min-h-full column) instead of hugging the top with the rest of the
+    // screen empty below; when they don't fit, it scrolls from the top as usual.
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6 lg:my-auto lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:py-10 2xl:max-w-6xl 2xl:gap-6">
+        {startRoom}
+        <div className="flex min-w-0 flex-col gap-4">
+          {happening}
+          {discover}
         </div>
       </div>
     </div>
