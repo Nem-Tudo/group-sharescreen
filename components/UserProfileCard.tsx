@@ -13,7 +13,6 @@ import { BsCoin, BsClock, BsShop } from "react-icons/bs";
 import { SocialActions } from "@/components/SocialActions";
 import { useAuth } from "@/lib/AuthContext";
 import type { ProSource } from "@/lib/proSourceAttribution";
-import { trackFeatureEvent } from "@/lib/features";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import { AVATAR_FREE_BADGE, AVATAR_FREE_EVENTS } from "@/lib/avatarFree";
 import { ProfileLinksRow } from "@/components/ProfileLinksRow";
