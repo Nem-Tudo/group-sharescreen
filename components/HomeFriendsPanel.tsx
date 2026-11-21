@@ -117,6 +117,7 @@ function FriendRow({
           <DisplayUserName
             name={user.displayName}
             verified={verifiedBadge(user.flags)}
+            flags={user.flags}
             bot={user.bot}
             // The cosmetic they bought, same as anywhere else their name is
             // drawn — a name that is purple in a room and plain here reads as

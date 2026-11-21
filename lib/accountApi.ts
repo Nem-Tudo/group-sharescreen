@@ -35,6 +35,8 @@ export type Account = {
    * (see lib/entitlements.ts's verifiedBadge), never from this field.
    */
   verifiedTone?: "blue" | "gold" | "ruby" | null;
+  /** Badge ids this account chose to hide from appearing next to its name. */
+  hiddenNameBadges?: string[];
   /**
    * Which partner ads this account is shown — a Pro setting, see
    * lib/partnerAdsMode.ts. The API sends "always" whenever the plan does not
@@ -527,6 +529,8 @@ export type UpdateProfileInput = {
   equippedProfileColor?: string | null;
   /** Null clears the choice (back to the highest mark the plan affords); absent leaves it alone. */
   verifiedTone?: "blue" | "gold" | "ruby" | null;
+  /** Badge ids this account chose to hide from appearing next to its name. */
+  hiddenNameBadges?: string[];
   /** Which partner ads to show (Pro); absent leaves it alone. See lib/partnerAdsMode.ts. */
   partnerAdsMode?: "always" | "rewards" | "never";
   blockCameraEffects?: boolean;

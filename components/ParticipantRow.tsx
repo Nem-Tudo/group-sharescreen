@@ -51,6 +51,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   volume = 1,
   connectionLost = false,
   verified = false,
+  flags,
   bot = false,
   nameColor,
   avatarUrl,
@@ -118,6 +119,9 @@ export const ParticipantRow = memo(function ParticipantRow({
   connectionLost?: boolean;
   // Forwarded straight to DisplayUserName — see its `verified` prop.
   verified?: VerifiedTone | boolean;
+  // Account flags — the badges drawn after the name in the call (experiment
+  // "name-badges", see DisplayUserName's inCall).
+  flags?: readonly string[] | null;
   // Forwarded to DisplayUserName too — see its `bot` prop (the BOT tag).
   bot?: boolean;
   // Cosmetics-store name color (see PeerInfo.nameColor) — undefined/null for
@@ -200,6 +204,8 @@ export const ParticipantRow = memo(function ParticipantRow({
       name={name}
       isGuest={isGuest}
       verified={verified}
+      flags={flags}
+      inCall
       bot={bot}
       // The speaking indicator (name turns green while this person's mic is
       // audibly active) has to win over a custom name color, not just sit

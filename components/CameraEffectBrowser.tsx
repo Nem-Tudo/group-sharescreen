@@ -95,6 +95,7 @@ export function EffectAuthor({ effect, onOpen }: { effect: WorkshopEffect; onOpe
       <DisplayUserName
         name={author.displayName}
         verified={verifiedBadge(author.flags)}
+        flags={author.flags}
         bot={author.bot}
         color={author.nameColor}
         className="truncate"

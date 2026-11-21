@@ -867,6 +867,7 @@ const MessageBubble = memo(function MessageBubble({
                 <DisplayUserName
                   name={author.name}
                   verified={verifiedBadge(author.flags)}
+                  flags={author.flags}
                   bot={author.bot}
                   color={author.nameColor}
                   className="min-w-0 truncate font-medium text-zinc-700 dark:text-zinc-300"
@@ -2861,6 +2862,7 @@ export function DirectMessagesModal({
               <DisplayUserName
                 name={active.displayName}
                 verified={verifiedBadge(active.flags)}
+                flags={active.flags}
                 bot={active.bot}
                 color={active.nameColor ?? null}
                 className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
@@ -3156,6 +3158,7 @@ export function DirectMessagesModal({
                         <DisplayUserName
                           name={user.displayName}
                           verified={verifiedBadge(user.flags)}
+                          flags={user.flags}
                           bot={user.bot}
                           color={user.nameColor ?? null}
                           className={`block truncate text-sm text-zinc-900 dark:text-zinc-100 ${

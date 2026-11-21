@@ -1,5 +1,9 @@
+"use client";
+
 import { VerifiedBadge } from "./VerifiedBadge";
-import type { VerifiedTone } from "@/lib/entitlements";
+import { verifiedBadge, type VerifiedTone } from "@/lib/entitlements";
+import { NAME_BADGES_FEATURE, getUserNameBadges, useBadgesCatalog } from "@/lib/badges";
+import { useFeature } from "@/lib/features";
 import { Tooltip } from "./Tooltip";
 import { BotTag } from "./BotTag";
 import { WebhookTag } from "./WebhookTag";
@@ -16,6 +20,8 @@ export function DisplayUserName({
   name,
   isGuest,
   verified,
+  flags,
+  inCall,
   bot,
   webhook,
   color,
@@ -33,6 +39,12 @@ export function DisplayUserName({
   // answer as one through their own props; true renders the blue mark, which
   // is what it always meant.
   verified?: VerifiedTone | boolean;
+  // Account flags — used to render badges marked `showInName` in /admin (and
+  // as a fallback for `verified` when `verified` is omitted).
+  flags?: readonly string[] | null;
+  // Only in a call (the participant list and the video tiles) are badges
+  // drawn after the name — experiment "name-badges". Everywhere else, never.
+  inCall?: boolean;
   // A bot account (the `bot` field every person projection carries) — gets
   // the BOT tag after the name, see components/BotTag.
   bot?: boolean;
@@ -55,6 +67,14 @@ export function DisplayUserName({
   className?: string;
 }) {
   const nameStyle = nameStyleOf(color);
+  const catalog = useBadgesCatalog();
+  const candidates = isGuest || !inCall ? [] : getUserNameBadges(flags, catalog);
+  // Exposure only counted where a badge would actually be drawn — every name
+  // on the page renders this component.
+  const nameBadgesOn = useFeature(NAME_BADGES_FEATURE, { track: candidates.length > 0 }).enabled;
+  const nameBadges = nameBadgesOn ? candidates : [];
+  const effectiveVerified =
+    verified === undefined ? (nameBadgesOn && flags ? verifiedBadge(flags) : null) : verified;
   return (
     <span className={className} style={{ display: "flex" }}>
       <span style={nameStyle.style} className={nameStyle.className}>{name}</span>
@@ -62,12 +82,24 @@ export function DisplayUserName({
           page cannot disagree about what somebody bought — see
           components/VerifiedBadge. `true` from a caller that only has a
           boolean still means the blue one, as it always did. */}
-      {verified && (
+      {effectiveVerified && (
         <VerifiedBadge
-          flags={verified === "ruby" ? ["PRO_ULTRA"] : verified === "gold" ? ["PRO_MAX"] : ["VERIFIED"]}
+          flags={effectiveVerified === "ruby" ? ["PRO_ULTRA"] : effectiveVerified === "gold" ? ["PRO_MAX"] : ["VERIFIED"]}
           className="ml-1 inline h-5.5 w-5.5 shrink-0 align-text-top"
         />
       )}
+      {nameBadges.map((badge) => (
+        <Tooltip key={badge.id} content={badge.name}>
+          <span className="ml-1 inline-flex shrink-0 items-center self-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={badge.iconUrl}
+              alt={badge.name}
+              className="inline h-4.5 w-4.5 shrink-0 object-contain pointer-events-none select-none"
+            />
+          </span>
+        </Tooltip>
+      ))}
       {bot && <BotTag className="ml-1" />}
       {webhook && <WebhookTag className="ml-1" />}
       {aura ? <AuraMark count={aura} className="ml-1 self-center" /> : null}

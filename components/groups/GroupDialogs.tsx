@@ -50,6 +50,9 @@ import {
   createCategory,
   createChannel,
   createGroup,
+  fetchDiscordTemplate,
+  parseDiscordTemplateCode,
+  type DiscordTemplatePreview,
   createInvite,
   deleteChannel,
   deleteGroup,
@@ -111,8 +114,9 @@ import { useAuraOf } from "@/components/groups/AuraMark";
 import { EmojiManager } from "@/components/EmojiManager";
 import { CUSTOM_EMOJI_BADGE, CUSTOM_EMOJI_FEATURE } from "@/lib/customEmoji";
 import { BASE_GROUP_EMOJI_SLOTS, DEFAULT_AURA_LEVELS } from "@/lib/groupAura";
-import { NewBadge } from "@/components/NewBadge";
-import { useFeature } from "@/lib/features";
+import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
+import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { FaDiscord } from "react-icons/fa";
 import { DISCORD_RPC_FEATURE } from "@/lib/discordRpc";
 import { GROUP_AURA_BADGE, GROUP_AURA_FEATURE } from "@/lib/groupAura";
 import {
@@ -377,6 +381,260 @@ function VisibilityPicker({
   );
 }
 
+// ─── Discord template ──────────────────────────────────────────────────
+
+/** Starting a group laid out like a Discord server template — see the API's discordTemplate.ts. */
+const DISCORD_TEMPLATE_FEATURE = "discord-template";
+const DISCORD_TEMPLATE_EVENTS = {
+  preview: "discord_tpl_preview",
+  previewFail: "discord_tpl_preview_fail",
+  remove: "discord_tpl_remove",
+  create: "discord_tpl_create",
+  featured: "discord_tpl_featured",
+  help: "discord_tpl_help",
+} as const;
+
+/**
+ * Discord's own server templates (the ones its "Create a server" screen
+ * offers), each checked against /guilds/templates/<code>. A code Discord
+ * retires just answers "not found" when picked — nothing breaks.
+ */
+const FEATURED_DISCORD_TEMPLATES: { code: string; key: string; emoji: string }[] = [
+  { code: "hgM48av5Q69A", key: "friends", emoji: "👋" },
+  { code: "FbwUwRp4j8Es", key: "study", emoji: "📚" },
+  { code: "6exdzMgjZgah", key: "creators", emoji: "🎨" },
+  { code: "4sgbPdCjzAYU", key: "global", emoji: "🌎" },
+  { code: "64UDvRNCC52Y", key: "local", emoji: "🏘️" },
+  { code: "Ctg7PUHcQmZu", key: "clubs", emoji: "🎓" },
+  { code: "fVfBazbqjhXg", key: "classroom", emoji: "🏫" },
+  { code: "UqzZCTj2zfwy", key: "hackathon", emoji: "💻" },
+];
+
+/**
+ * The create dialog's "import from Discord": a template link, fetched and
+ * shown as the roles and rooms it will make, then sent along with the group.
+ */
+function DiscordTemplatePicker({
+  template,
+  disabled,
+  onChange,
+}: {
+  template: DiscordTemplatePreview | null;
+  disabled: boolean;
+  onChange: (template: DiscordTemplatePreview | null) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [link, setLink] = useState("");
+  // The link being loaded, or the featured template's code — for the spinner.
+  const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [help, setHelp] = useState(false);
+
+  async function load(featuredCode?: string) {
+    const code = featuredCode ?? parseDiscordTemplateCode(link);
+    if (!code) {
+      setError(t("groups.discordTemplate.invalidLink"));
+      return;
+    }
+    if (featuredCode) trackFeatureEvent(DISCORD_TEMPLATE_EVENTS.featured, { feature: DISCORD_TEMPLATE_FEATURE });
+    setLoading(featuredCode ?? "link");
+    setError(null);
+    const result = await fetchDiscordTemplate(code);
+    setLoading(null);
+    if (!result.ok) {
+      setError(result.status === 404 ? t("groups.discordTemplate.notFound") : result.error);
+      trackFeatureEvent(DISCORD_TEMPLATE_EVENTS.previewFail, { feature: DISCORD_TEMPLATE_FEATURE });
+      return;
+    }
+    trackFeatureEvent(DISCORD_TEMPLATE_EVENTS.preview, { feature: DISCORD_TEMPLATE_FEATURE });
+    onChange(result.template);
+  }
+
+  if (template) {
+    const channelCount =
+      template.uncategorized.length + template.categories.reduce((n, c) => n + c.channels.length, 0);
+    const skipped = template.skipped.roles + template.skipped.categories + template.skipped.channels;
+    const channelLine = (ch: { kind: GroupChannelKind; name: string }, i: number) => (
+      <li key={i} className="flex items-center gap-1.5 truncate">
+        {ch.kind === "voice" ? (
+          <MdVolumeUp className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+        ) : (
+          <MdTag className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+        )}
+        <span className="truncate">{ch.name}</span>
+      </li>
+    );
+    return (
+      <div className="flex flex-col gap-2 rounded-xl border border-[#5865F2]/40 bg-[#5865F2]/5 p-3">
+        <div className="flex items-center gap-2">
+          <FaDiscord className="h-5 w-5 shrink-0 text-[#5865F2]" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{template.name}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {t("groups.discordTemplate.summary", {
+                roles: template.roles.length,
+                categories: template.categories.length,
+                channels: channelCount,
+              })}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              trackFeatureEvent(DISCORD_TEMPLATE_EVENTS.remove, { feature: DISCORD_TEMPLATE_FEATURE });
+              onChange(null);
+            }}
+            className="cursor-pointer rounded-lg p-1 text-zinc-500 hover:bg-zinc-200 disabled:cursor-not-allowed dark:hover:bg-zinc-800"
+            aria-label={t("groups.discordTemplate.remove")}
+            title={t("groups.discordTemplate.remove")}
+          >
+            <MdClose className="h-4 w-4" />
+          </button>
+        </div>
+        {template.roles.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {template.roles.slice(0, 12).map((role, i) => (
+              <span
+                key={i}
+                className="inline-flex max-w-[10rem] items-center gap-1 truncate rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] dark:border-zinc-700"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: role.color ?? "#a1a1aa" }} />
+                <span className="truncate">{role.name}</span>
+              </span>
+            ))}
+            {template.roles.length > 12 && (
+              <span className="px-1 text-[11px] text-zinc-500">+{template.roles.length - 12}</span>
+            )}
+          </div>
+        )}
+        <div className="max-h-40 overflow-y-auto pr-1 text-xs text-zinc-600 dark:text-zinc-300">
+          {template.uncategorized.length > 0 && (
+            <ul className="mb-1.5 flex flex-col gap-0.5">{template.uncategorized.map(channelLine)}</ul>
+          )}
+          {template.categories.map((category, i) => (
+            <div key={i} className="mb-1.5">
+              <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{category.name}</p>
+              <ul className="flex flex-col gap-0.5 pl-1">{category.channels.map(channelLine)}</ul>
+            </div>
+          ))}
+        </div>
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          {t("groups.discordTemplate.note")}
+          {skipped > 0 && <> {t("groups.discordTemplate.skipped", { count: skipped })}</>}
+        </p>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className="flex cursor-pointer items-center gap-2 self-start rounded-lg px-1 text-sm font-medium text-[#5865F2] hover:underline disabled:cursor-not-allowed"
+      >
+        <FaDiscord className="h-4 w-4" />
+        {t("groups.discordTemplate.import")}
+        <NewBadge id={DISCORD_TEMPLATE_FEATURE} />
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <FaDiscord className="h-4 w-4 text-[#5865F2]" />
+        {t("groups.discordTemplate.title")}
+        <button
+          type="button"
+          onClick={() => {
+            if (!help) trackFeatureEvent(DISCORD_TEMPLATE_EVENTS.help, { feature: DISCORD_TEMPLATE_FEATURE });
+            setHelp(!help);
+          }}
+          className={`flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-xs font-bold transition ${
+            help
+              ? "bg-[#5865F2] text-white"
+              : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+          }`}
+          aria-label={t("groups.discordTemplate.helpTitle")}
+          aria-expanded={help}
+          title={t("groups.discordTemplate.helpTitle")}
+        >
+          ?
+        </button>
+      </span>
+      {help && (
+        <div className="rounded-xl border border-[#5865F2]/30 bg-[#5865F2]/5 p-3 text-xs text-zinc-600 dark:text-zinc-300">
+          <p className="mb-1.5 font-semibold text-zinc-800 dark:text-zinc-100">{t("groups.discordTemplate.helpTitle")}</p>
+          <ol className="flex list-decimal flex-col gap-1 pl-4">
+            <li>{t("groups.discordTemplate.helpStep1")}</li>
+            <li>{t("groups.discordTemplate.helpStep2")}</li>
+            <li>{t("groups.discordTemplate.helpStep3")}</li>
+            <li>{t("groups.discordTemplate.helpStep4")}</li>
+          </ol>
+          <p className="mt-2 text-zinc-500 dark:text-zinc-400">{t("groups.discordTemplate.helpNote")}</p>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <input
+          autoFocus
+          value={link}
+          onChange={(e) => {
+            setLink(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            // Enter here fetches the template, not submits the whole form.
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (link.trim() && !loading) void load();
+            }
+          }}
+          placeholder="https://discord.new/..."
+          className={`${inputClass} min-w-0 flex-1`}
+          disabled={disabled || loading !== null}
+        />
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={disabled || loading !== null || !link.trim()}
+          className={secondaryButton}
+        >
+          {loading === "link" ? t("groups.discordTemplate.loading") : t("groups.discordTemplate.fetch")}
+        </button>
+      </div>
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.discordTemplate.hint")}</span>
+      {error && <span className="text-xs text-red-500">{error}</span>}
+      <span className="mt-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        {t("groups.discordTemplate.featuredTitle")}
+      </span>
+      <div className="grid grid-cols-2 gap-1.5">
+        {FEATURED_DISCORD_TEMPLATES.map((item) => (
+          <button
+            key={item.code}
+            type="button"
+            disabled={disabled || loading !== null}
+            onClick={() => void load(item.code)}
+            className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 text-left text-xs transition hover:border-[#5865F2]/60 hover:bg-[#5865F2]/5 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800"
+          >
+            <span className="text-base leading-none" aria-hidden>
+              {item.emoji}
+            </span>
+            <span className="truncate font-medium text-zinc-800 dark:text-zinc-100">
+              {loading === item.code
+                ? t("groups.discordTemplate.loading")
+                : t(`groups.discordTemplate.featured.${item.key}`)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
   const { t, tc } = useI18n();
   const navigation = useGroupNavigation();
@@ -387,6 +645,9 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Starting from a Discord server template (experiment "discord-template").
+  const discordTemplate = useFeature(DISCORD_TEMPLATE_FEATURE, { track: true }).enabled;
+  const [template, setTemplate] = useState<DiscordTemplatePreview | null>(null);
 
   async function onPickIcon(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -409,13 +670,17 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
     e.preventDefault();
     if (!name.trim() || busy) return;
     setBusy(true);
-    const result = await createGroup(name.trim(), visibility);
+    const result = await createGroup(name.trim(), visibility, template?.code ?? null);
     if (!result.ok) {
       setBusy(false);
       setError(result.error);
       return;
     }
     const groupId = result.group.id;
+    if (template) {
+      markFeatureUsed(DISCORD_TEMPLATE_FEATURE);
+      trackFeatureEvent(DISCORD_TEMPLATE_EVENTS.create, { group: groupId, feature: DISCORD_TEMPLATE_FEATURE });
+    }
     if (icon) await uploadGroupIcon(groupId, icon);
     await refreshGroups();
     closePopup(true);
@@ -471,10 +736,23 @@ export function CreateGroupDialog({ closePopup }: PopupProps<object>) {
           <VisibilityPicker value={visibility} onChange={setVisibility} disabled={busy} />
           <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.groupDialogs.youCanChangeItLaterIn")}</span>
         </div>
+        {discordTemplate && (
+          <DiscordTemplatePicker
+            template={template}
+            disabled={busy}
+            onChange={(next) => {
+              setTemplate(next);
+              // The server's name, when nobody has typed one yet.
+              if (next && !name.trim()) setName(next.name.slice(0, 50));
+            }}
+          />
+        )}
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          {t("groups.groupDialogs.theGroupStartsWithAText")} <b>#geral</b> e uma sala de voz <b>{t("common.general")}</b>.
-        </p>
+        {!template && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t("groups.groupDialogs.theGroupStartsWithAText")} <b>#geral</b> e uma sala de voz <b>{t("common.general")}</b>.
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => closePopup(false)} className={secondaryButton}>
             {t("common.cancel")}
@@ -2089,6 +2367,7 @@ function MembersTab({ groupId }: { groupId: string }) {
                     name={member.name}
                     isGuest={member.guest}
                     verified={verifiedBadge(member.flags)}
+                    flags={member.flags}
                     bot={member.bot}
                     color={roleColorOf(detail, { id: member.id, roleIds }) ?? member.nameColor}
                     aura={auraOf(member.id)}

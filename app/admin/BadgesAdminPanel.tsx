@@ -10,7 +10,7 @@ import {
   updateAdminBadge,
   type AdminBadgeInput,
 } from "@/lib/adminApi";
-import { DEFAULT_BADGES, fetchBadgesCatalog, type BadgeDefinition } from "@/lib/badges";
+import { DEFAULT_BADGES, canShowInName, fetchBadgesCatalog, isProBadge, type BadgeDefinition } from "@/lib/badges";
 import { useT } from "@/lib/useI18n";
 
 // Profile badges: creating new ones and choosing the order a profile shows
@@ -102,7 +102,15 @@ const BUILT_IN_IDS = new Set(DEFAULT_BADGES.map((badge) => badge.id));
 const input =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
 
-const EMPTY_FORM = { id: "", name: "", description: "", iconUrl: "", requiredFlag: "", requiredPlan: "" };
+const EMPTY_FORM = {
+  id: "",
+  name: "",
+  description: "",
+  iconUrl: "",
+  requiredFlag: "",
+  requiredPlan: "",
+  showInName: false,
+};
 
 export function BadgesAdminPanel() {
   const t = useT();
@@ -173,6 +181,7 @@ export function BadgesAdminPanel() {
       iconUrl: badge.iconUrl,
       requiredFlag: badge.requiredFlag ?? badge.flagTag ?? "",
       requiredPlan: badge.requiredPlan ?? "",
+      showInName: badge.showInName === true,
     });
     const preset = (Object.keys(COLOR_PRESETS) as ColorPreset[]).find(
       (key) => COLOR_PRESETS[key].chipClass === badge.chipClass
@@ -204,6 +213,8 @@ export function BadgesAdminPanel() {
       ...form,
       requiredFlag: form.requiredFlag.trim().toUpperCase() || undefined,
       requiredPlan: form.requiredPlan || undefined,
+      // Never for a Pro badge: the verified mark is all a plan shows by the name.
+      showInName: form.showInName && !formIsPro,
       ...classes,
     };
     const target = editing;
@@ -215,6 +226,7 @@ export function BadgesAdminPanel() {
   }
 
   const preview = classes;
+  const formIsPro = isProBadge({ id: form.id, requiredPlan: form.requiredPlan || undefined });
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -236,6 +248,7 @@ export function BadgesAdminPanel() {
               {badge.id}
               {badge.requiredFlag ? ` · ${badge.requiredFlag}` : ""}
               {badge.requiredPlan ? ` · ${badge.requiredPlan}` : ""}
+              {canShowInName(badge) ? ` · ${t("admin.badgesPanel.inNameOn")}` : ""}
             </span>
             <button
               type="button"
@@ -328,6 +341,23 @@ export function BadgesAdminPanel() {
             <option value="">{t("admin.badgesPanel.noPlan")}</option>
             <option value="pro">Pro</option>
           </select>
+        </label>
+        <label
+          className={`flex items-start gap-2 text-xs sm:col-span-2 ${formIsPro ? "text-zinc-400" : "text-zinc-600 dark:text-zinc-300"}`}
+        >
+          <input
+            type="checkbox"
+            checked={form.showInName && !formIsPro}
+            disabled={formIsPro}
+            onChange={(e) => setForm({ ...form, showInName: e.target.checked })}
+            className="mt-0.5"
+          />
+          <span>
+            {t("admin.badgesPanel.showInName")}
+            <span className="block text-zinc-500 dark:text-zinc-400">
+              {formIsPro ? t("admin.badgesPanel.showInNamePro") : t("admin.badgesPanel.showInNameHint")}
+            </span>
+          </span>
         </label>
         <div className="flex flex-col gap-1 text-xs text-zinc-500 sm:col-span-2">
           {t("admin.badgesPanel.color")}

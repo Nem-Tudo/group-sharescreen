@@ -1887,6 +1887,7 @@ export type AdminBadgeInput = {
   borderClass?: string;
   requiredFlag?: string;
   requiredPlan?: string;
+  showInName?: boolean;
 };
 
 export async function fetchAdminBadges(): Promise<BadgeDefinition[]> {

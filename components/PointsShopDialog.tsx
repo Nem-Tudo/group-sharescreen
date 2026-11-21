@@ -220,6 +220,7 @@ export function PointsShopDialog({ closePopup }: { closePopup: (hasAction?: bool
                   name={displayName}
                   color={previewName}
                   verified={account ? verifiedBadge(account.flags) : null}
+                  flags={account?.flags}
                   className="min-w-0 truncate text-lg font-semibold"
                 />
                 <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">

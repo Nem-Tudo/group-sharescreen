@@ -347,6 +347,7 @@ export function ReactionsDialog({
                             name={person.name}
                             isGuest={person.guest}
                             verified={verifiedBadge(person.flags)}
+                            flags={person.flags}
                             bot={person.bot}
                             color={roleColorOf(detail, { id: person.id }) ?? person.nameColor}
                             className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"

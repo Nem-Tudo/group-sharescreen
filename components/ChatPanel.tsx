@@ -1297,6 +1297,7 @@ export function ChatPanel({
                       name={withDeviceSuffix(m.name, m.userId, m.device, multiDevice)}
                       isGuest={m.isGuest}
                       verified={verifiedBadge(m?.flags)}
+                      flags={m?.flags}
                       bot={m?.bot}
                       color={m.nameColor}
                       className={"min-w-0 font-medium text-zinc-700 hover:underline dark:text-zinc-300"}
@@ -1307,6 +1308,7 @@ export function ChatPanel({
                     name={withDeviceSuffix(m.name, m.userId, m.device, multiDevice)}
                     isGuest={m.isGuest}
                     verified={verifiedBadge(m?.flags)}
+                    flags={m?.flags}
                     bot={m?.bot}
                     color={m.nameColor}
                     className={"min-w-0 font-medium text-zinc-700 dark:text-zinc-300"}
@@ -1727,6 +1729,7 @@ export function ChatPanel({
                         name={withDeviceSuffix(peer.name, peer.userId, peer.device, deviceCounts)}
                         isGuest={peer.isGuest}
                         verified={verifiedBadge(peer?.flags)}
+                        flags={peer?.flags}
                         bot={peer?.bot}
                         color={peer.nameColor}
                         className="truncate"

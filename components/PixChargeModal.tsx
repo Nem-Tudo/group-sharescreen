@@ -321,6 +321,7 @@ export function PurchasePaidScreen({
               <DisplayUserName
                 name={recipient.displayName}
                 verified={verifiedBadge(recipient.flags ?? [])}
+                flags={recipient.flags}
                 bot={recipient.bot}
                 color={recipient.nameColor}
                 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
