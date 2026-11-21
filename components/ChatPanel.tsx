@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ChatMessage, ChatReplyTo } from "@/lib/signalingClient";
+import { useTypeToFocus } from "@/lib/typeToFocus";
 import type { GifResult } from "@/app/api/giphy/search/route";
 import { MdSend } from "react-icons/md";
 import { GifPicker } from "@/components/GifPicker";
@@ -448,6 +449,11 @@ export function ChatPanel({
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Typing goes to the box, the way a group's text room and the private
+  // messages do: a key that types something, with the focus anywhere else in
+  // the room, lands here (see lib/typeToFocus). A call shortcut that takes the
+  // key wins, and a chat that is hidden or covered never grabs it.
+  useTypeToFocus(textareaRef);
   // The box's height is set from its scrollHeight on input (handleInput),
   // which is only right for the width it had then. Dragging the chat column
   // wider or narrower left a box grown for another width — a tall one with

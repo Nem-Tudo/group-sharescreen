@@ -68,6 +68,7 @@ import { openContextMenu } from "@/lib/contextMenu";
 import { useMessageGestures, useCoarsePointer } from "@/lib/messageGestures";
 import { useNotifyPrefs } from "@/lib/notifyPrefs";
 import { trackFeatureEvent } from "@/lib/features";
+import { useTypeToFocus } from "@/lib/typeToFocus";
 import { NewBadge, markFeatureUsed } from "@/components/NewBadge";
 import {
   NOTIFICATION_SETTINGS_BADGE,
@@ -1630,6 +1631,11 @@ export function DirectMessagesModal({
     focusedForRef.current = activeId;
     if (!isCoarsePointer()) composerRef.current?.focus({ preventScroll: true });
   }, [open, activeId, loaded]);
+
+  // And it stays the place typing goes, the way a group's text room does: a
+  // key that types something, with the focus anywhere else in the
+  // conversation, lands in the box (see lib/typeToFocus).
+  useTypeToFocus(composerRef, open);
 
   // The composer grows with what is typed, up to a few lines. The CSS does it
   // on its own where it can (`field-sizing`); measuring here forces a layout of
