@@ -6361,7 +6361,7 @@
   "videoTile.iosScreenStop": "Stop sharing",
   "groups.exploreMap.full": "Full map",
   "videoTile.wholeScreenSharing": "You're showing your whole screen",
-  "videoTile.wholeScreenHint": "The preview is hidden so the room doesn't show up inside itself. Everyone in the room still sees your screen as usual.",
+  "videoTile.wholeScreenHint": "The room is hidden to save resources.",
   "videoTile.wholeScreenShow": "Show preview",
   "videoTile.sharingBadge": "sharing",
   "videoTile.moreOptions": "More options",

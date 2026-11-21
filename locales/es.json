@@ -6362,7 +6362,7 @@
   "videoTile.iosScreenStop": "Dejar de compartir",
   "groups.exploreMap.full": "Mapa completo",
   "videoTile.wholeScreenSharing": "Estás mostrando tu pantalla completa",
-  "videoTile.wholeScreenHint": "La vista previa está oculta para que la sala no aparezca dentro de sí misma. Quien está en la sala sigue viendo tu pantalla normalmente.",
+  "videoTile.wholeScreenHint": "La sala se oculta para ahorrar recursos.",
   "videoTile.wholeScreenShow": "Mostrar vista previa",
   "videoTile.sharingBadge": "transmitiendo",
   "videoTile.moreOptions": "Más opciones",

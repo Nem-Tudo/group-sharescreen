@@ -6361,7 +6361,7 @@
   "videoTile.iosScreenStop": "Parar de compartilhar",
   "groups.exploreMap.full": "Mapa inteiro",
   "videoTile.wholeScreenSharing": "Você está mostrando sua tela inteira",
-  "videoTile.wholeScreenHint": "A prévia fica escondida para a sala não aparecer dentro dela mesma. Quem está na sala continua vendo sua tela normalmente.",
+  "videoTile.wholeScreenHint": "A sala fica escondida para economizar recursos.",
   "videoTile.wholeScreenShow": "Mostrar prévia",
   "videoTile.sharingBadge": "transmitindo",
   "videoTile.moreOptions": "Mais opções",
