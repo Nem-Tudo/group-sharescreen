@@ -6,10 +6,22 @@ import type { GroupCategory, GroupChannel } from "./groupsApi";
 //
 // The list is sections: the rooms without a category first, then each
 // category in order. Each section lists its voice rooms and then its text
-// rooms — the order of the two kinds is fixed, only the order within each kind
-// (and which section a room is in) moves. A drop that lands a room among the
-// other kind is read as "in this section": the room goes to its own kind's
-// part of it, at whichever end is nearest.
+// rooms — or its text rooms first, for a category set that way
+// (GroupCategory.textFirst). The order of the two kinds is the section's,
+// never a drag's: only the order within each kind (and which section a room is
+// in) moves. A drop that lands a room among the other kind is read as "in this
+// section": the room goes to its own kind's part of it, at whichever end is
+// nearest.
+
+/** The two kinds in the order a section draws them. */
+export function kindsInOrder(section: LayoutSection): ("voice" | "text")[] {
+  return section.category?.textFirst ? ["text", "voice"] : ["voice", "text"];
+}
+
+/** A section's rooms in the order they are drawn. */
+export function roomsInOrder(section: LayoutSection): GroupChannel[] {
+  return kindsInOrder(section).flatMap((kind) => section[kind]);
+}
 
 export interface LayoutSection {
   /** null for the rooms without a category. */
@@ -105,8 +117,8 @@ export function moveCategory(sections: LayoutSection[], categoryId: string, befo
  * Where a room dropped on another room goes: that room's section, and — when
  * the two are the same kind — just before it, or just after it when the drop
  * was on its lower half. A room of the other kind means "this section": the
- * voice rooms come first, so a text room lands at the top of the text rooms
- * and a voice room at the end of the voice rooms, whichever is nearest.
+ * room lands at the end of its kind's part nearest the target — the top of
+ * its kind when its kind is drawn second, the bottom when it is drawn first.
  */
 export function dropOnChannel(
   sections: LayoutSection[],
@@ -119,7 +131,8 @@ export function dropOnChannel(
   if (!section) return { categoryId, beforeId: null };
   if (dragged.kind !== target.kind) {
     const own = section[dragged.kind].filter((c) => c.id !== dragged.id);
-    return { categoryId, beforeId: dragged.kind === "text" ? own[0]?.id ?? null : null };
+    const drawnSecond = kindsInOrder(section)[1] === dragged.kind;
+    return { categoryId, beforeId: drawnSecond ? own[0]?.id ?? null : null };
   }
   const list = section[target.kind].filter((c) => c.id !== dragged.id);
   const index = list.findIndex((c) => c.id === target.id);

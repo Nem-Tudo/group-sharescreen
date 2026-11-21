@@ -22,6 +22,7 @@ import {
   MdContentCopy,
   MdDeleteOutline,
   MdEdit,
+  MdSwapVert,
   MdLockOutline,
   MdAdd,
   MdChevronRight,
@@ -96,7 +97,14 @@ import {
 } from "@/lib/groupLinks";
 import { useGroupsHub } from "@/lib/groupsHub";
 import { useGroupNavigation } from "@/lib/groupNavigation";
-import { buildSections, moveCategory, moveChannel, toPayload, type LayoutSection } from "@/lib/groupLayout";
+import {
+  buildSections,
+  moveCategory,
+  moveChannel,
+  roomsInOrder,
+  toPayload,
+  type LayoutSection,
+} from "@/lib/groupLayout";
 import { SITE_URL } from "@/lib/seo";
 import Link from "next/link";
 import { WorldMap } from "@/components/WorldMap";
@@ -2001,6 +2009,12 @@ function ChannelsTab({
               >
                 <MdEdit className="h-4 w-4" />
               </IconButton>
+              <IconButton
+                label={category.textFirst ? t("groups.groupSidebar.voiceFirst") : t("groups.groupSidebar.textFirst")}
+                onClick={() => void run(setCategoryTextFirst(groupId, category.id, !category.textFirst))}
+              >
+                <MdSwapVert className="h-4 w-4" />
+              </IconButton>
               <IconButton label={t("common.deleteCategory")} danger onClick={() => setConfirming(key)}>
                 <MdDeleteOutline className="h-4 w-4" />
               </IconButton>
@@ -2053,6 +2067,17 @@ function ChannelsTab({
                 >
                   <MdEdit className="h-5 w-5" aria-hidden />
                   {t("groups.groupDialogs.renameCategory")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpanded(null);
+                    void run(setCategoryTextFirst(groupId, category.id, !category.textFirst));
+                  }}
+                  className={actionButton}
+                >
+                  <MdSwapVert className="h-5 w-5" aria-hidden />
+                  {category.textFirst ? t("groups.groupSidebar.voiceFirst") : t("groups.groupSidebar.textFirst")}
                 </button>
                 <button
                   type="button"
@@ -2159,7 +2184,7 @@ function ChannelsTab({
         </div>
       )}
       {sections.map((section) => {
-        const rooms = [...section.voice, ...section.text];
+        const rooms = roomsInOrder(section);
         if (!section.category && rooms.length === 0) return null;
         return (
           <section key={section.category?.id ?? "root"} className="flex flex-col gap-1">

@@ -13,6 +13,7 @@ import {
   MdDeleteOutline,
   MdDoneAll,
   MdEdit,
+  MdSwapVert,
   MdExpandMore,
   MdHeadsetOff,
   MdLink,
@@ -43,6 +44,7 @@ import {
   deleteChannel,
   leaveGroup,
   renameCategory,
+  setCategoryTextFirst,
   setGroupLayout,
   setGroupNotify,
   type GroupCategory,
@@ -75,6 +77,7 @@ import {
   dropOnChannel,
   moveCategory,
   moveChannel,
+  kindsInOrder,
   toPayload,
   type LayoutSection,
 } from "@/lib/groupLayout";
@@ -506,6 +509,21 @@ export function GroupRoomsPanel({
     await refreshGroup(group.id);
   }
 
+  /**
+   * Text rooms above the voice rooms in this category, or back the way it was
+   * (GroupCategory.textFirst). Drawn at once, then saved; the group is read
+   * again either way, so a refusal puts back what the server holds.
+   */
+  async function toggleTextFirst(category: GroupCategory) {
+    const textFirst = !category.textFirst;
+    patchGroupDetail(group.id, {
+      categories: (detail.categories ?? []).map((c) => (c.id === category.id ? { ...c, textFirst } : c)),
+    });
+    const result = await setCategoryTextFirst(group.id, category.id, textFirst);
+    if (!result.ok) setLayoutError(result.error);
+    await refreshGroup(group.id);
+  }
+
   function confirmDeleteCategory(category: GroupCategory) {
     setCategoryMenuOpen(null);
     void openPopup("confirm", {
@@ -668,6 +686,11 @@ export function GroupRoomsPanel({
           label: t("common.rename"),
           icon: <MdEdit className="h-4 w-4" />,
           onSelect: () => setRenaming({ id: category.id, draft: category.name }),
+        },
+        isManager && {
+          label: category.textFirst ? t("groups.groupSidebar.voiceFirst") : t("groups.groupSidebar.textFirst"),
+          icon: <MdSwapVert className="h-4 w-4" />,
+          onSelect: () => void toggleTextFirst(category),
         },
         isManager && {
           // Where the permissions every room under this heading inherits are
@@ -1265,6 +1288,17 @@ export function GroupRoomsPanel({
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      setCategoryMenuOpen(null);
+                      void toggleTextFirst(category);
+                    }}
+                    className={menuItemClass}
+                  >
+                    <MdSwapVert className="h-4 w-4 opacity-70" />
+                    {category.textFirst ? t("groups.groupSidebar.voiceFirst") : t("groups.groupSidebar.textFirst")}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => confirmDeleteCategory(category)}
                     className={`${menuItemClass} text-red-600 dark:text-red-400`}
                   >
@@ -1352,12 +1386,18 @@ export function GroupRoomsPanel({
         {!category && hint?.type === "categories-top" && <span className={`${dropLine} -bottom-2`} />}
         {category && categoryHeader(category, isCollapsed)}
         {creatingHere && creationForm}
-        {voiceShown.length > 0 && <ul className="flex flex-col gap-0.5">{voiceShown.map(renderVoiceRoom)}</ul>}
-        {textShown.length > 0 && (
-          <ul className={`flex flex-col gap-0.5 ${voiceShown.length > 0 ? "mt-0.5" : ""}`}>
-            {textShown.map(renderTextRoom)}
-          </ul>
-        )}
+        {/* Voice rooms then text rooms, or the other way round for a
+            category set that way (see lib/groupLayout's kindsInOrder). */}
+        {kindsInOrder(section).map((kind, index) => {
+          const shown = kind === "voice" ? voiceShown : textShown;
+          const before = index === 1 && (kind === "voice" ? textShown : voiceShown).length > 0;
+          if (shown.length === 0) return null;
+          return (
+            <ul key={kind} className={`flex flex-col gap-0.5 ${before ? "mt-0.5" : ""}`}>
+              {kind === "voice" ? shown.map(renderVoiceRoom) : shown.map(renderTextRoom)}
+            </ul>
+          );
+        })}
         {/* Somewhere to drop a room when there is nothing to drop it beside:
             an empty category, or the top of the list while every room is
             in a category. Only while dragging, or for an empty category

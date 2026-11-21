@@ -2240,6 +2240,8 @@
   "groups.groupRail.onlineCount": "{count} online",
   "groups.groupRail.searchPlaceholder": "Buscar seus grupos",
   "groups.groupRail.searchPublicGroups": "Buscar em grupos públicos",
+  "groups.groupSidebar.textFirst": "Salas de texto em cima",
+  "groups.groupSidebar.voiceFirst": "Salas de voz em cima",
   "groups.organize.folder": "Pasta",
   "groups.organize.folderCount.one": "{count} grupo",
   "groups.organize.folderCount.other": "{count} grupos",

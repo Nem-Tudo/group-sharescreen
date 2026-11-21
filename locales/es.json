@@ -2240,6 +2240,8 @@
   "groups.groupRail.onlineCount": "{count} en línea",
   "groups.groupRail.searchPlaceholder": "Buscar tus grupos",
   "groups.groupRail.searchPublicGroups": "Buscar en grupos públicos",
+  "groups.groupSidebar.textFirst": "Salas de texto arriba",
+  "groups.groupSidebar.voiceFirst": "Salas de voz arriba",
   "groups.organize.folder": "Carpeta",
   "groups.organize.folderCount.one": "{count} grupo",
   "groups.organize.folderCount.other": "{count} grupos",

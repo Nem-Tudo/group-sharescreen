@@ -139,6 +139,8 @@ export interface GroupCategory {
   permissions?: ChannelPermissionOverrides;
   /** The same, per role id. Absent from an older API. */
   roleOverrides?: Record<string, ChannelPermissionOverrides>;
+  /** Its text rooms listed above its voice rooms. Absent: voice rooms first. */
+  textFirst?: boolean;
 }
 
 export interface GroupChannel {
@@ -878,6 +880,12 @@ export const createCategory = (groupId: string, name: string) =>
 export const renameCategory = (groupId: string, categoryId: string, name: string) =>
   request<{ category: GroupCategory }>("PATCH", `/groups/${enc(groupId)}/categories/${enc(categoryId)}`, {
     name,
+  });
+
+/** Whether a category lists its text rooms above its voice rooms — see GroupCategory.textFirst. */
+export const setCategoryTextFirst = (groupId: string, categoryId: string, textFirst: boolean) =>
+  request<{ category: GroupCategory }>("PATCH", `/groups/${enc(groupId)}/categories/${enc(categoryId)}`, {
+    textFirst,
   });
 
 /** Removes the heading; its rooms move to the top, uncategorised. */
