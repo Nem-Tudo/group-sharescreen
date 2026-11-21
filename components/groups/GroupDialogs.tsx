@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import useNtPopups from "ntpopups";
 import {
   MdAddPhotoAlternate,
+  MdExpandMore,
   MdArrowDownward,
   MdBlock,
   MdCreateNewFolder,
@@ -41,6 +42,7 @@ import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
+import { trackGroupBannerSet } from "@/components/groups/GroupBannerTip";
 import { GroupName } from "@/components/groups/GroupName";
 import { AVATAR_IMAGE_ACCEPT, isSupportedAvatarImage, prepareAvatarImage } from "@/lib/avatarImage";
 import { copyText } from "@/lib/clipboard";
@@ -1259,7 +1261,15 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
  * Discord's way, free for every group. Picked, framed to 16:9 (an animated GIF
  * is cropped frame by frame — see ImageCropDialog), then sent.
  */
-function GroupBannerField({ groupId, bannerUrl }: { groupId: string; bannerUrl: string | null }) {
+function GroupBannerField({
+  groupId,
+  groupName,
+  bannerUrl,
+}: {
+  groupId: string;
+  groupName: string;
+  bannerUrl: string | null;
+}) {
   const t = useT();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [picked, setPicked] = useState<{ src: string; mimeType: string } | null>(null);
@@ -1289,7 +1299,11 @@ function GroupBannerField({ groupId, bannerUrl }: { groupId: string; bannerUrl: 
     const result = await uploadGroupBanner(groupId, dataUrl);
     setBusy(false);
     setMessage(result.ok ? { ok: true, text: t("groups.banner.updated") } : { ok: false, text: result.error });
-    if (result.ok) void refreshGroup(groupId);
+    if (result.ok) {
+      // Both sides of the experiment group-banner-tip: what the tip is for.
+      trackGroupBannerSet();
+      void refreshGroup(groupId);
+    }
   }
 
   async function remove() {
@@ -1301,28 +1315,38 @@ function GroupBannerField({ groupId, bannerUrl }: { groupId: string; bannerUrl: 
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-2">
       <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.banner.title")}</span>
+      {/* The size it is drawn at, over a rooms column, with the name on it
+          the way the column shows it — a preview, not a poster. */}
       <button
         type="button"
         onClick={() => fileRef.current?.click()}
         disabled={busy}
         aria-label={bannerUrl ? t("groups.banner.change") : t("groups.banner.choose")}
-        className="group/banner relative aspect-video w-full max-w-sm cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 text-left disabled:cursor-wait dark:border-zinc-800 dark:bg-zinc-900"
+        className="group/banner relative aspect-video w-60 max-w-full cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 text-left disabled:cursor-wait dark:border-zinc-800 dark:bg-zinc-900"
       >
         {bannerUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
-          <img src={bannerUrl} alt="" className="h-full w-full object-cover" />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape */}
+            <img src={bannerUrl} alt="" className="h-full w-full object-cover" />
+            <span className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/65 to-transparent" />
+            <span className="absolute inset-x-0 top-0 flex items-center gap-0.5 px-2.5 py-1.5 text-xs font-semibold text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.6)]">
+              <span className="truncate">{groupName}</span>
+              <MdExpandMore className="h-3.5 w-3.5 shrink-0" />
+            </span>
+          </>
         ) : (
-          <span className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            {t("groups.banner.empty")}
+          <span className="flex h-full w-full flex-col items-center justify-center gap-1 px-4 text-center text-xs text-zinc-500 dark:text-zinc-400">
+            <MdAddPhotoAlternate className="h-6 w-6 opacity-70" />
+            {t("groups.banner.choose")}
           </span>
         )}
         <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-semibold text-white opacity-0 transition group-hover/banner:opacity-100">
           {bannerUrl ? t("groups.banner.change") : t("groups.banner.choose")}
         </span>
       </button>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.banner.hint")}</p>
+      <p className="max-w-60 text-xs text-zinc-500 dark:text-zinc-400">{t("groups.banner.hint")}</p>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={secondaryButton}>
           {bannerUrl ? t("groups.banner.change") : t("groups.banner.choose")}
@@ -1468,28 +1492,44 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
 
   return (
     <form onSubmit={save} className="flex flex-col gap-4">
-      <GroupBannerField groupId={groupId} bannerUrl={detail.group.bannerUrl ?? null} />
-      <div className="flex items-center gap-4">
-        <GroupIcon name={detail.group.name} iconUrl={detail.group.iconUrl} seed={groupId} size={80} className="rounded-2xl" />
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={secondaryButton}>
-            {t("groups.groupDialogs.changeIcon")}
+      {/* The group's look, side by side: its face, and the banner over its
+          rooms. One row from sm up, stacked on a phone. */}
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-8">
+        <div className="flex shrink-0 flex-col gap-2">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.banner.icon")}</span>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            aria-label={t("groups.groupDialogs.changeIcon")}
+            className="group/icon relative w-fit cursor-pointer overflow-hidden rounded-2xl disabled:cursor-wait"
+          >
+            <GroupIcon name={detail.group.name} iconUrl={detail.group.iconUrl} seed={groupId} size={88} className="rounded-2xl" />
+            <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white opacity-0 transition group-hover/icon:opacity-100">
+              <MdAddPhotoAlternate className="h-6 w-6" />
+            </span>
           </button>
-          {detail.group.iconUrl && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={async () => {
-                const result = await removeGroupIcon(groupId);
-                if (result.ok) void refreshGroup(groupId);
-              }}
-              className={secondaryButton}
-            >
-              {t("common.remove")}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={secondaryButton}>
+              {t("groups.groupDialogs.changeIcon")}
             </button>
-          )}
+            {detail.group.iconUrl && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  const result = await removeGroupIcon(groupId);
+                  if (result.ok) void refreshGroup(groupId);
+                }}
+                className={secondaryButton}
+              >
+                {t("common.remove")}
+              </button>
+            )}
+          </div>
           <input ref={fileRef} type="file" accept={AVATAR_IMAGE_ACCEPT} hidden onChange={onPickIcon} />
         </div>
+        <GroupBannerField groupId={groupId} groupName={detail.group.name} bannerUrl={detail.group.bannerUrl ?? null} />
       </div>
       <label className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("common.name")}</span>

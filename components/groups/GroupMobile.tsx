@@ -31,6 +31,8 @@ import { GROUPS_EXPLORE_PATH, groupPath, type GroupsRoute } from "@/lib/groupLin
 import { GlobeIcon } from "@/components/icons";
 import { useGroupsHub } from "@/lib/groupsHub";
 import { useGroupOrganize } from "@/lib/groupOrganize";
+import { GroupBannerTip, useGroupBannerTip } from "@/components/groups/GroupBannerTip";
+import { useOpenGroupSettings } from "@/components/groups/PermissionOverrides";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { canManage } from "@/lib/groupPermissions";
 import type { GroupChannel, GroupDetail } from "@/lib/groupsApi";
@@ -316,6 +318,9 @@ export function GroupMobileHome({ detail, onOpenMembers }: { detail: GroupDetail
   const { openPopup } = useNtPopups();
   const { group } = detail;
   const canInvite = canManage(detail, "createInvites");
+  // "Novo: banner do grupo" (experiment group-banner-tip), under the name.
+  const bannerTip = useGroupBannerTip(detail);
+  const openGroupSettings = useOpenGroupSettings();
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div className="flex flex-col gap-3 p-3">
@@ -335,13 +340,35 @@ export function GroupMobileHome({ detail, onOpenMembers }: { detail: GroupDetail
           <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={52} className="rounded-2xl" />
           <div className="min-w-0 flex-1">
             {/* The group's options drop down from its name, as atop the rooms on a desktop. */}
-            <GroupMenu
-              detail={detail}
-              className="-mx-1 flex max-w-full items-center gap-0.5 rounded-lg px-1 text-base font-semibold text-zinc-950 transition active:bg-zinc-100 dark:text-zinc-50 dark:active:bg-zinc-900"
+            <span
+              className="relative flex max-w-full"
+              onClickCapture={() => {
+                if (bannerTip.show) bannerTip.clicked();
+              }}
             >
-              <GroupName name={group.name} flags={group.flags} />
-              <MdExpandMore className="h-5 w-5 shrink-0 text-zinc-500" />
-            </GroupMenu>
+              <GroupMenu
+                detail={detail}
+                className={`-mx-1 flex max-w-full items-center gap-0.5 rounded-lg px-1 text-base font-semibold text-zinc-950 transition active:bg-zinc-100 dark:text-zinc-50 dark:active:bg-zinc-900 ${
+                  bannerTip.show ? "ring-2 ring-blue-500" : ""
+                }`}
+              >
+                <GroupName name={group.name} flags={group.flags} />
+                <MdExpandMore className="h-5 w-5 shrink-0 text-zinc-500" />
+              </GroupMenu>
+            </span>
+            {bannerTip.show && (
+              <span className="relative block">
+                <GroupBannerTip
+                  groupName={group.name}
+                  className="left-0 top-2"
+                  onDismiss={bannerTip.dismiss}
+                  onOpen={() => {
+                    bannerTip.clicked();
+                    openGroupSettings(group.id, "overview");
+                  }}
+                />
+              </span>
+            )}
             {group.description && (
               <p className="line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{group.description}</p>
             )}

@@ -81,6 +81,7 @@ import {
   toPayload,
   type LayoutSection,
 } from "@/lib/groupLayout";
+import { GroupBannerTip, useGroupBannerTip } from "@/components/groups/GroupBannerTip";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { clickPerson, contextPerson } from "@/components/groups/groupProfile";
@@ -442,6 +443,8 @@ export function GroupRoomsPanel({
   // what this must not cost.
   const bannerUrl = detail.group.bannerUrl ?? null;
   const bannerRef = useRef<HTMLDivElement | null>(null);
+  // "Novo: banner do grupo" (experiment group-banner-tip), on the name.
+  const bannerTip = useGroupBannerTip(detail);
   useEffect(() => {
     const scroller = scrollRef.current;
     const banner = bannerRef.current;
@@ -453,6 +456,16 @@ export function GroupRoomsPanel({
       const height = Math.max(BANNER_MIN_PX, full - scroller.scrollTop);
       const value = `${height}px`;
       if (banner.style.height !== value) banner.style.height = value;
+      // Folded, the picture steps back behind the header on it: blurred and
+      // faded, in proportion to how far it has folded. Scaled up a touch as
+      // it blurs, so the blur never pulls a dark edge in from outside.
+      const folded = full > BANNER_MIN_PX ? (full - height) / (full - BANNER_MIN_PX) : 0;
+      const image = banner.querySelector<HTMLImageElement>("img");
+      if (image) {
+        image.style.filter = folded > 0 ? `blur(${(folded * 6).toFixed(2)}px)` : "";
+        image.style.opacity = folded > 0 ? (1 - folded * 0.55).toFixed(3) : "";
+        image.style.transform = folded > 0 ? `scale(${(1 + folded * 0.08).toFixed(3)})` : "";
+      }
     };
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(apply);
@@ -1545,13 +1558,22 @@ export function GroupRoomsPanel({
           onBanner ? "absolute inset-x-0 top-0" : "border-b border-zinc-200 dark:border-zinc-800"
         }`}
       >
+        <span
+          className="relative flex min-w-0"
+          // Opening the group's menu while the tip points at it is following it.
+          onClickCapture={() => {
+            if (bannerTip.show) bannerTip.clicked();
+          }}
+        >
         <GroupMenu
           detail={detail}
           onContextMenu={panelMenu}
           className={`-mx-1.5 flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-semibold transition ${
             onBanner
               ? "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.6)] hover:bg-white/15"
-              : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
+              : bannerTip.show
+                ? "text-zinc-800 ring-2 ring-blue-500 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
           }`}
         >
           <GroupName
@@ -1564,6 +1586,7 @@ export function GroupRoomsPanel({
           />
           <MdExpandMore className={`h-4 w-4 shrink-0 ${onBanner ? "text-white/90" : "text-zinc-500"}`} />
         </GroupMenu>
+        </span>
         <div className="flex shrink-0 items-center gap-0.5">
           {isManager && (
             <Popover
@@ -1616,6 +1639,21 @@ export function GroupRoomsPanel({
         </div>
       </div>
       </div>
+      {/* Over the top of the rooms, under the name it points at — inside the
+          card, which clips anything that would hang out of it. */}
+      {bannerTip.show && (
+        <div className="relative">
+          <GroupBannerTip
+            groupName={group.name}
+            className="left-2 top-2"
+            onDismiss={bannerTip.dismiss}
+            onOpen={() => {
+              bannerTip.clicked();
+              openGroupSettings("overview");
+            }}
+          />
+        </div>
+      )}
       <div ref={scrollRef} onContextMenu={panelMenu} className="min-h-0 flex-1 overflow-y-auto p-2">
         {content}
       </div>

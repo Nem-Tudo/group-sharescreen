@@ -36,7 +36,8 @@ export type TileExperiment =
   | "multiCamera"
   | "partnerAdsCard"
   | "avatarBuilder"
-  | "remoteControl";
+  | "remoteControl"
+  | "groupBanner";
 
 // `defaultOn`: the switch starts on for whoever never touched it.
 const CONFIG: Record<
@@ -231,6 +232,13 @@ const CONFIG: Record<
     modeKey: "sharescreen:musicQueueMode",
     tipKey: "sharescreen:musicQueueTipSeen",
     defaultOn: true,
+  },
+  // Only the tip (see components/groups/GroupBannerTip): the banner itself is
+  // everybody's, and has no switch — modeKey is never read for it.
+  groupBanner: {
+    feature: "group-banner-tip",
+    modeKey: "sharescreen:groupBannerMode",
+    tipKey: "sharescreen:groupBannerTipSeen",
   },
 };
 
@@ -432,7 +440,11 @@ export function setTileExperimentMode(
 ) {
   write(CONFIG[experiment].modeKey, on ? "1" : "0");
   if (options.track === false) return;
-  const events = TILE_EXPERIMENT_EVENTS[experiment];
+  // A tip-only entry (groupBanner) has no switch, and so no mode events.
+  const events = (TILE_EXPERIMENT_EVENTS as Partial<Record<TileExperiment, { modeOn: string; modeOff: string }>>)[
+    experiment
+  ];
+  if (!events) return;
   trackTileExperiment(on ? events.modeOn : events.modeOff, undefined, room);
 }
 
