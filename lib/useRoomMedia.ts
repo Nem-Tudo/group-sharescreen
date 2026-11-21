@@ -190,6 +190,7 @@ import {
 import { CAMERA_CUSTOM_FEATURE, useCustomCameraEffects } from "./cameraCustomEffects";
 import { useReceivedCameraEffect } from "./cameraEffectGift";
 import { useStreamBackgroundSelected } from "./cameraStreamBackground";
+import { noteShareSurface } from "./roomDeclutter";
 import {
   answerMirroringStereo,
   offerToSend,
@@ -3510,6 +3511,9 @@ export function useRoomMedia(room: string) {
   // helper is tried with that method whether or not this person is in the GPU
   // experiment, and it does not count as the experiment's start or fallback.
   const withNativeVideo = useCallback(async (stream: MediaStream, rescueMethod?: NativeVideoMethod): Promise<MediaStream> => {
+    // While the browser's track is still on it: the helper's stand-in says
+    // nothing about what was captured (see lib/roomDeclutter).
+    noteShareSurface(stream);
     const config: ScreenStartConfig = {
       native: nativeVideoWantedRef.current,
       method: nativeVideoMethodRef.current,

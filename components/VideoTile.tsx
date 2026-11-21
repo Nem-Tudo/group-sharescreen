@@ -40,7 +40,8 @@ import {
   FlipVerticalIcon,
   ResetIcon,
 } from "@/components/icons";
-import { MdOutlineChat, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
+import { MdMoreHoriz, MdOutlineChat, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
+import { RoomDeclutterContext, ROOM_DECLUTTER_EVENTS, trackRoomDeclutterEvent } from "@/lib/roomDeclutter";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { markFeatureUsed } from "@/components/NewBadge";
@@ -398,6 +399,14 @@ const VideoTileView = memo(function VideoTileView({
     [shownOrientation.rotation, shownOrientation.flipX, shownOrientation.flipY]
   );
   const canOrient = Boolean(tileId) && !compact && orientationMode.active;
+  // room-declutter (lib/roomDeclutter): out of fullscreen, the buttons used
+  // now and then — stats, OBS, recording, clips, rotation, hyperfocus, stop
+  // watching — wait behind a "⋯" at the end of the row, which lays them out
+  // in place (their own panels still hang off them). One that is doing
+  // something (recording, rotated, panel open, OBS on) stays out, to say so.
+  const declutter = useContext(RoomDeclutterContext) && !isFullscreen;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const rare = !declutter || moreOpen;
   // The zoom bar, same experiment as the panel above. Only where the picture
   // is big enough for zooming into it to mean anything — on the stage, in
   // hyperfocus, or in fullscreen — and only for a pointer: a touchscreen
@@ -1157,7 +1166,7 @@ const VideoTileView = memo(function VideoTileView({
             overlayLeftOffset ? "left-[50px]" : "left-2"
           } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}
         >
-          {(connectionStats || ownStatsChannel) && (
+          {(connectionStats || ownStatsChannel) && (rare || statsOpen) && (
             <Tooltip content={t(ownStatsChannel ? "ownStreamStats.title" : "connectionStats.open")}>
               <button
                 type="button"
@@ -1172,7 +1181,7 @@ const VideoTileView = memo(function VideoTileView({
               </button>
             </Tooltip>
           )}
-          {onObsSource && (
+          {onObsSource && (rare || isObsActive) && (
             <Tooltip
               content={
                 isObsActive
@@ -1233,6 +1242,7 @@ const VideoTileView = memo(function VideoTileView({
         </span>
         {badge && !compact && (
           <span
+            data-tile-badge=""
             className={`rounded-full px-2 py-0.5 text-xs font-semibold text-white ${badgeClassName}`}
           >
             {badge}
@@ -1356,7 +1366,7 @@ const VideoTileView = memo(function VideoTileView({
             onClose={() => setRecording(null)}
           />
         )}
-        {canRecord && (
+        {canRecord && (rare || recordingSince !== null) && (
           <Tooltip
             content={
               recordingSince !== null ? (
@@ -1392,7 +1402,7 @@ const VideoTileView = memo(function VideoTileView({
             </button>
           </Tooltip>
         )}
-        {canClip && (
+        {canClip && rare && (
           <Tooltip content={t("videoTile.clipLast30s", { seconds: CLIP_MS / 1000 })}>
             <button
               type="button"
@@ -1447,7 +1457,7 @@ const VideoTileView = memo(function VideoTileView({
             </span>
           </div>
         )}
-        {canOrient && tileId && (
+        {canOrient && tileId && (rare || orientationOpen || !isDefaultOrientation(shownOrientation)) && (
           <Popover
             open={orientationOpen}
             onClose={() => setOrientationOpen(false)}
@@ -1526,7 +1536,7 @@ const VideoTileView = memo(function VideoTileView({
             </button>
           </Tooltip>
         )}
-        {onHyperfocus && (
+        {onHyperfocus && (rare || isHyperfocused) && (
           <Tooltip
             content={
               !hasAccount
@@ -1580,7 +1590,7 @@ const VideoTileView = memo(function VideoTileView({
             )}
           </button>
         </Tooltip>
-        {onStopWatching && (
+        {onStopWatching && rare && (
           <Tooltip content={stopWatchingLabel ?? t("videoTile.stopWatching")}>
             <button
               type="button"
@@ -1589,6 +1599,25 @@ const VideoTileView = memo(function VideoTileView({
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               <EyeOffIcon className="h-5 w-5" />
+            </button>
+          </Tooltip>
+        )}
+        {declutter &&
+          (canRecord || canClip || canOrient || onHyperfocus || onStopWatching || connectionStats || ownStatsChannel || onObsSource) && (
+          <Tooltip content={moreOpen ? t("videoTile.fewerOptions") : t("videoTile.moreOptions")}>
+            <button
+              type="button"
+              onClick={() => {
+                if (!moreOpen) trackRoomDeclutterEvent(ROOM_DECLUTTER_EVENTS.tileMenuOpen);
+                setMoreOpen((open) => !open);
+              }}
+              aria-label={moreOpen ? t("videoTile.fewerOptions") : t("videoTile.moreOptions")}
+              aria-expanded={moreOpen}
+              className={`rounded-full p-2 text-white active:bg-black/80 ${
+                moreOpen ? "bg-white/25 hover:bg-white/30" : "bg-black/60 hover:bg-black/80"
+              }`}
+            >
+              <MdMoreHoriz className="h-5 w-5" />
             </button>
           </Tooltip>
         )}
@@ -1980,6 +2009,51 @@ export function IOSScreenSelfTile({
           {state === "pending" ? t("common.cancel") : t("videoTile.iosScreenStop")}
         </button>
       )}
+    </PlaceholderTile>
+  );
+}
+
+// Our own whole-screen share, in the room-declutter experiment (see
+// lib/roomDeclutter). A whole screen has this page on it, so its preview is
+// the room inside the room inside the room — the biggest thing on screen and
+// the least useful. Said instead, like a phone's own screen above, with the
+// picture one click away for whoever wants to check what is going out.
+export function WholeScreenSelfTile({
+  fill = false,
+  onShowPreview,
+  onStop,
+}: {
+  fill?: boolean;
+  onShowPreview: () => void;
+  onStop: () => void;
+}) {
+  const t = useT();
+  return (
+    <PlaceholderTile fill={fill}>
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15">
+        <MdOutlineScreenShare className="h-6 w-6 text-emerald-400" />
+      </span>
+      <div className="flex max-w-sm flex-col items-center justify-center text-center text-sm">
+        <p className="font-medium text-zinc-100">{t("videoTile.wholeScreenSharing")}</p>
+        <p className="mt-0.5 text-zinc-400">{t("videoTile.wholeScreenHint")}</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={onShowPreview}
+          className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/20"
+        >
+          <EyeIcon className="h-4 w-4" />
+          {t("videoTile.wholeScreenShow")}
+        </button>
+        <button
+          type="button"
+          onClick={onStop}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-red-400 transition hover:bg-red-500/10 hover:text-red-300"
+        >
+          {t("videoTile.iosScreenStop")}
+        </button>
+      </div>
     </PlaceholderTile>
   );
 }

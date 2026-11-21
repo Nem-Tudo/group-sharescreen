@@ -45,7 +45,11 @@ export function RoomAccountCard({
   onCreateAccount,
   onOpenProfile,
   actions,
+  quiet = false,
 }: {
+  // room-declutter (lib/roomDeclutter): no frame, borderless icons and the
+  // points on the name's line — who you are, without a box of its own.
+  quiet?: boolean;
   onCreateAccount: () => void;
   // Open your own profile in the room's dialog. Absent where there is no
   // dialog to open it in, which keeps the new-tab link as the fallback rather
@@ -89,6 +93,7 @@ export function RoomAccountCard({
   if (!state.name) return null;
 
   const isAccount = Boolean(account);
+  const iconFrame = quiet ? "" : "border border-zinc-200 dark:border-zinc-800";
   const initial = state.name.trim().slice(0, 1).toUpperCase();
 
   // Same rule as AccountMenu: a signed-in account with no picture gets the
@@ -135,7 +140,14 @@ export function RoomAccountCard({
   );
 
   return (
-    <div ref={rootRef} className="mt-2 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:p-2 dark:border-zinc-800 dark:bg-zinc-950">
+    <div
+      ref={rootRef}
+      className={
+        quiet
+          ? "mt-2 shrink-0 rounded-xl bg-white px-2 py-2 [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:py-1.5 dark:bg-zinc-950"
+          : "mt-2 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 [@media(max-height:52rem)]:mt-1.5 [@media(max-height:52rem)]:p-2 dark:border-zinc-800 dark:bg-zinc-950"
+      }
+    >
       {/* Wrapping, and it is the points chip below that decides whether it
           wraps: `basis-full` gives it a line of its own, and dropping that on
           a short viewport pulls it up beside the name. */}
@@ -194,7 +206,7 @@ export function RoomAccountCard({
             type="button"
             onClick={() => openPopup("theme_hub", { data: {} })}
             aria-label={t("common.themes")}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:text-zinc-400 dark:hover:bg-zinc-900 ${iconFrame}`}
           >
             <MdPalette className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
           </button>
@@ -208,7 +220,7 @@ export function RoomAccountCard({
             type="button"
             onClick={() => openPopup("cosmetics_store", { data: {} })}
             aria-label={t("common.cosmeticsShop")}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:text-zinc-400 dark:hover:bg-zinc-900 ${iconFrame}`}
           >
             <BsShop className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
           </button>
@@ -220,7 +232,7 @@ export function RoomAccountCard({
               type="button"
               onClick={() => openSettings("card")}
               aria-label={t("settingsHub.title")}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-600 transition hover:bg-zinc-100 [@media(max-height:52rem)]:h-7 [@media(max-height:52rem)]:w-7 dark:text-zinc-400 dark:hover:bg-zinc-900 ${iconFrame}`}
             >
               <MdOutlineSettings className="h-4 w-4 shrink-0 [@media(max-height:52rem)]:h-3.5 [@media(max-height:52rem)]:w-3.5" />
             </button>
@@ -239,11 +251,19 @@ export function RoomAccountCard({
           }
           placement="top"
         >
-          <div className="flex shrink-0 basis-full items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 [@media(max-height:52rem)]:basis-auto [@media(max-height:52rem)]:px-2 [@media(max-height:52rem)]:py-1 dark:bg-zinc-900">
+          <div
+            className={
+              quiet
+                ? "flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                : "flex shrink-0 basis-full items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 [@media(max-height:52rem)]:basis-auto [@media(max-height:52rem)]:px-2 [@media(max-height:52rem)]:py-1 dark:bg-zinc-900"
+            }
+          >
             <BsCoin className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-            <span className="text-xs font-medium text-zinc-600 [@media(max-height:52rem)]:hidden dark:text-zinc-400">
-              {t("common.points")}
-            </span>
+            {!quiet && (
+              <span className="text-xs font-medium text-zinc-600 [@media(max-height:52rem)]:hidden dark:text-zinc-400">
+                {t("common.points")}
+              </span>
+            )}
             <span className="text-sm font-semibold tabular-nums text-zinc-900 [@media(max-height:52rem)]:text-xs dark:text-zinc-100">
               {points.toLocaleString(formatLocale())}
             </span>

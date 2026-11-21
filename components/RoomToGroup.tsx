@@ -111,6 +111,8 @@ export function RoomToGroupButton({
           type="button"
           disabled={!enabled}
           onClick={needsAccount ? onCreateAccount : onConvert}
+          // A plain row under room-declutter (globals.css).
+          data-room-to-group=""
           className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-emerald-600/40 px-2.5 text-left text-sm font-medium text-emerald-700 transition hover:border-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:text-zinc-400 disabled:hover:bg-transparent dark:border-emerald-500/40 dark:text-emerald-400 dark:hover:border-emerald-500 dark:hover:bg-emerald-950/40 dark:disabled:border-zinc-700 dark:disabled:text-zinc-500"
         >
           {enabled ? <MdGroupAdd className="h-4 w-4 shrink-0" /> : <MdLock className="h-4 w-4 shrink-0" />}

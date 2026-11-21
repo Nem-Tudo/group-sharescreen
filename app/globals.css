@@ -734,6 +734,96 @@ body[style*="ew-resize"] [data-rr-panel] {
   }
 }
 
+/* ─── room-declutter (experiment, lib/roomDeclutter.ts) ──────────────────
+   Over the redesign above, on a computer: less on screen at once. Hangs off
+   data-room-declutter, which WatchRoom puts on the room's page and on the
+   call controls' row (the row travels to the group bar and the floating bar).
+
+   One red in the call bar — leaving (.dock-leave). Something that is off
+   (mic, sound) keeps its red only in the icon, on the bar's neutral; something
+   going out (.dock-live: screen, camera and their "+") is a green tint. The
+   amber of push-to-talk keeps its block: it is a state to notice. Not inside
+   the panels the bar opens (see the redesign's note on Tippy above). */
+[data-rr-calldock][data-room-declutter] .bg-red-600:not(.dock-leave, .dock-live, [data-tippy-root] *) {
+  background-color: var(--color-zinc-100);
+  color: var(--color-red-600);
+}
+
+[data-rr-calldock][data-room-declutter] .bg-red-600:hover:not(.dock-leave, .dock-live, :disabled, [data-tippy-root] *) {
+  background-color: var(--color-zinc-200);
+}
+
+[data-rr-calldock][data-room-declutter] .dock-live:not([data-tippy-root] *) {
+  background-color: color-mix(in oklab, var(--color-emerald-500) 18%, var(--color-zinc-100));
+  color: var(--color-emerald-700);
+}
+
+[data-rr-calldock][data-room-declutter] .dock-live:hover:not(:disabled, [data-tippy-root] *) {
+  background-color: color-mix(in oklab, var(--color-emerald-500) 28%, var(--color-zinc-100));
+}
+
+html[data-theme="dark"] [data-rr-calldock][data-room-declutter] .bg-red-600:not(.dock-leave, .dock-live, [data-tippy-root] *) {
+  background-color: var(--color-zinc-800);
+  color: var(--color-red-400);
+}
+
+html[data-theme="dark"] [data-rr-calldock][data-room-declutter] .bg-red-600:hover:not(.dock-leave, .dock-live, :disabled, [data-tippy-root] *) {
+  background-color: var(--color-zinc-700);
+}
+
+html[data-theme="dark"] [data-rr-calldock][data-room-declutter] .dock-live:not([data-tippy-root] *) {
+  background-color: color-mix(in oklab, var(--color-emerald-500) 20%, var(--color-zinc-800));
+  color: var(--color-emerald-300);
+}
+
+html[data-theme="dark"] [data-rr-calldock][data-room-declutter] .dock-live:hover:not(:disabled, [data-tippy-root] *) {
+  background-color: color-mix(in oklab, var(--color-emerald-500) 30%, var(--color-zinc-800));
+}
+
+/* The segments of a split button were told apart by a dark rule, which on
+   the neutral is a smudge; a hairline of the bar's own colour instead. */
+[data-rr-calldock][data-room-declutter] .border-black\/15:not([data-tippy-root] *) {
+  border-color: rgb(0 0 0 / 0.08);
+}
+
+html[data-theme="dark"] [data-rr-calldock][data-room-declutter] .border-black\/15:not([data-tippy-root] *) {
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+/* No card inside a card: the columns are told apart by their tone alone. */
+[data-room-declutter] [data-rr-card] {
+  border-color: transparent;
+}
+
+/* A tile's badge ("transmitindo", "Câmera") as dark glass over the picture
+   rather than a red label. */
+[data-room-declutter] [data-tile-badge] {
+  background-color: rgb(0 0 0 / 0.45);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  font-weight: 500;
+}
+
+/* "Transformar sala em grupo": a row of the list like the others, not a
+   dashed green box. */
+[data-room-declutter] [data-room-to-group]:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-zinc-500);
+}
+
+[data-room-declutter] [data-room-to-group]:not(:disabled):hover {
+  background-color: var(--color-zinc-100);
+  color: var(--color-zinc-800);
+}
+
+html[data-theme="dark"] [data-room-declutter] [data-room-to-group]:not(:disabled) {
+  color: var(--color-zinc-400);
+}
+
+html[data-theme="dark"] [data-room-declutter] [data-room-to-group]:not(:disabled):hover {
+  background-color: var(--color-zinc-900);
+  color: var(--color-zinc-100);
+}
+
 /* The colour picker in the theme editor (react-colorful, see
    components/ThemeEditorDialog). The library ships a fixed 200x200 square and
    injects its own stylesheet; these four rules only resize it to the dialog's

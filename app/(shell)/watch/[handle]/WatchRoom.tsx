@@ -140,7 +140,16 @@ import {
   ResumingPeerTile,
   ConnectingPeerTile,
   IOSScreenSelfTile,
+  WholeScreenSelfTile,
 } from "@/components/VideoTile";
+import {
+  ROOM_DECLUTTER_EVENTS,
+  ROOM_DECLUTTER_FEATURE,
+  RoomDeclutterContext,
+  isWholeScreenShare,
+  trackRoomDeclutterEvent,
+  useRoomDeclutterCallMinutes,
+} from "@/lib/roomDeclutter";
 import { CONNECTING_TILE_FEATURE } from "@/lib/connectingTile";
 import { ViewerConnectionList } from "@/components/ViewerConnectionList";
 import { RemoteAudio } from "@/components/RemoteAudio";
@@ -406,6 +415,9 @@ import {
   MdMouse,
   MdMusicOff,
   MdMusicVideo,
+  MdLock,
+  MdPublic,
+  MdWidgets,
 } from "react-icons/md";
 import { BsGearFill, BsCoin } from "react-icons/bs";
 import {
@@ -961,7 +973,12 @@ function ShareControls({
   cameraEffects = null,
   phoneCamera = null,
   multiCamera = null,
+  declutter = false,
 }: {
+  // room-declutter (lib/roomDeclutter): the quality gear becomes the screen
+  // button's arrow, and the "+" of more screens drops its counter (it is in
+  // the tooltip) — two fewer things that read as buttons of their own.
+  declutter?: boolean;
   // "Várias câmeras" (see lib/multiCamera): its switch, in the camera's panel
   // with its blue "novo" tip on the arrow (after the phone camera's), and the
   // "+" right of the camera while one is going out with the switch on — its
@@ -1091,7 +1108,9 @@ function ShareControls({
   }, [editingCustomEffect, onCloseShortcutQuick]);
   const segment =
     "flex items-center px-3 py-2 text-white transition disabled:cursor-not-allowed disabled:opacity-50";
-  const live = "bg-red-600 hover:bg-red-700";
+  // dock-live: "going out", which the room-declutter layer paints as a green
+  // tint instead of a red block (see globals.css).
+  const live = "dock-live bg-red-600 hover:bg-red-700";
   const idle = "bg-emerald-600 hover:bg-emerald-700";
 
   // A list of cameras to pick from: a computer with more than one. A phone
@@ -1149,9 +1168,7 @@ function ShareControls({
     );
   };
 
-  return (
-    <div className="flex items-stretch overflow-hidden rounded-lg">
-      {extra(
+  const qualityButton = extra(
       <Popover
         open={open}
         onClose={() => setOpen(false)}
@@ -1167,12 +1184,21 @@ function ShareControls({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-label={t("common.broadcastQuality")}
-          className="flex items-center border-r border-black/15 bg-emerald-600 px-2 text-white transition hover:bg-emerald-700"
+          aria-expanded={open}
+          className={
+            declutter
+              ? `flex items-center border-l border-black/15 px-1 text-white transition ${screenSharing ? live : idle}`
+              : "flex items-center border-r border-black/15 bg-emerald-600 px-2 text-white transition hover:bg-emerald-700"
+          }
         >
-          <BsGearFill className="h-3.5 w-3.5" />
+          {declutter ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <BsGearFill className="h-3.5 w-3.5" />}
         </button>
       </Popover>
-      )}
+  );
+
+  return (
+    <div className="flex items-stretch overflow-hidden rounded-lg">
+      {!declutter && qualityButton}
       {/* Wrapped so the tooltip still opens while the button is disabled —
           which is the one state where it has something to explain. */}
       <ShortcutQuickPopover
@@ -1201,6 +1227,7 @@ function ShareControls({
           </button>
         </Tooltip>
       </ShortcutQuickPopover>
+      {declutter && qualityButton}
       {addScreen && (screenSharing || addScreen.count > 0) && (
         <Tippy
           visible={addScreen.tip.show}
@@ -1298,9 +1325,11 @@ function ShareControls({
           >
             <span className={`flex items-center ${atScreenLimit ? "opacity-60" : ""}`}>
               <MdAdd className="h-4 w-4" />
-              <span className="ml-0.5 text-xs font-semibold tabular-nums">
-                {addScreen.count}/{addScreen.limit}
-              </span>
+              {!declutter && (
+                <span className="ml-0.5 text-xs font-semibold tabular-nums">
+                  {addScreen.count}/{addScreen.limit}
+                </span>
+              )}
             </span>
             {/* The next plan's limit, right after the counter — only once the
                 current plan's is used up. */}
@@ -2447,6 +2476,8 @@ function WatchRoomView({
   // panel to open instead of the two that the two separate share buttons
   // each carried their own copy of.
   const [shareQualityOpen, setShareQualityOpen] = useState(false);
+  // room-declutter's "Atividades" panel (see activitiesButton).
+  const [activitiesOpen, setActivitiesOpen] = useState(false);
   // "Focar": grows one tile and shrinks the rest without touching any
   // connection — see the grid render below, which gives this id's tile a
   // 2x2 grid span instead of hiding everyone else.
@@ -2473,6 +2504,14 @@ function WatchRoomView({
       localStorage.setItem("sharescreen:ownPreviewHidden", String(ownPreviewHidden));
     } catch {}
   }, [ownPreviewHidden]);
+  // room-declutter: the whole-screen shares whose preview was asked for
+  // anyway ("Mostrar prévia" on WholeScreenSelfTile). Per share — the stream
+  // itself is the key, so the next share starts back on the card.
+  const [mirrorShown, setMirrorShown] = useState<readonly MediaStream[]>([]);
+  function showMirror(stream: MediaStream) {
+    setMirrorShown((current) => [...current.filter((s) => s.active), stream]);
+    trackRoomDeclutterEvent(ROOM_DECLUTTER_EVENTS.selfPreviewShow);
+  }
   // "Adicionar fonte de vídeo" itself lives in the AddVideoSourceModal
   // popup (see handleAddVideoSource below) — nothing about that box's own
   // state belongs here.
@@ -2641,6 +2680,27 @@ function WatchRoomView({
   // (see data-rr-group on the page element and in globals.css).
   const deskRedesign = roomRedesign && isWideLayout;
   const dockInStage = deskRedesign && visible;
+  // Less on screen at once, over the desktop redesign (lib/roomDeclutter).
+  // Exposure while that layout is the page on screen; the call's minutes on
+  // both sides, for as long as the call lasts in it.
+  const declutterOn = useFeature(ROOM_DECLUTTER_FEATURE, { track: deskRedesign && visible }).enabled;
+  const declutter = declutterOn && deskRedesign;
+  useRoomDeclutterCallMinutes(deskRedesign);
+  // Every screen share started in that layout, on both sides: the card in
+  // place of the mirror must not put anybody off sharing.
+  useEffect(() => {
+    if (deskRedesign && isSharing) trackRoomDeclutterEvent(ROOM_DECLUTTER_EVENTS.shareStart);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per share start
+  }, [isSharing]);
+  // The card is no picture, so the GPU capture's own decode for the preview
+  // has nobody to draw for (see NativeVideoSource.setPreviewActive). A
+  // preview tile that is mounted turns it back on through its visibility.
+  const mirrorCardShown =
+    declutter && Boolean(localStream) && isWholeScreenShare(localStream) && !mirrorShown.includes(localStream!);
+  useEffect(() => {
+    if (!mirrorCardShown || !localStream) return;
+    nativeVideoSourceFor(localStream.getVideoTracks()[0])?.setPreviewActive(false);
+  }, [mirrorCardShown, localStream]);
   // Not remembered: coming back to a room should land on its conversation.
   const [sideTab, setSideTabState] = useState<RoomSideTab>("chat");
   function setSideTab(next: RoomSideTab) {
@@ -5994,11 +6054,22 @@ function WatchRoomView({
   };
   const tiles: RoomTile[] = [];
 
+  // room-declutter: our own whole-screen share as a card rather than a mirror
+  // of this page (see WholeScreenSelfTile), unless its preview was asked for.
+  const mirrorCard = (stream: MediaStream) =>
+    declutter && isWholeScreenShare(stream) && !mirrorShown.includes(stream);
+
   if (localScreenVisible && isSharing && localStream) {
     const id = tileId("screen", SELF_TILE_OWNER);
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => mirrorCard(localStream) ? (
+        <WholeScreenSelfTile
+          fill={fill}
+          onShowPreview={() => showMirror(localStream)}
+          onStop={stopShare}
+        />
+      ) : (
         <VideoTile
           tileId={id}
           mediaKey={state.selfId ? `screen:${state.selfId}` : undefined}
@@ -6019,7 +6090,7 @@ function WatchRoomView({
           reportUnmountAsHidden
           label={translate("common.you")}
           accessibleLabel={translate("common.you")}
-          badge={shareSource === "camera" ? translate("watch.watchRoom.camera") : "transmitindo"}
+          badge={shareSource === "camera" ? translate("watch.watchRoom.camera") : translate("videoTile.sharingBadge")}
           muted
           allowUnmute={false}
           fill={fill}
@@ -6144,7 +6215,13 @@ function WatchRoomView({
     const label = `${translate("common.you")} (${EXTRA_SCREEN_SLOTS.indexOf(slot) + 2})`;
     tiles.push({
       id,
-      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => (
+      render: (fill, compact, overlayRightOffset, overlayLeftOffset) => mirrorCard(stream) ? (
+        <WholeScreenSelfTile
+          fill={fill}
+          onShowPreview={() => showMirror(stream)}
+          onStop={() => extraScreens[slot].stop()}
+        />
+      ) : (
         <VideoTile
           tileId={id}
           mediaKey={state.selfId ? `screen-extra:${slot}:${state.selfId}` : undefined}
@@ -6153,7 +6230,7 @@ function WatchRoomView({
           detachWhenHidden={false}
           label={label}
           accessibleLabel={label}
-          badge="transmitindo"
+          badge={translate("videoTile.sharingBadge")}
           muted
           allowUnmute={false}
           fill={fill}
@@ -7999,7 +8076,33 @@ function WatchRoomView({
           shortcuts above. Below lg only — from lg up it is a button in the
           account card. Shown to the experiment, and to whoever is
           transcribing if it is switched off under them, so "parar" stays. */}
-      {showTranscript && !isWideLayout && (
+      {/* room-declutter: "Gravar chamada" leaves the account card for here
+          (it comes back to the card while a recording runs, to say so). */}
+      {declutter && showCallRecording && (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            openCallRecording();
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+          </span>
+          <span className="flex-1">{translate("callRecording.button")}</span>
+          {callRecording.status !== "idle" ? (
+            <span className="flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
+              {translate("callRecording.recording")}
+            </span>
+          ) : (
+            <NewBadge id={CALL_RECORDING_FEATURE} />
+          )}
+        </button>
+      )}
+
+      {showTranscript && (!isWideLayout || declutter) && (
         <button
           type="button"
           data-tour="transcript"
@@ -8715,6 +8818,7 @@ function WatchRoomView({
           compact={dockCompact}
           extraMotion={dockMotion}
           addScreen={addScreenControl}
+          declutter={declutter}
           multiCamera={
             multiCameraAvailable
               ? {
@@ -9369,8 +9473,11 @@ function WatchRoomView({
       <RoomAccountCard
         onCreateAccount={() => setAccountModal("create")}
         onOpenProfile={setProfileUserId}
+        quiet={declutter}
+        // room-declutter: the two live in the room's "⋯", and come back here
+        // only while they run — the card is then what says so.
         actions={[
-          showCallRecording && (
+          showCallRecording && (!declutter || callRecording.status !== "idle") && (
             <div key="record" data-tour="record" className="contents">
               <CallRecordButton
                 variant="card"
@@ -9383,7 +9490,7 @@ function WatchRoomView({
             </div>
           ),
           // Where "Modo Streamer" was (it is in "⋯" now).
-          showTranscript && (
+          showTranscript && (!declutter || callTranscript.status !== "idle") && (
             <div key="transcript" data-tour="transcript" className="contents">
               <TranscriptButton
                 status={callTranscript.status}
@@ -9539,11 +9646,138 @@ function WatchRoomView({
   // in the desktop redesign. One copy either way — see the header's comment.
   tileKeyRef.current = tiles.map((tile) => tile.id).join(",") + (stageTile ? `|${stageTile.id}` : "");
 
+  // room-declutter: video, music and tools — the things brought into the room
+  // for everybody — as rows of one panel instead of three buttons in the bar.
+  // Each row does exactly what its button did, blocked with the same reason.
+  // The tools' blue "novo" tip moves here with them (it points at the button
+  // that leads to the thing).
+  const activityRow = (
+    icon: ReactNode,
+    label: string,
+    onClick: () => void,
+    blockedReason: string | null,
+    extra?: ReactNode
+  ) => (
+    <button
+      type="button"
+      disabled={Boolean(blockedReason)}
+      onClick={() => {
+        setActivitiesOpen(false);
+        onClick();
+      }}
+      className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-zinc-100 dark:hover:bg-zinc-800"
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+        {icon}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{label}</span>
+        {blockedReason && (
+          <span className="text-xs font-normal leading-snug text-zinc-500 dark:text-zinc-400">{blockedReason}</span>
+        )}
+      </span>
+      {extra}
+    </button>
+  );
+  const activitiesButton = (
+    <Tippy
+      visible={showRoomToolsButton && roomToolsTip.show && !activitiesOpen}
+      placement="top"
+      interactive
+      theme="golive-panel"
+      appendTo={() => document.body}
+      content={
+        <span
+          role="status"
+          className="relative block w-60 rounded-lg bg-blue-600 px-3 py-2 text-left text-xs font-medium text-white shadow-lg"
+        >
+          <span className="tip-arrow absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-blue-600" />
+          <span className="flex items-start gap-2">
+            <span className="flex-1">{translate("watch.watchRoom.roomToolsTip")}</span>
+            <button
+              type="button"
+              onClick={roomToolsTip.dismiss}
+              aria-label={translate("watch.watchRoom.clipsModeTipDismiss")}
+              className="-m-1 rounded p-1 leading-none text-white/80 hover:text-white"
+            >
+              ✕
+            </button>
+          </span>
+        </span>
+      }
+    >
+      <span className="flex">
+        <Popover
+          open={activitiesOpen}
+          onClose={() => setActivitiesOpen(false)}
+          placement={controlsAtBottom ? "top" : "bottom"}
+          tooltip={translate("watch.watchRoom.activities")}
+          content={
+            <div className="flex w-64 max-w-[calc(100vw-2rem)] flex-col gap-0.5 p-1">
+              {activityRow(
+                <MdOutlineOndemandVideo className="h-5 w-5" />,
+                translate("watch.watchRoom.addVideoSource"),
+                openAddVideoSourcePopup,
+                videoSourceBlockedReason ?? null
+              )}
+              {activityRow(
+                <MdMusicNote className="h-5 w-5" />,
+                hasMusic || myMusicSlot
+                  ? translate("common.changeTheRoomSMusic")
+                  : translate("common.playMusicInTheRoom"),
+                openAddMusicPopup,
+                canManageMusic ? null : (musicBlockedReason ?? translate("common.playMusicInTheRoom"))
+              )}
+              {showRoomToolsButton &&
+                activityRow(
+                  <MdHandyman className="h-5 w-5" />,
+                  translate("roomTools.title"),
+                  () => {
+                    markFeatureUsed(ROOM_TOOLS_FEATURE);
+                    roomTools.togglePanel();
+                  },
+                  null,
+                  toolCount > 0 ? (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1.5 text-[11px] font-bold text-white">
+                      {toolCount}
+                    </span>
+                  ) : undefined
+                )}
+            </div>
+          }
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (!activitiesOpen) {
+                if (showRoomToolsButton && roomToolsTip.show) roomToolsTip.clicked();
+                trackRoomDeclutterEvent(ROOM_DECLUTTER_EVENTS.activitiesOpen);
+              }
+              setActivitiesOpen((o) => !o);
+            }}
+            aria-label={translate("watch.watchRoom.activities")}
+            aria-expanded={activitiesOpen}
+            className="relative flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+          >
+            <MdWidgets className="h-5 w-5 shrink-0" />
+            {toolCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-600">
+                {toolCount}
+              </span>
+            )}
+          </button>
+        </Popover>
+      </span>
+    </Tippy>
+  );
+
   const callControls = (
     <div
       // On the row itself and not only on the bar under the stage: the row is
       // portalled out to the group's top bar and the floating call bar.
       data-rr-calldock={roomRedesignOn ? "" : undefined}
+      // Its colours under room-declutter (globals.css), wherever the row goes.
+      data-room-declutter={declutter ? "" : undefined}
       className={
         dockInStage
           ? // Wraps instead of overflowing: centered in a card the width of
@@ -9563,6 +9797,8 @@ function WatchRoomView({
       <>
       <span className="mx-0.5 h-6 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700" />
 
+      {/* room-declutter: the three below behind one "Atividades" button. */}
+      {declutter ? activitiesButton : (<>
       {/* Adding a YouTube/Twitch video/live to the room. Sits with
           the transmission controls because that's what it produces:
           one more tile everyone in the room sees, with the same focus
@@ -9673,6 +9909,7 @@ function WatchRoomView({
       </span>
       </Tippy>
       )}
+      </>)}
 
       {canRaiseHand && (
         <span data-tour="raiseHand" className="contents">
@@ -9705,7 +9942,7 @@ function WatchRoomView({
           }}
           data-tour="leave"
           aria-label={translate("common.leaveTheCall")}
-          className="flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+          className="dock-leave flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
         >
           <MdCallEnd className="h-5 w-5 shrink-0" />
         </button>
@@ -9715,6 +9952,7 @@ function WatchRoomView({
 
   return (
     <RoomToolsViewer.Provider value={toolsViewer}>
+    <RoomDeclutterContext.Provider value={declutter}>
     <FullscreenChatSlotContext.Provider value={fullscreenChatMode.available ? setFullscreenChatSlot : null}>
     {fullscreenChatSlot && createPortal(chatPanel, fullscreenChatSlot)}
     <div
@@ -9741,6 +9979,8 @@ function WatchRoomView({
       data-room-page=""
       // The redesign's scope: every rule of it in globals.css hangs off this.
       data-room-redesign={roomRedesign ? "" : undefined}
+      // room-declutter's layer (lib/roomDeclutter, globals.css).
+      data-room-declutter={declutter ? "" : undefined}
       // A group's room wears the group's colours, not the redesign's. A page
       // framed by the group shell (see hostedPage) keeps the redesign's.
       data-rr-group={roomRedesign && redesignInGroup ? "" : undefined}
@@ -9896,7 +10136,14 @@ function WatchRoomView({
                   }
                   placement="bottom"
                 >
-                  <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  <span
+                    className={
+                      declutter
+                        ? // room-declutter: the code as part of the title's line, not a chip.
+                          "shrink-0 font-mono text-xs font-medium tracking-wider text-zinc-500 dark:text-zinc-400"
+                        : "shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 font-mono text-xs font-medium tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                    }
+                  >
                     {streamerMode ? "••••••" : privateRoomParts.code}
                   </span>
                 </Tooltip>
@@ -9909,6 +10156,13 @@ function WatchRoomView({
                 content={isPrivateRoomHandle(handle) ? translate("common.privateRoom") : translate("watch.watchRoom.publicRoom")}
                 placement="bottom"
               >
+                {declutter ? (
+                  // room-declutter: a quiet lock (or globe) instead of a red or
+                  // green pill; the word stays in the tooltip.
+                  <span className="flex shrink-0 items-center text-zinc-400 dark:text-zinc-500">
+                    {isPrivateRoomHandle(handle) ? <MdLock className="h-4 w-4" /> : <MdPublic className="h-4 w-4" />}
+                  </span>
+                ) : (
                 <span
                   className={`flex shrink-0 items-center gap-1.5 rounded-full text-xs font-medium text-white xl:px-2.5 xl:py-1 ${
                     isPrivateRoomHandle(handle) ? "xl:bg-red-600" : "xl:bg-emerald-600"
@@ -9923,6 +10177,7 @@ function WatchRoomView({
                     {isPrivateRoomHandle(handle) ? translate("common.privateRoom") : translate("watch.watchRoom.publicRoom")}
                   </span>
                 </span>
+                )}
               </Tooltip>
             </div>
 
@@ -10079,14 +10334,22 @@ function WatchRoomView({
                 }}
                 aria-label={proButton.ariaLabel}
                 // Not on a phone, where it is a row in "Mais opções" instead.
-                className={`hidden shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition sm:flex 2xl:px-3 ${proButton.className}`}
+                className={`hidden shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition sm:flex 2xl:px-3 ${
+                  declutter
+                    ? // room-declutter: the plan's mark on a neutral outline,
+                      // so "Compartilhar sala" is the one coloured thing here.
+                      "border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                    : proButton.className
+                }`}
               >
                 <proButton.Icon
                   className={`h-5 w-5 shrink-0 ${proButton.iconClassName}`}
                 />
-                <span data-header-label className="hidden sm:inline lg:hidden 2xl:inline">
-                  {proButton.label}
-                </span>
+                {!declutter && (
+                  <span data-header-label className="hidden sm:inline lg:hidden 2xl:inline">
+                    {proButton.label}
+                  </span>
+                )}
               </button>
             </Tooltip>
 
@@ -11944,6 +12207,7 @@ function WatchRoomView({
       )}
     </div>
     </FullscreenChatSlotContext.Provider>
+    </RoomDeclutterContext.Provider>
     </RoomToolsViewer.Provider>
   );
 }
