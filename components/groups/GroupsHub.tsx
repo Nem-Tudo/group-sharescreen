@@ -68,8 +68,11 @@ export function GroupsHubHome() {
   }, [groups]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:py-8">
+    // On a tall, wide screen the cards sit in the middle of the space (my-auto
+    // in a min-h-full column) instead of hugging the top with the rest of the
+    // screen empty below; when they don't fit, it scrolls from the top as usual.
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6 lg:my-auto lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:py-10 2xl:max-w-6xl 2xl:gap-6">
         <section className={card}>
           <h1 className={cardTitle}>{t("groups.hub.startRoom")}</h1>
           <p className={cardHint}>{t("groups.hub.startRoomHint")}</p>
