@@ -6755,7 +6755,6 @@
   "admin.features.breakdownFewer": "Mostrar menos",
   "admin.features.breakdownHint": "Conteos (no personas únicas) desde que se declaró el atributo, sin filtro de días. \"—\" = el evento llegó sin ese atributo. Pasa el mouse sobre una celda para ver el value.",
   "admin.features.reason.tag_overflow": "atributos descartados (demasiadas combinaciones)",
-  "videoTile.iosScreenStoppingHint": "El iPhone tarda unos segundos en liberar la pantalla.",
   "groups.discordTemplate.import": "Importar de un servidor de Discord",
   "groups.discordTemplate.title": "Plantilla de Discord",
   "groups.discordTemplate.hint": "Pega el enlace de la plantilla (discord.new/... o discord.com/template/...). No necesitas estar en el servidor.",
