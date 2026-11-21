@@ -6,7 +6,8 @@ import { speakingDetector } from "./speakingDetector";
 import { hasFeature, type Feature } from "./entitlements";
 import { useAuth } from "./AuthContext";
 import { trackEvent } from "./analytics";
-import { iceConfigFor, setTurnAllowed } from "./iceConfig";
+import { iceConfigFor, setBackupStun, setTurnAllowed } from "./iceConfig";
+import { STUN_BACKUP_FEATURE, watchStunBackup } from "./stunBackup";
 import { ensureIceServers, refreshIceServers, setAudioRelayWanted } from "./iceServers";
 import { reportPeerConnected, reportUnreachablePeer, TURN_UPSELL_DELAY_MS } from "./turnUpsell";
 import { watchTurnRelay } from "./turnRoute";
@@ -2414,6 +2415,8 @@ function useBroadcastChannel(
     (peerId: string) => {
       const pc = new RTCPeerConnection(iceConfigFor(forceRelayIceRef.current, channel));
       recvPCs.current.set(peerId, pc);
+      // Experiment "stun-backup": measured on the viewer connections of shares.
+      if (channel === "screen") watchStunBackup(pc);
       if (channel !== "mic") {
         connectionRegistry.register({ channel, direction: "recv", peerId, originId: peerId, pc });
         // Our end relaying through TURN is invisible to whoever sends to
@@ -3156,6 +3159,12 @@ export function useRoomMedia(room: string) {
     setTurnAllowed(turnAllowed);
     refreshIceServers();
   }, [turnAllowed, resolvingAccount]);
+  // Experiment "stun-backup" (see lib/stunBackup): a second STUN server, for
+  // every connection of the room. Counted for everyone in one.
+  const stunBackup = useFeature(STUN_BACKUP_FEATURE, { track: true });
+  useEffect(() => {
+    setBackupStun(stunBackup.enabled);
+  }, [stunBackup.enabled]);
   // Experiment "mic-turn-free": the relay for the microphone only, for an
   // account without the plan above. About 5.6% of pairs never connect without
   // TURN (measured on video, 2026-11-19); a voice relayed costs ~40 kbps, so

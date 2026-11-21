@@ -13,6 +13,21 @@ function parseTurnUrls(raw: string): string[] {
 
 const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 
+// Experiment "stun-backup" (see lib/stunBackup): Cloudflare's free STUN on the
+// standard port, in case Google's is down or its port 19302 is blocked. Its own
+// entry, after Google's, so a candidate's `url` says which one answered.
+const BACKUP_STUN_SERVER: RTCIceServer = { urls: "stun:stun.cloudflare.com:3478" };
+let backupStun = false;
+
+/** Set from the experiment (see useRoomMedia). Applies to connections made after it. */
+export function setBackupStun(enabled: boolean) {
+  backupStun = enabled;
+}
+
+function stunServers(): RTCIceServer[] {
+  return backupStun ? [STUN_SERVER, BACKUP_STUN_SERVER] : [STUN_SERVER];
+}
+
 // One build-time TURN server: the URLs in a slot plus the single login they
 // share. Returns null when the slot has no URLs, so an unconfigured slot is
 // left out entirely instead of entering as a broken empty entry.
@@ -265,12 +280,12 @@ export function iceConfigFor(forceRelay: boolean, channel?: string): RTCConfigur
     // resort like any TURN server, never forced — "Impedir conexões diretas"
     // is a Pro setting and stays one.
     if (channel === "mic" && audioRelayServers.length > 0) {
-      return { iceServers: [STUN_SERVER, ...tcpOnlyServers(audioRelayServers)] };
+      return { iceServers: [...stunServers(), ...tcpOnlyServers(audioRelayServers)] };
     }
-    return { iceServers: [STUN_SERVER] };
+    return { iceServers: stunServers() };
   }
   const config: RTCConfiguration = {
-    iceServers: [STUN_SERVER, ...dynamicServers, ...tcpOnlyServers(ownServers())],
+    iceServers: [...stunServers(), ...dynamicServers, ...tcpOnlyServers(ownServers())],
   };
   if (forceRelay && isTurnConfigured()) config.iceTransportPolicy = "relay";
   return config;
