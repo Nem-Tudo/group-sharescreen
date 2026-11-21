@@ -220,6 +220,8 @@ export interface GroupInfo {
   name: string;
   description: string;
   iconUrl: string | null;
+  /** The wide picture over its rooms list, Discord's way. Null or absent for none. */
+  bannerUrl?: string | null;
   visibility: GroupVisibility;
   /** Whether members' Discord Rich Presence may carry a button to this group. */
   richPresenceLink?: boolean;
@@ -509,6 +511,13 @@ export const uploadGroupIcon = (groupId: string, image: string) =>
 
 export const removeGroupIcon = (groupId: string) =>
   request<{ group: GroupInfo }>("DELETE", `/groups/${enc(groupId)}/icon`);
+
+/** `image` is a data URL, already cropped to 16:9 (ImageCropDialog's "groupBanner"). */
+export const uploadGroupBanner = (groupId: string, image: string) =>
+  request<{ group: GroupInfo }>("POST", `/groups/${enc(groupId)}/banner`, { image });
+
+export const removeGroupBanner = (groupId: string) =>
+  request<{ group: GroupInfo }>("DELETE", `/groups/${enc(groupId)}/banner`);
 
 // ─── Webhooks ─────────────────────────────────────────────────────────────
 //

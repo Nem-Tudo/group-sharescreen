@@ -352,6 +352,10 @@ const dropLine = "pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-e
 // How many rooms the card always has room for, however much the ad under it
 // would like — see onMinHeight.
 const MIN_VISIBLE_ROOMS = 5;
+/** The banner over the rooms column, at most this tall… */
+const BANNER_MAX_PX = 150;
+/** …and, folded by scrolling, never shorter than the header drawn on it. */
+const BANNER_MIN_PX = 48;
 
 export function GroupRoomsPanel({
   detail,
@@ -430,6 +434,40 @@ export function GroupRoomsPanel({
   // the height the card ends up with moves it. Rooms folded away in a
   // category are not drawn, and so are not counted.
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // The banner (see GroupInfo.bannerUrl): 16:9 of the column, up to
+  // BANNER_MAX_PX, and folding away as the rooms scroll — down to the height
+  // of the header on it, which always keeps a picture behind it. Set on the
+  // element directly: a re-render of the whole list per scrolled pixel is
+  // what this must not cost.
+  const bannerUrl = detail.group.bannerUrl ?? null;
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const banner = bannerRef.current;
+    if (!scroller || !banner || !bannerUrl) return;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      const full = Math.min(BANNER_MAX_PX, Math.round((banner.offsetWidth * 9) / 16));
+      const height = Math.max(BANNER_MIN_PX, full - scroller.scrollTop);
+      const value = `${height}px`;
+      if (banner.style.height !== value) banner.style.height = value;
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
+    apply();
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    // The column can be dragged wider or narrower (see ColumnResize).
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onScroll);
+    observer?.observe(scroller);
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      observer?.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [bannerUrl]);
   useEffect(() => {
     const scroller = scrollRef.current;
     const card = scroller?.parentElement;
@@ -1479,16 +1517,42 @@ export function GroupRoomsPanel({
 
   if (bare) return content;
 
+  // With a banner the header sits on it, in white over a shade, the way a
+  // Discord server's does; its buttons follow.
+  const onBanner = Boolean(bannerUrl);
+  const headerButton = onBanner
+    ? "cursor-pointer rounded-lg p-1 text-white/90 transition hover:bg-white/15 hover:text-white"
+    : "cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="relative shrink-0">
+      {bannerUrl && (
+        <div
+          ref={bannerRef}
+          aria-hidden
+          className="relative overflow-hidden border-b border-zinc-200 dark:border-zinc-800"
+          style={{ height: BANNER_MAX_PX }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape */}
+          <img src={bannerUrl} alt="" draggable={false} className="h-full w-full object-cover" />
+          <span className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/65 to-transparent" />
+        </div>
+      )}
       <div
         onContextMenu={panelMenu}
-        className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+        className={`flex items-center justify-between gap-2 px-3 py-2 ${
+          onBanner ? "absolute inset-x-0 top-0" : "border-b border-zinc-200 dark:border-zinc-800"
+        }`}
       >
         <GroupMenu
           detail={detail}
           onContextMenu={panelMenu}
-          className="-mx-1.5 flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          className={`-mx-1.5 flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-semibold transition ${
+            onBanner
+              ? "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.6)] hover:bg-white/15"
+              : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          }`}
         >
           <GroupName
             name={group.name}
@@ -1498,7 +1562,7 @@ export function GroupRoomsPanel({
             auraLevel={group.aura?.level}
             badgeClassName="h-4 w-4"
           />
-          <MdExpandMore className="h-4 w-4 shrink-0 text-zinc-500" />
+          <MdExpandMore className={`h-4 w-4 shrink-0 ${onBanner ? "text-white/90" : "text-zinc-500"}`} />
         </GroupMenu>
         <div className="flex shrink-0 items-center gap-0.5">
           {isManager && (
@@ -1529,7 +1593,7 @@ export function GroupRoomsPanel({
                 type="button"
                 onClick={() => setAddOpen((o) => !o)}
                 aria-label={t("groups.groupSidebar.createARoomOrCategory")}
-                className="cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                className={headerButton}
               >
                 <MdAdd className="h-4 w-4" />
               </button>
@@ -1543,13 +1607,14 @@ export function GroupRoomsPanel({
                 type="button"
                 onClick={onCollapse}
                 aria-label={t("groups.groupSidebar.hideGroupsAndRooms")}
-                className="cursor-pointer rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                className={headerButton}
               >
                 <LuPanelLeftClose className="h-4 w-4" />
               </button>
             </Tooltip>
           )}
         </div>
+      </div>
       </div>
       <div ref={scrollRef} onContextMenu={panelMenu} className="min-h-0 flex-1 overflow-y-auto p-2">
         {content}

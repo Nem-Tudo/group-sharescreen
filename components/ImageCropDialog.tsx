@@ -21,7 +21,8 @@ import { shapeRoundingClass, type AvatarShape } from "@/lib/avatarShape";
 const MAX_ZOOM = 4;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
-export type ImageCropKind = "avatar" | "banner";
+/** "groupBanner": a group's, over its rooms list — Discord's 16:9. */
+export type ImageCropKind = "avatar" | "banner" | "groupBanner";
 
 // gifOutWidth is smaller than outWidth on purpose. A GIF is a couple of
 // hundred frames of indexed colour, so its size grows with the frame area far
@@ -35,6 +36,7 @@ const SHAPES: Record<
 > = {
   avatar: { aspect: 1, outWidth: 512, gifOutWidth: 256, frameWidth: 320 },
   banner: { aspect: 3, outWidth: 1500, gifOutWidth: 720, frameWidth: 600 },
+  groupBanner: { aspect: 16 / 9, outWidth: 960, gifOutWidth: 480, frameWidth: 480 },
 };
 
 type View = { zoom: number; x: number; y: number };

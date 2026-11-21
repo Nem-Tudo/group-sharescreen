@@ -63,6 +63,8 @@ import {
   fetchMembers,
   kickMember,
   removeGroupIcon,
+  removeGroupBanner,
+  uploadGroupBanner,
   renameChannel,
   deleteCategory,
   renameCategory,
@@ -1253,6 +1255,100 @@ export function GroupSettingsDialog({ closePopup, data }: PopupProps<{ groupId: 
 }
 
 /**
+ * The group's banner, in the settings: the wide picture over its rooms list,
+ * Discord's way, free for every group. Picked, framed to 16:9 (an animated GIF
+ * is cropped frame by frame — see ImageCropDialog), then sent.
+ */
+function GroupBannerField({ groupId, bannerUrl }: { groupId: string; bannerUrl: string | null }) {
+  const t = useT();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [picked, setPicked] = useState<{ src: string; mimeType: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function onPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!isSupportedAvatarImage(file)) {
+      setMessage({ ok: false, text: t("groups.groupDialogs.useAPngJpegWebpGif") });
+      return;
+    }
+    setMessage(null);
+    setPicked({ src: URL.createObjectURL(file), mimeType: file.type });
+  }
+
+  function closeCrop() {
+    if (picked) URL.revokeObjectURL(picked.src);
+    setPicked(null);
+  }
+
+  async function send(dataUrl: string) {
+    closeCrop();
+    setBusy(true);
+    const result = await uploadGroupBanner(groupId, dataUrl);
+    setBusy(false);
+    setMessage(result.ok ? { ok: true, text: t("groups.banner.updated") } : { ok: false, text: result.error });
+    if (result.ok) void refreshGroup(groupId);
+  }
+
+  async function remove() {
+    setBusy(true);
+    const result = await removeGroupBanner(groupId);
+    setBusy(false);
+    if (result.ok) void refreshGroup(groupId);
+    else setMessage({ ok: false, text: result.error });
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("groups.banner.title")}</span>
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={busy}
+        aria-label={bannerUrl ? t("groups.banner.change") : t("groups.banner.choose")}
+        className="group/banner relative aspect-video w-full max-w-sm cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 text-left disabled:cursor-wait dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        {bannerUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
+          <img src={bannerUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
+            {t("groups.banner.empty")}
+          </span>
+        )}
+        <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-semibold text-white opacity-0 transition group-hover/banner:opacity-100">
+          {bannerUrl ? t("groups.banner.change") : t("groups.banner.choose")}
+        </span>
+      </button>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("groups.banner.hint")}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={secondaryButton}>
+          {bannerUrl ? t("groups.banner.change") : t("groups.banner.choose")}
+        </button>
+        {bannerUrl && (
+          <button type="button" onClick={() => void remove()} disabled={busy} className={secondaryButton}>
+            {t("common.remove")}
+          </button>
+        )}
+        {message && <span className={`text-sm ${message.ok ? "text-emerald-600" : "text-red-500"}`}>{message.text}</span>}
+      </div>
+      <input ref={fileRef} type="file" accept={AVATAR_IMAGE_ACCEPT} hidden onChange={onPick} />
+      {picked && (
+        <ImageCropDialog
+          src={picked.src}
+          kind="groupBanner"
+          mimeType={picked.mimeType}
+          onCancel={closeCrop}
+          onConfirm={(dataUrl) => void send(dataUrl)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
  * Private or public, in the settings. The owner's to change (the API says the
  * same); admins see it, greyed. Going private with the group on the map says
  * first that it comes off; going public offers the map straight away.
@@ -1372,6 +1468,7 @@ function OverviewTab({ groupId, onGoToMap }: { groupId: string; onGoToMap: () =>
 
   return (
     <form onSubmit={save} className="flex flex-col gap-4">
+      <GroupBannerField groupId={groupId} bannerUrl={detail.group.bannerUrl ?? null} />
       <div className="flex items-center gap-4">
         <GroupIcon name={detail.group.name} iconUrl={detail.group.iconUrl} seed={groupId} size={80} className="rounded-2xl" />
         <div className="flex flex-wrap gap-2">

@@ -319,7 +319,19 @@ export function GroupMobileHome({ detail, onOpenMembers }: { detail: GroupDetail
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div className="flex flex-col gap-3 p-3">
-        <section className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-3.5 dark:border-zinc-800 dark:bg-zinc-950">
+        {/* The group's banner, edge to edge of the card under it (see
+            GroupInfo.bannerUrl) — the first thing a phone shows of the group,
+            the way a Discord server's page does. */}
+        {group.bannerUrl && (
+          // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
+          <img
+            src={group.bannerUrl}
+            alt=""
+            draggable={false}
+            className="-mb-6 aspect-video w-full rounded-2xl object-cover"
+          />
+        )}
+        <section className="relative flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-3.5 dark:border-zinc-800 dark:bg-zinc-950">
           <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={52} className="rounded-2xl" />
           <div className="min-w-0 flex-1">
             {/* The group's options drop down from its name, as atop the rooms on a desktop. */}
