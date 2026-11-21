@@ -88,7 +88,7 @@ export function UserProfileDialog({
         // The backdrop closes on click; the card must not, or every click
         // inside it — including selecting the bio text — would dismiss it.
         onClick={(e) => e.stopPropagation()}
-        className="golive-dialog-card relative w-full max-w-2xl"
+        className={`golive-dialog-card relative w-full max-w-2xl ${guest ? "" : "lg:max-w-5xl"}`}
       >
         {/* Both window controls together, over the banner rather than
             above the card: the banner is decorative and full-bleed, so there
@@ -146,6 +146,7 @@ export function UserProfileDialog({
           <UserProfileCard
             id={userId}
             onNavigate={onClose}
+            compact
             // Inside the card, not under it (see `sections` there).
             // Experiment profile-comments — the newest few, expanding in
             // place (see ProfileComments).

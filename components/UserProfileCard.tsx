@@ -448,8 +448,16 @@ export function UserProfileCard({
   onNavigate,
   autoPlaySong = false,
   sections,
+  compact = false,
 }: {
   id: string;
+  /**
+   * The popup's fit (UserProfileDialog): a lower banner and, on a wide
+   * screen, the card in two columns no taller than the window — who they are
+   * on the left, their group, numbers, actions and comments on the right —
+   * so a small monitor sees the whole profile without scrolling the page.
+   */
+  compact?: boolean;
   onNavigate?: () => void;
   /**
    * More about this person, drawn inside the card under its footer (the
@@ -513,6 +521,7 @@ export function UserProfileCard({
       onProfileUpdated={setProfile}
       autoPlaySong={autoPlaySong}
       sections={sections}
+      compact={compact}
     />
   );
 }
@@ -606,8 +615,10 @@ function ProfileContent({
   onProfileUpdated,
   autoPlaySong = false,
   sections,
+  compact = false,
 }: {
   sections?: ReactNode;
+  compact?: boolean;
   profile: UserProfile;
   onNavigate?: () => void;
   onProfileUpdated?: (updated: UserProfile) => void;
@@ -1141,11 +1152,13 @@ function ProfileContent({
     ? { background: theme.surface, borderColor: theme.border, color: theme.text }
     : undefined;
   const themedDivider = theme ? { borderColor: theme.border } : undefined;
+  // The popup's two columns — not while editing, where the form is the card.
+  const twoColumns = compact && !isEditing;
 
   return (
     <div
       className={`overflow-hidden rounded-2xl border transition-colors ${theme ? "" : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
-        }`}
+        } ${twoColumns ? "lg:flex lg:max-h-[calc(100dvh-2rem)] lg:flex-col" : ""}`}
       // The gradient is the card, not a strip behind it: borders, panels and
       // text all come from the same two colours (see lib/profileTheme), which
       // is the difference between a themed profile and a background shoved
@@ -1154,7 +1167,7 @@ function ProfileContent({
     >
       {/* Banner image or background color purchased with points in cosmetics store */}
       <div
-        className="relative h-32 w-full transition-all duration-300 sm:h-44"
+        className={`relative w-full shrink-0 transition-all duration-300 ${compact ? "h-28 sm:h-32" : "h-32 sm:h-44"}`}
         style={
           currentBanner
             ? {
@@ -1310,9 +1323,9 @@ function ProfileContent({
           empty middle sat invisibly on top of the banner's bottom strip and
           swallowed every click meant for the "alterar banner" button in that
           corner. */}
-      <div className="pointer-events-none relative -mt-12 flex items-end justify-between px-5 sm:-mt-16 sm:px-6">
+      <div className={`pointer-events-none relative -mt-12 flex shrink-0 items-end justify-between px-5 sm:px-6 ${compact ? "" : "sm:-mt-16"}`}>
         <div
-          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden ${shapeRoundingClass(shownAvatarShape)} border-4 shadow-md sm:h-28 sm:w-28 ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
+          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden ${shapeRoundingClass(shownAvatarShape)} border-4 shadow-md ${compact ? "" : "sm:h-28 sm:w-28"} ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
             }`}
           style={theme ? { borderColor: theme.ring, background: theme.surface } : undefined}
         >
@@ -1622,7 +1635,12 @@ function ProfileContent({
         )}
       </div>
 
-      <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+      <div
+        className={`px-5 pb-5 sm:px-6 sm:pb-6 ${
+          twoColumns ? "lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:grid-rows-[minmax(0,1fr)] lg:gap-x-8" : ""
+        }`}
+      >
+        <div className={twoColumns ? "min-w-0 lg:overflow-y-auto lg:pb-1" : "contents"}>
         {/* One view, always. Editing used to swap the whole card for a
             column of labelled inputs that looked nothing like the profile it
             produced — the only way to see the result was to save and find
@@ -2041,6 +2059,11 @@ function ProfileContent({
           </div>
         )}
 
+        </div>
+        {/* The right column in the popup's two-column fit: the group, the
+            numbers, the actions and the sections (comments) — the one that
+            scrolls, inside itself, when a long comment thread outgrows it. */}
+        <div className={twoColumns ? "min-w-0 lg:-mr-2 lg:overflow-y-auto lg:pr-2 lg:pt-3 lg:[&>*:first-child]:mt-0" : "contents"}>
         {profile.profileGroup && !(isEditing && profileGroupChanged) && (
           <div className="mt-4">
             <ProfileGroupCard ownerId={account.id} group={profile.profileGroup} onNavigate={onNavigate} theme={theme} />
@@ -2301,6 +2324,7 @@ function ProfileContent({
             {sections}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
