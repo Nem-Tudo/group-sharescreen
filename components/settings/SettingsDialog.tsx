@@ -37,8 +37,8 @@ import {
   ReopenLastScreenSetting,
   Row,
   Section,
-} from "@/app/me/MeScreen";
-import { NotificationSettingsScreen } from "@/app/me/notifications/NotificationSettingsScreen";
+} from "@/app/(shell)/me/MeScreen";
+import { NotificationSettingsScreen } from "@/app/(shell)/me/notifications/NotificationSettingsScreen";
 import { AccountConnections } from "@/components/AccountConnections";
 import type { AccountModalMode } from "@/components/AccountModal";
 import { ReceiveCameraEffectsSetting } from "@/components/CameraEffectForOthers";

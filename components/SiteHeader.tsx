@@ -13,6 +13,7 @@ import { useIsAppShell, useTabBarEnabled } from "@/lib/mobileShell";
 import { useT } from "@/lib/useI18n";
 import { useSellsHere } from "@/lib/storePolicy";
 import { translate } from "@/lib/i18n";
+import { useRoomShellHosted } from "@/lib/roomShell";
 
 // The site's top bar: everything GoLive offers besides the room form itself,
 // in one place, on every page that isn't a room.
@@ -97,6 +98,14 @@ const SECONDARY: SecondaryItem[] = [
 ];
 
 export function SiteHeader() {
+  // Inside the groups layout (experiment room-shell, see lib/roomShell) the
+  // shell's own bar is the page's: the account, the bell and the way around
+  // are all there already, and a second bar under it is one too many.
+  if (useRoomShellHosted()) return null;
+  return <SiteHeaderBar />;
+}
+
+function SiteHeaderBar() {
   const t = useT();
   const pathname = usePathname();
   // Below lg the tabs at the bottom of the screen carry the navigation (see

@@ -48,6 +48,8 @@ export const ROOM_SHELL_EVENTS = {
   fold: "room_shell_fold",
   /** The frame switched off (1) or back on (2) in the room's "⋯". */
   switched: "room_shell_switch",
+  /** One of the site's other pages opened inside the frame (phase 2). Tag `page`: which one. */
+  page: "room_shell_page",
 } as const;
 
 /** The room a /watch address names, or null for any other address. */
@@ -65,6 +67,30 @@ export function parseWatchPath(pathname: string | null | undefined): string | nu
 /** A room with a page of its own — see the list at the top of this file. */
 export function isOrdinaryRoomHandle(handle: string): boolean {
   return !handle.startsWith(GROUP_VOICE_PREFIX) && !isCallRoomHandle(handle) && !isThemeRoomHandle(handle);
+}
+
+// ─── The site's other pages (phase 2) ─────────────────────────────────────
+//
+// Once somebody is in the groups layout, nothing they open from it should
+// take them out of it: the public rooms, the map, their friends, a profile,
+// their own screen, the themes, Pro. These pages live under app/(shell) too,
+// and the shell frames them on the same terms as a room's page — xl up, an
+// account with groups, in the experiment. Everywhere else they are drawn
+// exactly as they always were (see GroupAppShell's `plainPage`).
+//
+// The home is the one page left out on purpose: it is the site's front door,
+// the landing page and the search result, and the groups layout has a home of
+// its own (experiment groups-hub).
+
+/** The first segment of every page the shell may frame, and the name it is counted under. */
+const SHELL_PAGES = ["rooms", "worldmap", "friends", "me", "user", "badges", "workshop", "theme", "pro"] as const;
+export type ShellPage = (typeof SHELL_PAGES)[number];
+
+/** Which framed-able page an address is, or null. */
+export function shellPageOf(pathname: string | null | undefined): ShellPage | null {
+  if (!pathname) return null;
+  const first = pathname.split(/[?#]/)[0].split("/").filter(Boolean)[0];
+  return first && (SHELL_PAGES as readonly string[]).includes(first) ? (first as ShellPage) : null;
 }
 
 // ─── The switch ───────────────────────────────────────────────────────────
@@ -157,7 +183,10 @@ const OFF: RoomShellState = { on: false, eligible: false, available: false, swit
  * room's. `track` counts the exposure — true only where the frame is drawn
  * (the shell); everywhere else reads the same answer without counting it.
  */
-export function useRoomShell(handle: string | null, { track }: { track: boolean }): RoomShellState {
+export function useRoomShell(
+  handle: string | null,
+  { track, page = false }: { track: boolean; /** One of the site's other pages (see shellPageOf). */ page?: boolean }
+): RoomShellState {
   const wide = useMediaQuery(ROOM_SHELL_QUERY);
   const accountToken = useAccountToken();
   const { account, loading } = useAuth();
@@ -166,7 +195,8 @@ export function useRoomShell(handle: string | null, { track }: { track: boolean 
   // which must not be redrawn for each of them.
   const hasGroups = useGroupsSlice((s) => (s.groups === null ? null : s.groups.length > 0), null);
   const switchedOff = useSwitchedOff();
-  const ordinary = handle !== null && isOrdinaryRoomHandle(handle);
+  // A page the frame is for: an ordinary room's, or one of the site's other pages.
+  const ordinary = (handle !== null && isOrdinaryRoomHandle(handle)) || page;
   const facts = ordinary && wide && Boolean(account) && hasGroups === true;
   const feature = useFeature(ROOM_SHELL_FEATURE, { track: track && facts });
   const inExperiment = feature.group !== null;

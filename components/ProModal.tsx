@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { ProPanel } from "@/app/pro/ProPanel";
+import { ProPanel } from "@/app/(shell)/pro/ProPanel";
 import { useT } from "@/lib/useI18n";
 import { useShake } from "@/lib/useShake";
 import { useFeature } from "@/lib/features";
-import { PRO_COMPARE_FEATURE, PRO_MODAL_LAYOUT_FEATURE } from "@/app/pro/PlanComparison";
+import { PRO_COMPARE_FEATURE, PRO_MODAL_LAYOUT_FEATURE } from "@/app/(shell)/pro/PlanComparison";
 import { useSellsHere } from "@/lib/storePolicy";
 import { NotSoldInAppNotice } from "@/components/NotSoldInApp";
 

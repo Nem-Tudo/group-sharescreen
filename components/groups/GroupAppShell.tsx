@@ -55,7 +55,15 @@ import {
   useGroupVoiceSession,
 } from "@/lib/groupVoiceSession";
 import { signalingClient } from "@/lib/signalingClient";
-import { parseWatchPath, RoomShellHostContext, useRoomShell, useRoomShellPageEvents } from "@/lib/roomShell";
+import {
+  ROOM_SHELL_EVENTS,
+  ROOM_SHELL_FEATURE,
+  parseWatchPath,
+  RoomShellHostContext,
+  shellPageOf,
+  useRoomShell,
+  useRoomShellPageEvents,
+} from "@/lib/roomShell";
 import { ROOM_REDESIGN_FEATURE } from "@/lib/roomRedesign";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectRoom } from "@/lib/signalingSelectors";
@@ -133,11 +141,27 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
   const route = parseGroupsPath(pathname);
   // Not a group page: the only other page under this shell is a room's.
   const roomHandle = route ? null : parseWatchPath(pathname);
+  // Or one of the site's other pages (experiment room-shell, phase 2).
+  const shellPage = route || roomHandle !== null ? null : shellPageOf(pathname);
   // The exposure is counted here, the one place the frame is drawn.
-  const roomShell = useRoomShell(roomHandle, { track: true });
+  const roomShell = useRoomShell(roomHandle, { track: true, page: shellPage !== null });
   // Whether this shell draws its frame — the bar, the rail, the columns. On
   // every group page; on a room's page only in the experiment (xl up).
   const framed = route !== null || roomShell.on;
+  // One of the site's other pages, framed: it scrolls inside the frame, and
+  // its own top bar steps aside (see SiteHeader, which reads RoomShellHostContext).
+  const hostedPage = shellPage !== null && framed;
+  // The same page, unframed: everything this shell wraps around it is
+  // `display: contents`, so the page is laid out exactly as it was before it
+  // lived under this layout — scrolling the document, its sticky bar sticking.
+  // The elements stay in the tree either way, so the frame coming or going
+  // never re-mounts the page.
+  const plainPage = shellPage !== null && !framed;
+  useEffect(() => {
+    if (hostedPage && shellPage) {
+      trackFeatureEvent(ROOM_SHELL_EVENTS.page, { feature: ROOM_SHELL_FEATURE, tags: { page: shellPage } });
+    }
+  }, [hostedPage, shellPage]);
   // A framed room keeps an ordinary room's colours — the redesign's faint blue
   // (see globals.css, data-rr-tint) — and the frame around it wears them too,
   // so the rail and the bar do not sit grey around a bluish room. Only for
@@ -435,10 +459,14 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
         data-group-shell={framed ? "" : undefined}
         data-room-page={framed ? "" : undefined}
         data-rr-tint={roomTint ? "" : undefined}
-        className={`flex min-h-0 flex-1 flex-col ${framed ? "bg-zinc-50 dark:bg-black" : ""} ${
-          // A framed room keeps its text selectable, as it always was.
-          route ? "select-none" : ""
-        }`}
+        className={
+          plainPage
+            ? "contents"
+            : `flex min-h-0 flex-1 flex-col ${framed ? "bg-zinc-50 dark:bg-black" : ""} ${
+                // A framed room keeps its text selectable, as it always was.
+                route ? "select-none" : ""
+              }`
+        }
       >
         {framed && (
         <header
@@ -569,7 +597,7 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <div className={`flex min-h-0 flex-1 ${framed ? "lg:gap-3 lg:p-3" : ""}`}>
+        <div className={plainPage ? "contents" : `flex min-h-0 flex-1 ${framed ? "lg:gap-3 lg:p-3" : ""}`}>
           {/* Every group, down the left edge — from lg up; below that the
               switcher in the bar is the way between them. Hidden rather than
               unmounted while a call folds it away, so it comes back as it was
@@ -640,8 +668,11 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
             </aside>
           )}
 
-          <div ref={setMiddleColumn} className={dmDocked ? "hidden" : "flex min-h-0 min-w-0 flex-1 flex-col"}>
-            <div className={voiceVisible ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+          <div
+            ref={setMiddleColumn}
+            className={dmDocked ? "hidden" : plainPage ? "contents" : "flex min-h-0 min-w-0 flex-1 flex-col"}
+          >
+            <div className={voiceVisible ? "hidden" : plainPage ? "contents" : "flex min-h-0 flex-1 flex-col"}>
               {/* Marked as inside the shell, so what it draws navigates shallowly
                   even from an effect that runs before the shell has registered
                   (see lib/groupNavigation's GroupShellContext). */}
@@ -654,7 +685,22 @@ export function GroupAppShell({ children }: { children: ReactNode }) {
                   room's (see app/(shell)/watch), told whether this shell is
                   framing it. Always right here, framed or not, so the frame
                   coming and going never re-mounts the page. */}
-              <RoomShellHostContext.Provider value={roomShell.on}>{children}</RoomShellHostContext.Provider>
+              {/* Another page of the site, framed, scrolls in here — a card
+                  like the columns beside it; unframed, this box is not there
+                  at all (`contents`), and neither is it on a group's page,
+                  whose own page renders nothing beside GroupsView. A room's
+                  page fills it, as it filled the column before. */}
+              <div
+                className={
+                  hostedPage
+                    ? "flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-zinc-50 lg:rounded-xl lg:border lg:border-zinc-200 dark:bg-black lg:dark:border-zinc-800"
+                    : plainPage || route
+                      ? "contents"
+                      : "flex min-h-0 flex-1 flex-col"
+                }
+              >
+                <RoomShellHostContext.Provider value={roomShell.on}>{children}</RoomShellHostContext.Provider>
+              </div>
             </div>
             {/* Where the call is drawn while its own room is the page being
                 looked at. The room is mounted at the root of the app and moved

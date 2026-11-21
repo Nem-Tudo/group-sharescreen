@@ -10,6 +10,7 @@ import { useGroupMapMarkers } from "@/lib/useGroupMapMarkers";
 import { useT } from "@/lib/useI18n";
 import { RoomsViewSwitch } from "@/components/RoomsViewSwitch";
 import { useTabBarEnabled } from "@/lib/mobileShell";
+import { useRoomShellHosted } from "@/lib/roomShell";
 
 // What the map shows: everything, or one of its two kinds of pin. Live rooms
 // (green) come and go with the people in them; groups (blue) stay where their
@@ -57,6 +58,9 @@ export function RoomsMapClient() {
   );
 
   const tabBar = useTabBarEnabled();
+  // Inside the groups layout (experiment room-shell) its bar carries the way
+  // home, the theme and the update — see lib/roomShell.
+  const hosted = useRoomShellHosted();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-black">
@@ -88,7 +92,7 @@ export function RoomsMapClient() {
               someone would want to change it. */}
           <RoomsViewSwitch current="map" />
           {/* On a phone the tabs lead home and the Você tab holds the theme. */}
-          <span className={tabBar ? "hidden lg:contents" : "contents"}>
+          <span className={hosted ? "hidden" : tabBar ? "hidden lg:contents" : "contents"}>
             <ThemeMenuButton />
             <UpdateAppButton />
             <Link

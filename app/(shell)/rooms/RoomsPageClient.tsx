@@ -11,6 +11,7 @@ import { groupPath } from "@/lib/groupLinks";
 import { Tooltip } from "@/components/Tooltip";
 import { ThemeMenuButton } from "@/components/ThemeToggle";
 import { UpdateAppButton } from "@/components/UpdateAppButton";
+import { useRoomShellHosted } from "@/lib/roomShell";
 import { CameraIcon, MicIcon, ScreenIcon, VideoSourceIcon } from "@/components/icons";
 import { roomCategory } from "@/lib/roomCategories";
 import { useI18n } from "@/lib/useI18n";
@@ -116,6 +117,9 @@ export function RoomsPageClient() {
   );
 
   const tabBar = useTabBarEnabled();
+  // Inside the groups layout (experiment room-shell) its bar carries the way
+  // home, the theme and the update — see lib/roomShell.
+  const hosted = useRoomShellHosted();
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 px-4 pt-5 pb-6 sm:py-10 dark:bg-black">
@@ -137,7 +141,7 @@ export function RoomsPageClient() {
             <RoomsViewSwitch current="list" />
             {/* On a phone the tabs already lead home and the Você tab holds
                 the theme — see lib/mobileShell. */}
-            <span className={tabBar ? "hidden lg:contents" : "contents"}>
+            <span className={hosted ? "hidden" : tabBar ? "hidden lg:contents" : "contents"}>
             <ThemeMenuButton />
             {/* Same reasoning as the theme switch beside it: no SiteHeader
                 here to carry it, and this is a page people leave open. */}
