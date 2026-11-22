@@ -1731,6 +1731,41 @@ function ProfileContent({
                 <ProfileSongPlayer song={account.profileSong} autoPlay={autoPlaySong} theme={theme} />
               </div>
             )}
+            {/* On this side, under the song: the right side has the group and
+                the comments, and this one was left half empty without it. */}
+            <div
+              className="mt-6 border-t border-zinc-200 pt-5 dark:border-zinc-800"
+              style={theme ? { borderColor: theme.border } : undefined}
+            >
+              <h2
+                className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
+                style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+              >
+                {t("userProfileCard.activity")}
+              </h2>
+              <div className="mt-3 grid grid-cols-3 gap-3">
+                {[
+                  { label: t("userProfileCard.inCall"), seconds: account.callSeconds ?? 0 },
+                  { label: t("userProfileCard.micOpen"), seconds: account.micSeconds ?? 0 },
+                  { label: t("userProfileCard.sharingScreen"), seconds: account.shareSeconds ?? 0 },
+                ].map((stat) => (
+                  <div key={stat.label} className="min-w-0">
+                    <p
+                      className="truncate text-xl font-bold tabular-nums text-zinc-950 dark:text-zinc-50"
+                      style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+                    >
+                      {formatDuration(stat.seconds)}
+                    </p>
+                    <p
+                      className="truncate text-xs text-zinc-500 dark:text-zinc-400"
+                      style={theme ? { color: theme.muted } : undefined}
+                    >
+                      {stat.label}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div
               className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-5 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400"
               style={theme ? { borderColor: theme.border, color: theme.muted } : undefined}
@@ -1748,46 +1783,17 @@ function ProfileContent({
             className="min-w-0 border-zinc-200 lg:-mr-2 lg:overflow-y-auto lg:border-l lg:pl-8 lg:pr-2 dark:border-zinc-800"
             style={theme ? { borderColor: theme.border } : undefined}
           >
-            <h2
-              className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
-              style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
-            >
-              {t("userProfileCard.activity")}
-            </h2>
-            <div className="mt-3 grid grid-cols-3 gap-4">
-              {[
-                { label: t("userProfileCard.inCall"), seconds: account.callSeconds ?? 0 },
-                { label: t("userProfileCard.micOpen"), seconds: account.micSeconds ?? 0 },
-                { label: t("userProfileCard.sharingScreen"), seconds: account.shareSeconds ?? 0 },
-              ].map((stat) => (
-                <div key={stat.label} className="min-w-0">
-                  <p
-                    className="truncate text-2xl font-bold tabular-nums text-zinc-950 dark:text-zinc-50"
-                    style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
-                  >
-                    {formatDuration(stat.seconds)}
-                  </p>
-                  <p
-                    className="truncate text-sm text-zinc-500 dark:text-zinc-400"
-                    style={theme ? { color: theme.muted } : undefined}
-                  >
-                    {stat.label}
-                  </p>
-                </div>
-              ))}
-            </div>
             {profile.profileGroup && (
-              <div
-                className="mt-5 border-t border-zinc-200 pt-5 dark:border-zinc-800"
-                style={theme ? { borderColor: theme.border } : undefined}
-              >
-                <ProfileGroupCard ownerId={account.id} group={profile.profileGroup} onNavigate={onNavigate} theme={theme} flat />
-              </div>
+              <ProfileGroupCard ownerId={account.id} group={profile.profileGroup} onNavigate={onNavigate} theme={theme} flat />
             )}
             {sections && (
               <div
                 data-scheme={theme ? (theme.dark ? "dark" : "light") : undefined}
+                // With no group above, the first section starts the column:
+                // no divider over it.
                 className={`flex flex-col [&>*]:mt-5 [&>*]:border-t [&>*]:pt-5 ${
+                  profile.profileGroup ? "" : "[&>*:first-child]:mt-0 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0"
+                } ${
                   theme ? "[&>*]:border-[var(--profile-border)]" : "[&>*]:border-zinc-200 dark:[&>*]:border-zinc-800"
                 }`}
                 style={theme ? ({ "--profile-border": theme.border } as React.CSSProperties) : undefined}
