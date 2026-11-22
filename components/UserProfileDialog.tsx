@@ -66,33 +66,45 @@ export function UserProfileDialog({
 
   // The profile as it always was, unless it does not fit the window: then
   // (on a screen wide enough for two columns) the two-column fit, which is
-  // no taller than the window (see UserProfileCard's `compact`). Measured on
-  // the card itself, so a profile that grows after opening — the comments
-  // arriving — switches when it outgrows the window, and one that fits never
-  // does. Sticky until the window changes size, which measures again from
-  // the ordinary layout; no flip-flopping between the two while it is open.
+  // no taller than the window (see UserProfileCard's `compact`).
+  //
+  // Decided once, before the card is seen: it is laid out invisibly until
+  // everything in it has arrived (the profile, the comments — both mark
+  // themselves while loading) and its height has stopped moving, measured
+  // then, and shown in the layout that fits. Deciding while it was already
+  // on screen made it change size once or twice after opening.
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [fit, setFit] = useState(false);
+  const [settled, setSettled] = useState(Boolean(guest));
   useEffect(() => {
-    if (fit || !onClient) return;
+    if (settled || !onClient) return;
     const card = cardRef.current;
     if (!card) return;
-    const check = () => {
-      if (window.innerWidth < 1024) return;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const decide = () => {
       // The backdrop's padding (p-4) on both sides.
-      if (card.offsetHeight > window.innerHeight - 32) setFit(true);
+      if (window.innerWidth >= 1024 && card.offsetHeight > window.innerHeight - 32) setFit(true);
+      setSettled(true);
+    };
+    const check = () => {
+      clearTimeout(quiet);
+      if (card.querySelector('[aria-busy="true"], [data-profile-loading]')) return;
+      quiet = setTimeout(decide, 120);
     };
     check();
     const observer = new ResizeObserver(check);
     observer.observe(card);
-    return () => observer.disconnect();
-  }, [fit, onClient]);
-  useEffect(() => {
-    if (!fit) return;
-    const onResize = () => setFit(false);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [fit]);
+    const mutations = new MutationObserver(check);
+    mutations.observe(card, { childList: true, subtree: true });
+    // Never left invisible: a request that hangs gets the card as it is.
+    const cap = setTimeout(decide, 2500);
+    return () => {
+      clearTimeout(quiet);
+      clearTimeout(cap);
+      observer.disconnect();
+      mutations.disconnect();
+    };
+  }, [settled, onClient]);
 
   if (!onClient) return null;
 
@@ -119,7 +131,9 @@ export function UserProfileDialog({
         // inside it — including selecting the bio text — would dismiss it.
         onClick={(e) => e.stopPropagation()}
         ref={cardRef}
-        className={`golive-dialog-card relative w-full max-w-2xl ${fit && !guest ? "lg:max-w-5xl" : ""}`}
+        className={`golive-dialog-card relative w-full max-w-2xl ${fit && !guest ? "lg:max-w-5xl" : ""} ${
+          settled ? "" : "invisible"
+        }`}
       >
         {/* Both window controls together, over the banner rather than
             above the card: the banner is decorative and full-bleed, so there

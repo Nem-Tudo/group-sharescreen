@@ -214,7 +214,10 @@ export function ProfileComments({
     }
   }, [ready, compact]);
 
-  if (state.status === "hidden" || state.status === "loading") return null;
+  // A marker while loading, nothing on screen: the profile popup waits for it
+  // to go before it picks its layout (see UserProfileDialog).
+  if (state.status === "loading") return <span data-profile-loading="" hidden />;
+  if (state.status === "hidden") return null;
   if (state.status === "error") return null;
 
   const { comments, total, hasMore, isOwner, canModerate, enabled, canComment, reason, reactionsEnabled, canReact } =
