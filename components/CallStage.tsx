@@ -73,12 +73,12 @@ function CallStageFace({ person, size }: { person: CallStagePerson; size: number
           userId={person.userId}
           isGuest={person.isGuest}
         />
-        {/* Bottom-left: the bottom-right corner belongs to UserAvatar's
+        {/* Bottom centre: the bottom-right corner belongs to UserAvatar's
             presence dot, and a badge on top of it hid it. Mic and deafened
             are different facts that can both be true (deafening closes the
             mic too), so they sit side by side. */}
         {(!person.micOn || person.silenced || person.deafened) && (
-          <span className="absolute -bottom-0.5 -left-0.5 flex -space-x-1.5">
+          <span className="absolute -bottom-2 left-1/2 flex -translate-x-1/2 -space-x-1.5">
             {(!person.micOn || person.silenced) && (
               <span className={`flex h-6 w-6 items-center justify-center rounded-full ${person.silenced ? "bg-red-600" : "bg-zinc-800 dark:bg-zinc-950"} text-white ring-2 ring-zinc-100 dark:ring-zinc-900`}>
                 <MdMicOff className="h-3.5 w-3.5" />

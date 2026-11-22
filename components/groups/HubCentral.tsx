@@ -76,7 +76,7 @@ function connected(presence: PresenceInfo | undefined): boolean {
 type InboxEntry =
   | { type: "dm"; id: string; ts: number; unread: number; user: SocialUser; line: string }
   | { type: "notification"; id: string; ts: number; unread: number; notification: InboxNotification }
-  | { type: "bundle"; kind: "friend-request" | "theme-like"; id: string; ts: number; unread: number; title: string; body: string };
+  | { type: "bundle"; kind: "friend-request" | "theme-like" | "gift"; id: string; ts: number; unread: number; title: string; body: string };
 
 function useCentralData(inboxSize: number) {
   const t = useT();
@@ -141,7 +141,24 @@ function useCentralData(inboxSize: number) {
         body: latest.title,
       });
     }
-    const bundled = new Set<InboxNotification["kind"]>(["friend-request", ...(likes.length > 1 ? (["theme-like", "camera-effect-like"] as const) : [])]);
+    const gifts = notifications.filter((n) => n.kind === "gift");
+    if (gifts.length > 1) {
+      const latest = gifts.reduce((a, b) => (b.ts > a.ts ? b : a));
+      entries.push({
+        type: "bundle",
+        kind: "gift",
+        id: "bundle:gifts",
+        ts: latest.ts,
+        unread: gifts.some((n) => !n.read) ? 1 : 0,
+        title: t("groups.central.giftsBundle", { count: gifts.length }),
+        body: latest.title,
+      });
+    }
+    const bundled = new Set<InboxNotification["kind"]>([
+      "friend-request",
+      ...(likes.length > 1 ? (["theme-like", "camera-effect-like"] as const) : []),
+      ...(gifts.length > 1 ? (["gift"] as const) : []),
+    ]);
     // The bell's "Mensagem de …" rows are the conversations above, again.
     for (const notification of notifications) {
       if (notification.kind === "dm" || bundled.has(notification.kind)) continue;
@@ -291,7 +308,7 @@ function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
             <InboxHeader data={data} compact />
           </div>
           <Scroll>
-            <InboxList data={data} onPending={showPending} />
+            <InboxList data={data} onPending={showPending} focused />
           </Scroll>
         </section>
         <ThemesLink />
@@ -1081,17 +1098,25 @@ function InboxList({
   data,
   grouped = false,
   onPending,
+  focused = false,
 }: {
   data: CentralData;
   grouped?: boolean;
   /** Where the friend requests line leads: the friends list's Pendentes tab (now layout), else the requests popup. */
   onPending?: () => void;
+  /**
+   * Only what asks for attention: the unread as full rows, then a few recent
+   * ones as single compact lines, and the rest behind "Ver tudo" — the whole
+   * list at one weight was a wall nobody reads (now layout).
+   */
+  focused?: boolean;
 }) {
   const t = useT();
   const live = useDmLive();
   const { account } = useAuth();
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [ownProfileOpen, setOwnProfileOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   // Same destinations as the bell's list (see NotificationInboxBell).
   function open(entry: InboxEntry) {
@@ -1140,6 +1165,56 @@ function InboxList({
     </ul>
   );
 
+  const modals = (
+    <>
+      <FriendRequestsModal open={requestsOpen} onClose={() => setRequestsOpen(false)} />
+      {ownProfileOpen && account && <UserProfileDialog userId={account.id} onClose={() => setOwnProfileOpen(false)} />}
+    </>
+  );
+
+  if (focused) {
+    const recentCount = unread.length > 0 ? FOCUSED_RECENT : FOCUSED_RECENT_CALM;
+    const readShown = showAll ? read : read.slice(0, recentCount);
+    const hidden = read.length - readShown.length;
+    return (
+      <>
+        {unread.length > 0 ? (
+          <div className="mt-2">{rows(unread)}</div>
+        ) : (
+          <p className="mt-3 flex items-center gap-2 px-2 text-sm text-zinc-500 dark:text-zinc-400">
+            <MdCheck className="hub-accent-text h-4 w-4 shrink-0" />
+            {t("groups.central.allCaughtUp")}
+          </p>
+        )}
+        {readShown.length > 0 && (
+          <>
+            <p className="mb-1 mt-4 px-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              {t("groups.central.recent")}
+            </p>
+            <ul className="-mx-2 flex flex-col">
+              {readShown.map((entry) => (
+                <CompactInboxRow key={entry.id} entry={entry} onOpen={() => open(entry)} />
+              ))}
+            </ul>
+          </>
+        )}
+        {(hidden > 0 || showAll) && read.length > recentCount && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!showAll) trackHubCentral(HUB_CENTRAL_EVENTS.inboxMore);
+              setShowAll(!showAll);
+            }}
+            className={`${quietLink} mt-1 px-2 py-1.5`}
+          >
+            {showAll ? t("groups.central.showLess") : t("groups.central.seeAllCount", { count: hidden })}
+          </button>
+        )}
+        {modals}
+      </>
+    );
+  }
+
   return (
     <>
       {grouped && unread.length > 0 && read.length > 0 ? (
@@ -1152,9 +1227,46 @@ function InboxList({
       ) : (
         <div className="mt-2">{rows(data.inbox)}</div>
       )}
-      <FriendRequestsModal open={requestsOpen} onClose={() => setRequestsOpen(false)} />
-      {ownProfileOpen && account && <UserProfileDialog userId={account.id} onClose={() => setOwnProfileOpen(false)} />}
+      {modals}
     </>
+  );
+}
+
+/** How many read rows the focused inbox shows under the unread ones, and when there is nothing unread. */
+const FOCUSED_RECENT = 5;
+const FOCUSED_RECENT_CALM = 3;
+
+/**
+ * A read entry in the focused inbox: one line, small face or icon, the name
+ * plain (no colour, no badges) and the preview beside it in grey. The time
+ * only when it is from today; older than that, it does not matter here.
+ */
+function CompactInboxRow({ entry, onOpen }: { entry: InboxEntry; onOpen: () => void }) {
+  const name =
+    entry.type === "dm" ? entry.user.displayName : entry.type === "bundle" ? entry.title : entry.notification.title;
+  const line = entry.type === "dm" ? entry.line : entry.type === "bundle" ? entry.body : entry.notification.body ?? "";
+  const today = isFromToday(entry.ts);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+      >
+        {entry.type === "dm" ? (
+          <UserAvatar src={entry.user.avatarUrl} name={entry.user.displayName} size={24} userId={entry.user.id} className="shrink-0" />
+        ) : (
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400 [&_svg]:h-3.5 [&_svg]:w-3.5">
+            <NotificationKindIcon kind={entry.type === "bundle" ? entry.kind : entry.notification.kind} />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-[13px]">
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">{name}</span>
+          {line && <span className="text-zinc-400 dark:text-zinc-500"> · {line}</span>}
+        </span>
+        {today && <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500">{relativeTime(entry.ts)}</span>}
+      </button>
+    </li>
   );
 }
 
@@ -1220,4 +1332,9 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
       </button>
     </li>
   );
+}
+
+/** Within the last 24 hours. Outside the component: reading the clock is not render work. */
+function isFromToday(ts: number): boolean {
+  return ts > 0 && Date.now() - ts < 24 * 60 * 60 * 1000;
 }

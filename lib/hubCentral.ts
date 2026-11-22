@@ -44,6 +44,8 @@ export const HUB_CENTRAL_EVENTS = {
   friendsSearch: "central_friends_search",
   /** A friend request answered from the Pendentes tab. Tag `action`: accept, decline or cancel (one this person sent). */
   requestReply: "central_request_reply",
+  /** "Ver tudo" in the focused inbox (now layout): the read entries past the first few. */
+  inboxMore: "central_inbox_more",
 } as const;
 
 export type HubCentralLayout = "now" | "inbox" | "bento";
