@@ -51,3 +51,13 @@ export function takeExploreVisit(groupId: string): boolean {
 export function useGroupsHub({ track }: { track: boolean }): boolean {
   return useFeature(GROUPS_HUB_FEATURE, { track }).enabled;
 }
+
+/**
+ * Where "home" is for this person: the groups layout's own home (/groups)
+ * inside the experiment, the site's (/) outside it. Every "back to the start"
+ * — hanging up on the call's page, a room that failed, a list's "Início" —
+ * goes through here, so nobody in the experiment lands on the old home.
+ */
+export function useHomePath(): "/groups" | "/" {
+  return useGroupsHub({ track: false }) ? "/groups" : "/";
+}

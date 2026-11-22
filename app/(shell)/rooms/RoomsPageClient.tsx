@@ -18,6 +18,7 @@ import { useI18n } from "@/lib/useI18n";
 import { translate, translateCount } from "@/lib/i18n";
 import { RoomsViewSwitch } from "@/components/RoomsViewSwitch";
 import { useTabBarEnabled } from "@/lib/mobileShell";
+import { useHomePath } from "@/lib/groupsHub";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -79,6 +80,7 @@ function RoomStat({
 
 export function RoomsPageClient() {
   const { t, tc } = useI18n();
+  const homePath = useHomePath();
   const [rooms, setRooms] = useState<ListedRoom[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -147,7 +149,7 @@ export function RoomsPageClient() {
                 here to carry it, and this is a page people leave open. */}
             <UpdateAppButton />
             <Link
-              href="/"
+              href={homePath}
               className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
               {t("common.home")}

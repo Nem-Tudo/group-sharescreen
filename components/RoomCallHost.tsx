@@ -18,6 +18,7 @@ import {
 } from "@/lib/callSession";
 import { groupPath } from "@/lib/groupLinks";
 import { useGroupNavigation } from "@/lib/groupNavigation";
+import { useHomePath } from "@/lib/groupsHub";
 import { playConnectSound } from "@/lib/soundEffects";
 import { useSignalingSelector } from "@/lib/useSignalingSelector";
 import { selectJoinErrorKind, selectRoomRemoval, selectRoom } from "@/lib/signalingSelectors";
@@ -54,6 +55,8 @@ export function RoomCallHost() {
   const chrome = useCallChrome();
   const router = useRouter();
   const groupNavigation = useGroupNavigation();
+  // Home is the groups layout's own inside the experiment groups-hub.
+  const homePath = useHomePath();
   const dockRef = useRef<HTMLDivElement | null>(null);
   // Where the room puts its own call controls while it is docked — the real
   // ones, mic and camera and screen and the rest, not stand-ins (see
@@ -130,9 +133,10 @@ export function RoomCallHost() {
     // everything" of leaving a voice room.
     if (typeof window !== "undefined" && window.location.pathname === callPath) {
       if (session.group) groupNavigation.push(groupPath(session.group.groupId));
-      else router.push("/");
+      else if (homePath === "/groups") groupNavigation.push(homePath);
+      else router.push(homePath);
     }
-  }, [session, callPath, router, groupNavigation]);
+  }, [session, callPath, router, groupNavigation, homePath]);
 
   return (
     <>

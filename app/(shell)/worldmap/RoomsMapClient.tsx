@@ -11,6 +11,7 @@ import { useT } from "@/lib/useI18n";
 import { RoomsViewSwitch } from "@/components/RoomsViewSwitch";
 import { useTabBarEnabled } from "@/lib/mobileShell";
 import { useRoomShellHosted } from "@/lib/roomShell";
+import { useHomePath } from "@/lib/groupsHub";
 
 // What the map shows: everything, or one of its two kinds of pin. Live rooms
 // (green) come and go with the people in them; groups (blue) stay where their
@@ -19,6 +20,7 @@ type MapFilter = "all" | "rooms" | "groups";
 
 export function RoomsMapClient() {
   const t = useT();
+  const homePath = useHomePath();
   // The same pins the location picker inside a room shows (see
   // ManageRoomModal) — one definition of what a room looks like on a map.
   const { rooms, markers: roomMarkers, error } = usePublicRoomMarkers();
@@ -96,7 +98,7 @@ export function RoomsMapClient() {
             <ThemeMenuButton />
             <UpdateAppButton />
             <Link
-              href="/"
+              href={homePath}
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
               {t("common.home")}

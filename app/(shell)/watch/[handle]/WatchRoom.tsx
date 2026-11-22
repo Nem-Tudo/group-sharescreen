@@ -451,6 +451,7 @@ import { ShortcutQuickPopover } from "@/components/ShortcutQuickPopover";
 import { useScreenPen } from "@/lib/screenPen";
 import { hasVerifiedBadge, verifiedBadge } from "@/lib/entitlements";
 import { useRoomTheme } from "@/lib/useRoomTheme";
+import { useHomePath } from "@/lib/groupsHub";
 import {
   THEME_EDITOR_PARAM,
   wantsThemeEditor,
@@ -2012,6 +2013,8 @@ function WatchRoomView({
   dm?: { userId: string; displayName: string; avatarUrl: string | null } | null;
 }) {
   const router = useRouter();
+  // Home is the groups layout's own inside the experiment groups-hub.
+  const homePath = useHomePath();
   // The room stripped down to the call itself. See the `dm` prop.
   const callLayout = Boolean(dm);
   // An ordinary room's own page, framed by the group shell (experiment
@@ -4994,7 +4997,7 @@ function WatchRoomView({
         <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
           {translate("watch.watchRoom.thatRoomIsNotValid")}
         </p>
-        <Link href="/" className="text-sm font-medium underline underline-offset-4">
+        <Link href={homePath} className="text-sm font-medium underline underline-offset-4">
           {translate("watch.watchRoom.backToHome")}
         </Link>
       </div>
@@ -5273,7 +5276,7 @@ function WatchRoomView({
             )}
             <div className="flex gap-2">
               <Link
-                href="/"
+                href={homePath}
                 className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
                 {translate("common.home")}
@@ -10068,7 +10071,7 @@ function WatchRoomView({
             ) : (
               <Tooltip content={translate("common.backToHome")} placement="bottom">
                 <Link
-                  href="/"
+                  href={homePath}
                   aria-label={isWideLayout ? translate("common.home") : translate("common.back")}
                   onClick={(e) => {
                     // A phone's way out is back, to wherever the room was opened
@@ -12183,7 +12186,7 @@ function WatchRoomView({
             <div className="flex max-w-sm flex-col items-center gap-4">
               <p>{translate("protectedRoom.systemNotSupported")}</p>
               <Link
-                href="/"
+                href={homePath}
                 className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-200 transition hover:bg-zinc-900"
               >
                 {translate("common.home")}

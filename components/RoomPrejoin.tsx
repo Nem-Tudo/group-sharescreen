@@ -21,6 +21,7 @@ import { useT } from "@/lib/useI18n";
 import { ROOM_PREJOIN_FEATURE } from "@/lib/prejoinMetrics";
 import { UserAvatar } from "./UserAvatar";
 import { RoomSkeleton } from "./RoomSkeleton";
+import { useHomePath } from "@/lib/groupsHub";
 import { HeadphonesOffIcon, MicIcon, MicOffIcon, SpeakerIcon } from "./icons";
 
 /**
@@ -138,6 +139,7 @@ export function RoomPrejoin({
 }) {
   const t = useT();
   const router = useRouter();
+  const homePath = useHomePath();
   const { account, logout } = useAuth();
   const presentation = recentRoomPresentation(handle);
   const [shownAt] = useState(() => Date.now());
@@ -262,7 +264,7 @@ export function RoomPrejoin({
     acted.current = true;
     track(ROOM_PREJOIN_EVENTS.back, Math.max(1, Date.now() - shownAt));
     if (window.history.length > 1) router.back();
-    else router.push("/");
+    else router.push(homePath);
   }
 
   if (info.state === "loading" || skipThisRoom) return <RoomSkeleton />;

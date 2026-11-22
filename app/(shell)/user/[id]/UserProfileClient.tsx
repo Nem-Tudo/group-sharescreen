@@ -5,6 +5,7 @@ import { UserProfileCard } from "@/components/UserProfileCard";
 import { ProfileComments } from "@/components/ProfileComments";
 import { useProfileSongAutoplay } from "@/lib/profileSong";
 import { useT } from "@/lib/useI18n";
+import { useHomePath } from "@/lib/groupsHub";
 
 // The standalone profile page. Everything that is actually *the profile* now
 // lives in components/UserProfileCard, which the room's dialog renders too —
@@ -13,6 +14,7 @@ import { useT } from "@/lib/useI18n";
 // showing this page, and the two would have drifted the moment either changed.
 export function UserProfileClient({ id }: { id: string }) {
   const t = useT();
+  const homePath = useHomePath();
   // The listener's own setting (see lib/profileSong). Read through a store
   // rather than an effect so the first render already has the answer — a
   // song must not start while the page is still deciding whether it may.
@@ -22,7 +24,7 @@ export function UserProfileClient({ id }: { id: string }) {
     <div className="flex flex-1 justify-center bg-zinc-50 px-4 py-10 dark:bg-black sm:py-16">
       <main className="w-full max-w-2xl">
         <Link
-          href="/"
+          href={homePath}
           className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
         >
           {t("common.backToGolive")}
