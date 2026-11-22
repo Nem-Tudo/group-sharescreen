@@ -446,6 +446,11 @@ html[data-room-theme][data-theme="light"] :is(.tippy-box, .ntpopups-main, .goliv
   background-color: var(--room-accent, var(--color-emerald-500));
   color: var(--room-accent-text, #ffffff);
 }
+/* "Começar uma sala" in the central: its border in green (the worn theme's
+   accent, when there is one). Just the border: no glow, no tint. */
+.hub-ring {
+  --tw-ring-color: color-mix(in oklab, var(--room-accent, var(--color-emerald-500)) 60%, transparent) !important;
+}
 .hub-accent-text {
   color: var(--room-accent, var(--color-emerald-600));
 }

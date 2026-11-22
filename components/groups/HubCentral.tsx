@@ -773,7 +773,7 @@ function StartStrip({ form, className = "", hero = false }: { form: ReactNode; c
     // the room's real address in the field (see RoomStartForm's `prominent`).
     // No glow, no icon tile: a plain card with a plain title, like the rest.
     return (
-      <section className={`${tile} shrink-0 !p-6 ${className}`}>
+      <section className={`${tile} hub-ring shrink-0 !p-6 ${className}`}>
         <h2 className="mb-4 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
         {form}
       </section>
