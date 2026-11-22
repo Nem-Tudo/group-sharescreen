@@ -24,7 +24,9 @@ const WEEKEND = ["wkd1"];
 
 export const HEROBRINE_CHANCE = 0.005;
 
-type Pick = { kind: "line"; key: string } | { kind: "herobrine" };
+type Pick = { kind: "line"; key: string } | { kind: "herobrine"; forced: boolean };
+
+const HEROBRINE_SEEN_KEY = "sharescreen:herobrine-seen";
 
 function sample<T>(list: T[]): T {
   return list[Math.floor(Math.random() * list.length)];
@@ -37,7 +39,8 @@ function pickGreeting(now: Date): Pick {
   } catch {
     // no window (never here: picked in an effect)
   }
-  if (forced || Math.random() < HEROBRINE_CHANCE) return { kind: "herobrine" };
+  if (forced) return { kind: "herobrine", forced: true };
+  if (Math.random() < HEROBRINE_CHANCE) return { kind: "herobrine", forced: false };
 
   const hour = now.getHours();
   const day = now.getDay();
@@ -60,7 +63,18 @@ export function HubGreeting({ name, summary }: { name: string; summary: string[]
   // the hour) is there for safety, not as a real state.
   const [pick] = useState<Pick | null>(() => (typeof window === "undefined" ? null : pickGreeting(new Date())));
   useEffect(() => {
-    if (pick?.kind === "herobrine") trackHubCentral(HUB_CENTRAL_EVENTS.herobrine);
+    if (pick?.kind !== "herobrine" || pick.forced) return;
+    // The stats count occurrences, not people. Tag `seen: first` goes once
+    // per browser (localStorage), so "first" ≈ how many people saw him and
+    // "again" is the ones lucky twice. Forced views (?herobrine) never count.
+    let seen: "first" | "again" = "first";
+    try {
+      if (window.localStorage.getItem(HEROBRINE_SEEN_KEY)) seen = "again";
+      else window.localStorage.setItem(HEROBRINE_SEEN_KEY, String(Date.now()));
+    } catch {
+      // no storage: count it as first, the best guess there is
+    }
+    trackHubCentral(HUB_CENTRAL_EVENTS.herobrine, { tags: { seen } });
   }, [pick]);
 
   if (pick?.kind === "herobrine") return <Herobrine name={name} />;
