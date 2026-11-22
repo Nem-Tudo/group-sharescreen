@@ -186,7 +186,7 @@ export function RoomStartForm({
               htmlFor="hub-room"
               className="flex min-w-48 flex-1 cursor-text items-center rounded-lg border border-zinc-300 bg-white text-base focus-within:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
             >
-              <span className="select-none whitespace-nowrap py-3 pl-3.5 text-zinc-400 dark:text-zinc-500">{host}/watch/</span>
+              <span className="hidden select-none whitespace-nowrap py-3 pl-3.5 text-zinc-400 2xl:inline dark:text-zinc-500">{host}/watch/</span>
               <input
                 id="hub-room"
                 autoFocus={autoFocus}
@@ -196,7 +196,7 @@ export function RoomStartForm({
                 placeholder={typed}
                 spellCheck={false}
                 autoComplete="off"
-                className="min-w-0 flex-1 bg-transparent py-3 pr-3.5 text-zinc-950 outline-none placeholder:text-zinc-300 dark:text-zinc-50 dark:placeholder:text-zinc-600"
+                className="min-w-0 flex-1 bg-transparent py-3 pl-3.5 pr-3.5 text-zinc-950 2xl:pl-0 outline-none placeholder:text-zinc-300 dark:text-zinc-50 dark:placeholder:text-zinc-600"
               />
             </label>
           ) : (

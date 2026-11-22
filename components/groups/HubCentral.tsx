@@ -287,7 +287,7 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false 
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-7 2xl:px-10">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-6 pt-5 xl:px-6 xl:pt-7 2xl:px-10">
         <Greeting data={data} />
 
         <StartStrip form={startRoomForm} className="mt-5" hero />
@@ -310,7 +310,7 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false 
 
       {/* Cards, like the rest of the page, held to the right edge by the
           same small gutter the rail keeps on the left, full height. */}
-      <aside className="flex min-h-[24rem] shrink-0 flex-col gap-3 px-6 pb-6 lg:min-h-0 lg:w-[23rem] lg:py-4 lg:pl-0 lg:pr-4 2xl:w-[25rem]">
+      <aside className="flex min-h-[24rem] shrink-0 flex-col gap-3 px-6 pb-6 lg:min-h-0 lg:w-[19rem] lg:py-4 lg:pl-0 lg:pr-3 xl:w-[22rem] xl:pr-4 2xl:w-[25rem]">
         <section className={`${tile} flex min-h-0 flex-1 flex-col !px-3 !pb-2 !pt-4`}>
           <div className="px-2">
             <InboxHeader data={data} compact />
@@ -563,8 +563,8 @@ function FriendsSection({
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
+        <div className="ml-auto flex min-w-[12rem] flex-1 items-center justify-end gap-2">
+          <div className="relative min-w-0 max-w-56 flex-1">
             <MdSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
             <input
               type="search"
@@ -585,16 +585,18 @@ function FriendsSection({
               placeholder={t("groups.central.searchFriends")}
               aria-label={t("groups.central.searchFriends")}
               maxLength={60}
-              className="w-56 rounded-lg border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:placeholder:text-zinc-500 [&::-webkit-search-cancel-button]:hidden"
+              className="w-full rounded-lg border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:placeholder:text-zinc-500 [&::-webkit-search-cancel-button]:hidden"
             />
           </div>
           <button
             type="button"
             onClick={actions.addFriend}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            aria-label={t("common.addFriend")}
+            title={t("common.addFriend")}
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 xl:px-3 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             <MdPersonAdd className="h-4 w-4" />
-            {t("common.addFriend")}
+            <span className="hidden xl:inline">{t("common.addFriend")}</span>
           </button>
         </div>
       </div>
@@ -781,8 +783,8 @@ function StartStrip({ form, className = "", hero = false }: { form: ReactNode; c
     // the room's real address in the field (see RoomStartForm's `prominent`).
     // No glow, no icon tile: a plain card with a plain title, like the rest.
     return (
-      <section className={`${tile} hub-ring shrink-0 !p-6 ${className}`}>
-        <h2 className="mb-4 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
+      <section className={`${tile} hub-ring shrink-0 !p-4 xl:!p-6 ${className}`}>
+        <h2 className="mb-3 text-lg xl:mb-4 font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
         {form}
       </section>
     );
