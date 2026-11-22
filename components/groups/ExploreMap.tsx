@@ -90,7 +90,9 @@ export function ExploreMap() {
         </Link>
       </div>
       <div className="h-72 sm:h-80" onClickCapture={onMapClick}>
-        <WorldMap markers={shown} wheelZoom={false} className="h-full w-full" />
+        {/* The wheel zooms as soon as the pointer is over the map (no click
+            first): over it, scrolling means the map, not the page. */}
+        <WorldMap markers={shown} className="h-full w-full" />
       </div>
       {/* Same note as /worldmap: a pin is where the owner put it, not anybody's location. */}
       <p className="px-3 py-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
