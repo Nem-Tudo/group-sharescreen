@@ -82,8 +82,10 @@ export function GroupsHubHome() {
 
   const startRoomForm = (
     <RoomStartForm
-      layout={central ? "bar" : "stack"}
-      prominent={central === "now"}
+      // The central's "now" layout draws the site home's own card (the form
+      // standing up: recent rooms, public/private, name, button); the other
+      // two layouts keep the one-line bar.
+      layout={central && central !== "now" ? "bar" : "stack"}
       onStart={(mode) => {
         trackGroupsHub(GROUPS_HUB_EVENTS.roomStart, ROOM_MODE_VALUE[mode]);
         if (account) trackHubCentral(HUB_CENTRAL_EVENTS.roomStart, { value: ROOM_MODE_VALUE[mode] });

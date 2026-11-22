@@ -288,7 +288,11 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false 
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-6 pt-5 xl:px-6 xl:pt-7 2xl:px-10">
-        <Greeting data={data} />
+        {/* The greeting over the card, both centred: the top of the page is
+            one block, and the lists under it take the full width. */}
+        <div className="mx-auto w-full max-w-xl text-center">
+          <Greeting data={data} />
+        </div>
 
         <StartStrip form={startRoomForm} className="mt-5" hero />
 
@@ -781,13 +785,14 @@ function Scroll({ children }: { children: ReactNode }) {
 function StartStrip({ form, className = "", hero = false }: { form: ReactNode; className?: string; hero?: boolean }) {
   const t = useT();
   if (hero) {
-    // The page's main action, and the form is what says so: drawn large, with
-    // the room's real address in the field (see RoomStartForm's `prominent`).
-    // No glow, no icon tile: a plain card with a plain title, like the rest.
+    // The page's main action, drawn the way the site's home draws it: a card
+    // of its own, centred, with the form standing up inside (RoomStartForm's
+    // `stack`). No glow, no icon tile: a title, a line, the form.
     return (
-      <section className={`${tile} hub-ring shrink-0 !p-4 xl:!p-6 ${className}`}>
-        <h2 className="mb-3 text-lg xl:mb-4 font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
-        {form}
+      <section className={`${tile} hub-ring mx-auto w-full max-w-xl shrink-0 !p-6 ${className}`}>
+        <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.hub.startRoomHint")}</p>
+        <div className="mt-5">{form}</div>
       </section>
     );
   }
