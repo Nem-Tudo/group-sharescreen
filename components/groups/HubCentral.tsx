@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -75,7 +75,8 @@ function connected(presence: PresenceInfo | undefined): boolean {
 
 type InboxEntry =
   | { type: "dm"; id: string; ts: number; unread: number; user: SocialUser; line: string }
-  | { type: "notification"; id: string; ts: number; unread: number; notification: InboxNotification };
+  | { type: "notification"; id: string; ts: number; unread: number; notification: InboxNotification }
+  | { type: "bundle"; kind: "friend-request" | "theme-like"; id: string; ts: number; unread: number; title: string; body: string };
 
 function useCentralData(inboxSize: number) {
   const t = useT();
@@ -105,9 +106,45 @@ function useCentralData(inboxSize: number) {
           ? t("directMessagesModal.youLine", { line: messageSummary(lastMessage) })
           : messageSummary(lastMessage),
     }));
+    // Bundled instead of one row each: a dozen "Novo pedido de amizade" rows
+    // drowned the messages. The requests are one line (the graph's pending
+    // list is the truth: answered ones drop out), and the likes on this
+    // person's themes and effects are one line once there is more than one.
+    const requests = notifications.filter((n) => n.kind === "friend-request");
+    if (graph.incoming.length > 0) {
+      const names = graph.incoming.slice(0, 2).map((user) => user.displayName);
+      const rest = graph.incoming.length - names.length;
+      entries.push({
+        type: "bundle",
+        kind: "friend-request",
+        id: "bundle:friend-request",
+        // 0 when the bell has no row for them (cleared): no time is shown then.
+        ts: requests.reduce((max, n) => Math.max(max, n.ts), 0),
+        unread: requests.some((n) => !n.read) ? 1 : 0,
+        title:
+          graph.incoming.length === 1
+            ? t("groups.central.request")
+            : t("groups.central.requests", { count: graph.incoming.length }),
+        body: rest > 0 ? t("groups.central.namesAndMore", { names: names.join(", "), count: rest }) : names.join(", "),
+      });
+    }
+    const likes = notifications.filter((n) => n.kind === "theme-like" || n.kind === "camera-effect-like");
+    if (likes.length > 1) {
+      const latest = likes.reduce((a, b) => (b.ts > a.ts ? b : a));
+      entries.push({
+        type: "bundle",
+        kind: "theme-like",
+        id: "bundle:likes",
+        ts: latest.ts,
+        unread: likes.some((n) => !n.read) ? 1 : 0,
+        title: t("groups.central.likesBundle", { count: likes.length }),
+        body: latest.title,
+      });
+    }
+    const bundled = new Set<InboxNotification["kind"]>(["friend-request", ...(likes.length > 1 ? (["theme-like", "camera-effect-like"] as const) : [])]);
     // The bell's "Mensagem de …" rows are the conversations above, again.
     for (const notification of notifications) {
-      if (notification.kind === "dm") continue;
+      if (notification.kind === "dm" || bundled.has(notification.kind)) continue;
       entries.push({
         type: "notification",
         id: notification.id,
@@ -119,7 +156,7 @@ function useCentralData(inboxSize: number) {
     return entries
       .sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0) || b.ts - a.ts)
       .slice(0, inboxSize);
-  }, [recent.rows, notifications, account?.id, t, inboxSize]);
+  }, [recent.rows, notifications, graph.incoming, account?.id, t, inboxSize]);
 
   const unreadNotifications = notifications.some((item) => !item.read && item.kind !== "dm");
 
@@ -218,6 +255,13 @@ interface LayoutProps {
 function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
   const t = useT();
   const live = liveGroups ?? [];
+  // Lifted so the inbox's requests line can open the Pendentes tab.
+  const [friendsTab, setFriendsTab] = useState<FriendsTab>("online");
+  const friendsRef = useRef<HTMLElement | null>(null);
+  function showPending() {
+    setFriendsTab("pending");
+    friendsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-7 2xl:px-10">
@@ -236,16 +280,20 @@ function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
           </section>
         )}
 
-        <FriendsSection data={data} actions={actions} />
+        <FriendsSection data={data} actions={actions} tab={friendsTab} setTab={setFriendsTab} sectionRef={friendsRef} />
       </div>
 
-      <aside className="flex min-h-[24rem] shrink-0 flex-col border-t border-zinc-200 bg-white lg:h-full lg:min-h-0 lg:w-[22rem] lg:border-l lg:border-t-0 2xl:w-[24rem] dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex min-h-0 flex-1 flex-col px-4 pt-6">
-          <InboxHeader data={data} compact />
+      {/* Cards, like the rest of the page, held to the right edge by the
+          same small gutter the rail keeps on the left, full height. */}
+      <aside className="flex min-h-[24rem] shrink-0 flex-col gap-3 px-6 pb-6 lg:min-h-0 lg:w-[23rem] lg:py-4 lg:pl-0 lg:pr-4 2xl:w-[25rem]">
+        <section className={`${tile} flex min-h-0 flex-1 flex-col !px-3 !pb-2 !pt-4`}>
+          <div className="px-2">
+            <InboxHeader data={data} compact />
+          </div>
           <Scroll>
-            <InboxList data={data} grouped />
+            <InboxList data={data} onPending={showPending} />
           </Scroll>
-        </div>
+        </section>
         <ThemesLink />
       </aside>
     </div>
@@ -260,9 +308,20 @@ type FriendsTab = "online" | "all" | "pending";
  * width. "Pendentes" is a tab of the same list, with accept and decline on
  * each request, not a popup.
  */
-function FriendsSection({ data, actions }: { data: CentralData; actions: FriendActions }) {
+function FriendsSection({
+  data,
+  actions,
+  tab,
+  setTab,
+  sectionRef,
+}: {
+  data: CentralData;
+  actions: FriendActions;
+  tab: FriendsTab;
+  setTab: (tab: FriendsTab) => void;
+  sectionRef: RefObject<HTMLElement | null>;
+}) {
   const t = useT();
-  const [tab, setTab] = useState<FriendsTab>("online");
   const [query, setQuery] = useState("");
   const [searched, setSearched] = useState(false);
   const { busyId, error, call } = useCall();
@@ -451,7 +510,7 @@ function FriendsSection({ data, actions }: { data: CentralData; actions: FriendA
   }
 
   return (
-    <section className="mt-6 flex shrink-0 flex-col">
+    <section ref={sectionRef} className="mt-6 flex shrink-0 scroll-mt-4 flex-col">
       <div className="flex flex-wrap items-center gap-3">
         <SectionTitle>{t("common.friends")}</SectionTitle>
         <div className="inline-flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900" role="tablist">
@@ -535,7 +594,7 @@ function ThemesLink() {
     <GroupLink
       href="/workshop"
       onClick={() => trackHubCentral(HUB_CENTRAL_EVENTS.link, { tags: { to: "themes" } })}
-      className="group flex shrink-0 items-center gap-3 border-t border-zinc-200 px-4 py-3.5 transition hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900"
+      className={`${tile} group flex shrink-0 items-center gap-3 !p-3.5 transition hover:ring-zinc-300 dark:hover:ring-zinc-700`}
     >
       <span className="hub-accent flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
         <MdPalette className="h-5 w-5" />
@@ -999,7 +1058,16 @@ function InboxHeader({ data, compact = false }: { data: CentralData; compact?: b
   );
 }
 
-function InboxList({ data, grouped = false }: { data: CentralData; grouped?: boolean }) {
+function InboxList({
+  data,
+  grouped = false,
+  onPending,
+}: {
+  data: CentralData;
+  grouped?: boolean;
+  /** Where the friend requests line leads: the friends list's Pendentes tab (now layout), else the requests popup. */
+  onPending?: () => void;
+}) {
   const t = useT();
   const live = useDmLive();
   const { account } = useAuth();
@@ -1011,6 +1079,14 @@ function InboxList({ data, grouped = false }: { data: CentralData; grouped?: boo
     if (entry.type === "dm") {
       trackHubCentral(HUB_CENTRAL_EVENTS.dmOpen);
       openDirectMessages(entry.user.id);
+      return;
+    }
+    if (entry.type === "bundle") {
+      trackHubCentral(HUB_CENTRAL_EVENTS.notifOpen, { tags: { kind: entry.kind } });
+      if (entry.kind === "friend-request") {
+        if (onPending) onPending();
+        else setRequestsOpen(true);
+      }
       return;
     }
     const { notification } = entry;
@@ -1084,7 +1160,7 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
           />
         ) : (
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-            <NotificationKindIcon kind={entry.notification.kind} />
+            <NotificationKindIcon kind={entry.type === "bundle" ? entry.kind : entry.notification.kind} />
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -1099,7 +1175,7 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
             />
           ) : (
             <span className={`block truncate text-sm text-zinc-900 dark:text-zinc-100 ${unread ? "font-semibold" : "font-medium"}`}>
-              {entry.notification.title}
+              {entry.type === "bundle" ? entry.title : entry.notification.title}
             </span>
           )}
           {typing ? (
@@ -1110,12 +1186,12 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
             <span
               className={`block truncate text-xs ${unread ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-500 dark:text-zinc-400"}`}
             >
-              {entry.type === "dm" ? entry.line : entry.notification.body}
+              {entry.type === "dm" ? entry.line : entry.type === "bundle" ? entry.body : entry.notification.body}
             </span>
           )}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
-          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{relativeTime(entry.ts)}</span>
+          {entry.ts > 0 && <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{relativeTime(entry.ts)}</span>}
           {entry.type === "dm" && unread ? (
             <span className={unreadBadge}>{entry.unread > 99 ? "99+" : entry.unread}</span>
           ) : unread ? (

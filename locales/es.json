@@ -2308,6 +2308,8 @@
   "groups.central.statusAway": "Ausente",
   "groups.central.statusBackground": "App en segundo plano",
   "groups.central.join": "Entrar",
+  "groups.central.namesAndMore": "{names} y {count} más",
+  "groups.central.likesBundle": "{count} me gusta en tus temas y efectos",
   "groups.central.noPending": "No hay solicitudes de amistad pendientes.",
   "groups.central.receivedSection": "Recibidas — {count}",
   "groups.central.sentSection": "Enviadas — {count}",

@@ -2308,6 +2308,8 @@
   "groups.central.statusAway": "Away",
   "groups.central.statusBackground": "App in background",
   "groups.central.join": "Join",
+  "groups.central.namesAndMore": "{names} and {count} more",
+  "groups.central.likesBundle": "{count} likes on your themes and effects",
   "groups.central.noPending": "No pending friend requests.",
   "groups.central.receivedSection": "Received — {count}",
   "groups.central.sentSection": "Sent — {count}",
