@@ -22,7 +22,7 @@ import { messageSummary } from "@/lib/dmThread";
 import { openDirectMessages } from "@/lib/dmWindow";
 import { verifiedBadge } from "@/lib/entitlements";
 import type { GroupSummary } from "@/lib/groupsApi";
-import { groupPath } from "@/lib/groupLinks";
+import { GROUPS_EXPLORE_PATH, groupPath } from "@/lib/groupLinks";
 import { HUB_CENTRAL_EVENTS, trackHubCentral, type HubCentralLayout } from "@/lib/hubCentral";
 import { markAllRead, useNotificationInbox, type InboxNotification } from "@/lib/notificationInbox";
 import { usePresenceMap } from "@/lib/presence";
@@ -276,7 +276,6 @@ interface LayoutProps {
 // (explore, rooms, map, invite, new group) are not repeated here: the rail and
 // the shell's bar already have every one of them.
 function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false }: LayoutProps) {
-  const t = useT();
   const live = liveGroups ?? [];
   // Lifted so the inbox's requests line can open the Pendentes tab.
   const [friendsTab, setFriendsTab] = useState<FriendsTab>("online");
@@ -285,31 +284,32 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false 
     setFriendsTab("pending");
     friendsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  // Three panes, the way Discord, Slack and Steam lay a home out: a fixed
+  // column for the one thing you do here (start a room) and what is live in
+  // your groups, a flexible one for people (chamados, friends), and the inbox
+  // glued to the right. Every pane starts on the same line and runs to the
+  // bottom of the screen, its list scrolling inside it, so the page is one
+  // grid with no orphan block in the middle and no dead band under a short
+  // list. Below xl there is no room for three: the two left panes stack and
+  // the column scrolls as a whole.
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-6 pt-5 xl:px-6 xl:pt-7 2xl:px-10">
-        {/* The greeting over the card, both centred: the top of the page is
-            one block, and the lists under it take the full width. */}
-        <div className="mx-auto w-full max-w-xl text-center">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-4 pt-4 xl:px-5 2xl:px-6">
+        <div className="shrink-0 px-1 pb-4 pt-1">
           <Greeting data={data} />
         </div>
 
-        <StartStrip form={startRoomForm} className="mt-5" hero />
+        <div className="flex flex-col gap-4 xl:grid xl:min-h-0 xl:flex-1 xl:grid-cols-[22rem_minmax(0,1fr)] xl:gap-4 2xl:grid-cols-[25rem_minmax(0,1fr)]">
+          <div className="flex flex-col gap-4 xl:min-h-0 xl:overflow-y-auto">
+            <StartStrip form={startRoomForm} hero />
+            <LivePanel live={live} loading={liveGroups === null} />
+          </div>
 
-        {chamados && <ChamadosSection className="mt-6" />}
-
-        {live.length > 0 && (
-          <section className="mt-6 shrink-0">
-            <SectionTitle>{t("groups.hub.happening")}</SectionTitle>
-            <ul className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-2">
-              {live.slice(0, 6).map((group) => (
-                <LiveGroupBanner key={group.id} group={group} />
-              ))}
-            </ul>
-          </section>
-        )}
-
-        <FriendsSection data={data} actions={actions} tab={friendsTab} setTab={setFriendsTab} sectionRef={friendsRef} />
+          <div className="flex flex-col gap-4 xl:min-h-0">
+            {chamados && <ChamadosSection className="shrink-0" />}
+            <FriendsSection data={data} actions={actions} tab={friendsTab} setTab={setFriendsTab} sectionRef={friendsRef} />
+          </div>
+        </div>
       </div>
 
       {/* Cards, like the rest of the page, held to the right edge by the
@@ -386,7 +386,7 @@ function FriendsSection({
   const card = (user: SocialUser, presence: PresenceInfo | undefined, side: ReactNode) => (
     <li
       key={user.id}
-      className="group flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-zinc-200 transition hover:ring-zinc-300 dark:bg-zinc-950 dark:ring-zinc-800 dark:hover:ring-zinc-700"
+      className="group flex items-center gap-3 rounded-xl bg-zinc-100/70 p-3 transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
     >
       <button
         type="button"
@@ -539,7 +539,7 @@ function FriendsSection({
   }
 
   return (
-    <section ref={sectionRef} className="mt-6 flex shrink-0 scroll-mt-4 flex-col">
+    <section ref={sectionRef} className={`${tile} flex min-h-[22rem] scroll-mt-4 flex-col !p-4 xl:min-h-0 xl:flex-1`}>
       <div className="flex flex-wrap items-center gap-3">
         <SectionTitle>{t("common.friends")}</SectionTitle>
         <div className="inline-flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900" role="tablist">
@@ -607,7 +607,7 @@ function FriendsSection({
         </div>
       </div>
       {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      <div className="mt-3">{body}</div>
+      <div className="-mr-2 mt-3 pr-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">{body}</div>
     </section>
   );
 }
@@ -789,7 +789,7 @@ function StartStrip({ form, className = "", hero = false }: { form: ReactNode; c
     // of its own, centred, with the form standing up inside (RoomStartForm's
     // `stack`). No glow, no icon tile: a title, a line, the form.
     return (
-      <section className={`${tile} hub-ring mx-auto w-full max-w-xl shrink-0 !p-6 ${className}`}>
+      <section className={`${tile} hub-ring w-full shrink-0 !p-5 2xl:!p-6 ${className}`}>
         <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.hub.startRoomHint")}</p>
         <div className="mt-5">{form}</div>
@@ -1043,6 +1043,61 @@ function LiveDot({ group }: { group: GroupSummary }) {
       className={`h-2 w-2 shrink-0 rounded-full ${group.voiceActivity === "voice" ? "bg-emerald-500" : "bg-red-500"}`}
       aria-hidden
     />
+  );
+}
+
+/**
+ * "Acontecendo nos seus grupos" as the left pane's second panel: under the
+ * room card, filling the rest of the column, the groups with a call going on
+ * as plain rows. With none, it says so and offers the way to find more —
+ * an empty state with somewhere to go, not a blank box.
+ */
+function LivePanel({ live, loading }: { live: GroupSummary[]; loading: boolean }) {
+  const t = useT();
+  return (
+    <section className={`${tile} flex min-h-[10rem] flex-col !p-4 xl:min-h-[9rem] xl:flex-1`}>
+      <SectionTitle>{t("groups.hub.happening")}</SectionTitle>
+      <div className="-mr-2 mt-2 min-h-0 flex-1 overflow-y-auto pr-2">
+        {loading ? (
+          <ul aria-hidden className="flex flex-col gap-2">
+            {[0, 1].map((i) => (
+              <li key={i} className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
+            ))}
+          </ul>
+        ) : live.length === 0 ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {t("groups.hub.nothingHappening")}{" "}
+            <GroupLink href={GROUPS_EXPLORE_PATH} className="font-medium text-zinc-700 underline underline-offset-2 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50">
+              {t("groups.groupDialogs.exploreGroups")}
+            </GroupLink>
+          </p>
+        ) : (
+          <ul className="-mx-2 flex flex-col">
+            {live.map((group) => (
+              <li key={group.id}>
+                <GroupLink
+                  href={groupPath(group.id)}
+                  onMouseEnter={() => prefetchGroup(group.id)}
+                  className="group flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                >
+                  <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={36} className="rounded-lg" />
+                  <span className="min-w-0 flex-1">
+                    <GroupName name={group.name} flags={group.flags} className="flex w-full text-sm font-medium text-zinc-900 dark:text-zinc-100" />
+                    <span className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      <LiveDot group={group} />
+                      <span className="truncate">{activityLabel(group, t)}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-300 transition group-hover:bg-white dark:text-zinc-200 dark:ring-zinc-700 dark:group-hover:bg-zinc-950">
+                    {t("groups.central.join")}
+                  </span>
+                </GroupLink>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 
