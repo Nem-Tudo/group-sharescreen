@@ -563,7 +563,9 @@ function FriendsSection({
             </button>
           ))}
         </div>
-        <div className="ml-auto flex min-w-[12rem] flex-1 items-center justify-end gap-2">
+        {/* The search right after the tabs (it filters what they show); the
+            button at the far end. */}
+        <div className="flex min-w-[12rem] flex-1 items-center gap-2">
           <div className="relative min-w-0 max-w-56 flex-1">
             <MdSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
             <input
@@ -593,7 +595,7 @@ function FriendsSection({
             onClick={actions.addFriend}
             aria-label={t("common.addFriend")}
             title={t("common.addFriend")}
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 xl:px-3 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            className="ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 xl:px-3 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             <MdPersonAdd className="h-4 w-4" />
             <span className="hidden xl:inline">{t("common.addFriend")}</span>
