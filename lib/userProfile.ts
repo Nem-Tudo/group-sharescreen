@@ -1,5 +1,6 @@
 import { getSignalingHttpBase } from "./roomsApi";
-import type { Account } from "./accountApi";
+import { getAccountToken, type Account } from "./accountApi";
+import { normalizeCommentsPage, type ProfileCommentsPage } from "./profileComments";
 
 // Whoever this account is currently connected to, if it's a *public* room —
 // the server (see GET /users/:id) deliberately never reveals a private one,
@@ -14,6 +15,8 @@ export type UserProfile = {
   groupCount?: number;
   /** The group shown on this profile (Pro Ultra), when it can still be joined from it. */
   profileGroup?: ProfileGroup | null;
+  /** The first page of comments, when asked for (`withComments`). Absent from an older API. */
+  comments?: ProfileCommentsPage;
 };
 
 /** See the API's profileGroup.ts. */
@@ -38,10 +41,20 @@ export type ProfileGroup = {
 // same information a room's own peer list already shows to everyone in it,
 // just gathered into one page. Returns null for an id that isn't a real
 // account (a guest's id, or one that no longer exists).
-export async function fetchUserProfile(id: string, signal?: AbortSignal): Promise<UserProfile | null> {
-  const res = await fetch(`${getSignalingHttpBase()}/users/${encodeURIComponent(id)}`, { signal });
+export async function fetchUserProfile(
+  id: string,
+  signal?: AbortSignal,
+  options: { withComments?: boolean } = {}
+): Promise<UserProfile | null> {
+  // With the comments, signed: what this viewer may do there is part of them.
+  const token = options.withComments ? getAccountToken() : null;
+  const res = await fetch(
+    `${getSignalingHttpBase()}/users/${encodeURIComponent(id)}${options.withComments ? "?with=comments" : ""}`,
+    { signal, headers: token ? { Authorization: `Bearer ${token}` } : undefined }
+  );
   if (!res.ok) return null;
   const data = (await res.json()) as UserProfile;
+  if (data.comments) data.comments = normalizeCommentsPage(data.comments);
   rememberProfile(id, data);
   return data;
 }

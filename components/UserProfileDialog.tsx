@@ -183,6 +183,7 @@ export function UserProfileDialog({
             id={userId}
             onNavigate={onClose}
             compact={fit}
+            withComments
             // Inside the card, not under it (see `sections` there).
             // Experiment profile-comments — the newest few, expanding in
             // place (see ProfileComments).

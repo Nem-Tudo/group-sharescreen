@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import useNtPopups from "ntpopups";
 import {
@@ -29,6 +29,8 @@ import {
   fetchProfileCommentSettings,
   fetchProfileComments,
   postProfileComment,
+  PrefetchedCommentsContext,
+  type ProfileCommentsPage,
   reactToProfileComment,
   setProfileCommentSwitches,
   toggleProfileReaction,
@@ -117,6 +119,41 @@ function sameProfile(account: { id: string; username: string } | null, profileId
   return account.id === profileId || account.username.toLowerCase() === profileId.toLowerCase();
 }
 
+type CommentsState =
+  | { status: "loading" }
+  | { status: "hidden" }
+  | { status: "error" }
+  | {
+      status: "ready";
+      enabled: boolean;
+      isOwner: boolean;
+      canModerate: boolean;
+      canComment: boolean;
+      reason: ProfileCommentBlockReason;
+      reactionsEnabled: boolean;
+      canReact: boolean;
+      total: number;
+      comments: ProfileComment[];
+      hasMore: boolean;
+    };
+
+function stateOfPage(page: ProfileCommentsPage): CommentsState {
+  if (!page.available) return { status: "hidden" };
+  return {
+    status: "ready",
+    enabled: page.enabled,
+    isOwner: page.isOwner,
+    canModerate: page.canModerate,
+    canComment: page.canComment,
+    reason: page.reason,
+    reactionsEnabled: page.reactionsEnabled !== false,
+    canReact: page.canReact === true,
+    total: page.total ?? page.comments.length,
+    comments: page.comments,
+    hasMore: page.hasMore,
+  };
+}
+
 export function ProfileComments({
   profileId,
   compact = false,
@@ -143,24 +180,11 @@ export function ProfileComments({
   const viewingOwn = sameProfile(account, profileId);
   useFeature(PROFILE_COMMENTS_FEATURE, { track: viewingOwn });
 
-  const [state, setState] = useState<
-    | { status: "loading" }
-    | { status: "hidden" }
-    | { status: "error" }
-    | {
-        status: "ready";
-        enabled: boolean;
-        isOwner: boolean;
-        canModerate: boolean;
-        canComment: boolean;
-        reason: ProfileCommentBlockReason;
-        reactionsEnabled: boolean;
-        canReact: boolean;
-        total: number;
-        comments: ProfileComment[];
-        hasMore: boolean;
-      }
-  >({ status: "loading" });
+  // The first page, when it came with the profile (the popup — see
+  // PrefetchedCommentsContext): drawn from the first render, no request of
+  // its own.
+  const prefetched = useContext(PrefetchedCommentsContext)?.page;
+  const [state, setState] = useState<CommentsState>(() => (prefetched ? stateOfPage(prefetched) : { status: "loading" }));
   const [expanded, setExpanded] = useState(!compact);
   const [loadingMore, setLoadingMore] = useState(false);
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
@@ -170,25 +194,7 @@ export function ProfileComments({
   const load = useCallback(
     (signal?: AbortSignal) =>
       fetchProfileComments(profileId, undefined, signal)
-        .then((page) => {
-          if (!page.available) {
-            setState({ status: "hidden" });
-            return;
-          }
-          setState({
-            status: "ready",
-            enabled: page.enabled,
-            isOwner: page.isOwner,
-            canModerate: page.canModerate,
-            canComment: page.canComment,
-            reason: page.reason,
-            reactionsEnabled: page.reactionsEnabled !== false,
-            canReact: page.canReact === true,
-            total: page.total ?? page.comments.length,
-            comments: page.comments,
-            hasMore: page.hasMore,
-          });
-        })
+        .then((page) => setState(stateOfPage(page)))
         .catch((err) => {
           if (err instanceof DOMException && err.name === "AbortError") return;
           setState((previous) => (previous.status === "ready" ? previous : { status: "error" }));
@@ -199,11 +205,23 @@ export function ProfileComments({
   // Re-read when the signed-in account changes: what this viewer may do
   // (comment, delete, moderate) is part of the answer.
   const accountId = account?.id ?? null;
+  // The account the prefetched page was read for: it stands only while that
+  // is still who is looking.
+  const prefetchedFor = useRef<string | null | undefined>(prefetched ? accountId : undefined);
   useEffect(() => {
+    if (prefetched) {
+      // The first page to arrive with the profile — on open, or after a
+      // cached profile without one was replaced by the fresh read.
+      if (prefetchedFor.current === undefined) prefetchedFor.current = accountId;
+      if (prefetchedFor.current === accountId) {
+        setState(stateOfPage(prefetched));
+        return;
+      }
+    }
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, [load, accountId]);
+  }, [load, accountId, prefetched]);
 
   // A link to "#comments" (the push notification's) lands here once loaded.
   const ready = state.status === "ready";

@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext } from "react";
 import { getAccountToken } from "./accountApi";
 import { getSignalingHttpBase } from "./roomsApi";
 import { translate } from "@/lib/i18n";
@@ -110,6 +111,19 @@ export type ProfileCommentsPage =
 
 export const PROFILE_COMMENT_MAX_LENGTH = 500;
 
+/**
+ * The first page of comments that came with the profile itself (GET
+ * /users/:id?with=comments — the profile popup, see UserProfileCard's
+ * `withComments`), for ProfileComments to start from instead of asking.
+ * `page` undefined: this read carried none (an older API) — ask as usual.
+ */
+export const PrefetchedCommentsContext = createContext<{ page: ProfileCommentsPage | undefined } | null>(null);
+
+/** A page as read off the wire: an API from before reactions sends none. */
+export function normalizeCommentsPage(page: ProfileCommentsPage): ProfileCommentsPage {
+  return page.available ? { ...page, comments: page.comments.map(withReactions) } : page;
+}
+
 function authHeaders(json = false): Record<string, string> {
   const token = getAccountToken();
   return {
@@ -140,8 +154,7 @@ export async function fetchProfileComments(
   );
   if (res.status === 404) return { available: false };
   if (!res.ok) throw new Error(await errorOf(res));
-  const page = (await res.json()) as ProfileCommentsPage;
-  return page.available ? { ...page, comments: page.comments.map(withReactions) } : page;
+  return normalizeCommentsPage((await res.json()) as ProfileCommentsPage);
 }
 
 /**

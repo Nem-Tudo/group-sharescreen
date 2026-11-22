@@ -4,6 +4,7 @@ import { errorText } from "@/lib/errorText";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { fetchUserProfile, formatDuration, peekUserProfile, type UserProfile } from "@/lib/userProfile";
+import { PrefetchedCommentsContext } from "@/lib/profileComments";
 import { MicIcon, ScreenIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Popover, Tooltip } from "@/components/Tooltip";
@@ -449,8 +450,15 @@ export function UserProfileCard({
   autoPlaySong = false,
   sections,
   compact = false,
+  withComments = false,
 }: {
   id: string;
+  /**
+   * Reads the first page of comments along with the profile (one request —
+   * the popup, so it knows its whole height at once) and hands it to the
+   * ProfileComments in `sections`.
+   */
+  withComments?: boolean;
   /**
    * The popup's fit (UserProfileDialog): a lower banner and, on a wide
    * screen, the card in two columns no taller than the window — who they are
@@ -490,7 +498,7 @@ export function UserProfileCard({
   // from landing after the fact.
   useEffect(() => {
     const controller = new AbortController();
-    fetchUserProfile(id, controller.signal)
+    fetchUserProfile(id, controller.signal, { withComments })
       .then(setProfile)
       .catch((err) => {
         // A superseded request (id changed, or this profile unmounted)
@@ -502,7 +510,7 @@ export function UserProfileCard({
         setProfile((previous) => previous ?? null);
       });
     return () => controller.abort();
-  }, [id]);
+  }, [id, withComments]);
 
   if (profile === undefined) return <ProfileSkeleton />;
   if (profile === null) {
@@ -514,7 +522,7 @@ export function UserProfileCard({
       </div>
     );
   }
-  return (
+  const content = (
     <ProfileContent
       profile={profile}
       onNavigate={onNavigate}
@@ -523,6 +531,11 @@ export function UserProfileCard({
       sections={sections}
       compact={compact}
     />
+  );
+  return withComments ? (
+    <PrefetchedCommentsContext.Provider value={{ page: profile.comments }}>{content}</PrefetchedCommentsContext.Provider>
+  ) : (
+    content
   );
 }
 
