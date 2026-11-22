@@ -488,8 +488,13 @@ export function UserProfileCard({
   // Starts from the last answer read for this id when there is one (see
   // peekUserProfile), so a profile opened again — or warmed on hover — draws at
   // once; the read below always still happens and replaces it.
+  // With `withComments` (the popup), only a held profile that has them: one
+  // without would open at one height and grow when they land.
   const [profile, setProfile] = useState<UserProfile | null | undefined>(
-    () => peekUserProfile(id) ?? undefined
+    () => {
+      const held = peekUserProfile(id);
+      return held && (!withComments || held.comments) ? held : undefined;
+    }
   );
 
   // Keeps whatever's already on screen while a new id loads, rather than

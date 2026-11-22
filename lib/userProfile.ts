@@ -72,6 +72,10 @@ const PROFILE_PREFETCH_FRESH_MS = 30_000;
 const profileInFlight = new Map<string, Promise<UserProfile | null>>();
 
 function rememberProfile(id: string, profile: UserProfile) {
+  // A read without the comments (the /user page's) keeps the ones already
+  // held, so the popup still finds a whole profile here.
+  const held = profileCache.get(id)?.profile.comments;
+  if (!profile.comments && held) profile = { ...profile, comments: held };
   profileCache.delete(id);
   profileCache.set(id, { profile, at: Date.now() });
   while (profileCache.size > PROFILE_CACHE_MAX) {
@@ -96,7 +100,9 @@ export function prefetchUserProfile(id: string): void {
   const held = profileCache.get(id);
   if (held && Date.now() - held.at < PROFILE_PREFETCH_FRESH_MS) return;
   if (profileInFlight.has(id)) return;
-  const run = fetchUserProfile(id)
+  // With the comments: what a hover warms is what the popup opens, and the
+  // popup only draws a held profile that has them (see UserProfileCard).
+  const run = fetchUserProfile(id, undefined, { withComments: true })
     .catch(() => null)
     .finally(() => {
       profileInFlight.delete(id);
