@@ -175,6 +175,15 @@ export function viewedThemeId(value: string | string[] | undefined): string | nu
  * was once looked at in. Somebody who deliberately calls their own room
  * "priv-theme-view-da-galera" keeps it, because that is not six digits.
  */
+/**
+ * A chamado's room (experiment chamados): minted by the API as
+ * "priv-ch-<8>-<6 digits>". The way back to one is its chamado, not the
+ * recent rooms list.
+ */
+export function isChamadoRoomHandle(handle: string): boolean {
+  return /^priv-ch-[a-z0-9]{8}-[0-9]{6}$/.test(handle);
+}
+
 export function isThemeRoomHandle(handle: string): boolean {
   // [0-9] rather than a backslash-d: this pattern is built from a template
   // literal, where an unrecognised escape quietly becomes the bare letter and

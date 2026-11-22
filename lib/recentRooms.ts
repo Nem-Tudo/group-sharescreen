@@ -1,5 +1,6 @@
 import {
   isCallRoomHandle,
+  isChamadoRoomHandle,
   isPrivateRoomHandle,
   isThemeRoomHandle,
   PRIVATE_ROOM_PREFIX,
@@ -68,6 +69,7 @@ function isRecentRoom(value: unknown): value is RecentRoom {
     // one and would otherwise hold a slot until three newer rooms pushed it
     // out.
     !isThemeRoomHandle(handle) &&
+    !isChamadoRoomHandle(handle) &&
     typeof visitedAt === "number" &&
     Number.isFinite(visitedAt)
   );
@@ -158,6 +160,8 @@ export function withRecentRoom(existing: RecentRoom[], handle: string, now: numb
   // per press, named after the task, and the way back to the theme is its
   // page — not a room it was once looked at in.
   if (isThemeRoomHandle(handle)) return null;
+  // And a chamado's room: its way back is the chamado, and it ends with it.
+  if (isChamadoRoomHandle(handle)) return null;
   // Already on the list: leave the *order* alone. Re-entering the second slot
   // would otherwise bump it to the top and shuffle the other two, which is
   // the opposite of a stable "salas recentes" shortcut — the whole value of

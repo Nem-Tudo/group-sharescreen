@@ -13,6 +13,8 @@ import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { HubGreeting } from "@/components/groups/HubGreeting";
+import { ChamadosSection } from "@/components/chamados/Chamados";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { startCall } from "@/lib/callsApi";
 import { useDmLive } from "@/lib/dmLive";
@@ -203,6 +205,7 @@ export function HubCentralHome({
   startRoomForm,
   liveGroups,
   links,
+  chamados = false,
 }: {
   layout: HubCentralLayout;
   /** The room form (RoomStartForm with its tracking), drawn where the layout puts it. */
@@ -210,6 +213,8 @@ export function HubCentralHome({
   /** Groups of this person's with a call going on, or null while loading. */
   liveGroups: GroupSummary[] | null;
   links: HubCentralLink[];
+  /** The chamados feed is on (experiment chamados): the "now" layout draws it under the room form. */
+  chamados?: boolean;
 }) {
   const data = useCentralData(30);
   const [adding, setAdding] = useState(false);
@@ -233,7 +238,7 @@ export function HubCentralHome({
     ) : layout === "bento" ? (
       <BentoLayout data={data} actions={actions} startRoomForm={startRoomForm} liveGroups={liveGroups} links={links} />
     ) : (
-      <NowLayout data={data} actions={actions} startRoomForm={startRoomForm} liveGroups={liveGroups} links={links} />
+      <NowLayout data={data} actions={actions} startRoomForm={startRoomForm} liveGroups={liveGroups} links={links} chamados={chamados} />
     );
 
   return (
@@ -258,6 +263,7 @@ interface LayoutProps {
   startRoomForm: ReactNode;
   liveGroups: GroupSummary[] | null;
   links: HubCentralLink[];
+  chamados?: boolean;
 }
 
 // ─── Layout: now ──────────────────────────────────────────────────────────
@@ -269,7 +275,7 @@ interface LayoutProps {
 // fill it as a grid of cards rather than one thin list. The ways out
 // (explore, rooms, map, invite, new group) are not repeated here: the rail and
 // the shell's bar already have every one of them.
-function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
+function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false }: LayoutProps) {
   const t = useT();
   const live = liveGroups ?? [];
   // Lifted so the inbox's requests line can open the Pendentes tab.
@@ -285,6 +291,8 @@ function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
         <Greeting data={data} />
 
         <StartStrip form={startRoomForm} className="mt-5" hero />
+
+        {chamados && <ChamadosSection className="mt-6" />}
 
         {live.length > 0 && (
           <section className="mt-6 shrink-0">
@@ -1105,9 +1113,12 @@ function InboxList({
 }) {
   const t = useT();
   const live = useDmLive();
+  const router = useRouter();
   const { account } = useAuth();
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [ownProfileOpen, setOwnProfileOpen] = useState(false);
+  // A conversation's face or name opens that person's profile, not the chat.
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
   // Same destinations as the bell's list (see NotificationInboxBell).
@@ -1129,6 +1140,7 @@ function InboxList({
     trackHubCentral(HUB_CENTRAL_EVENTS.notifOpen, { tags: { kind: notification.kind } });
     if (notification.kind === "friend-request") setRequestsOpen(true);
     else if (notification.kind === "profile-comment") setOwnProfileOpen(true);
+    else if (notification.kind === "chamado-going" && notification.href) router.push(notification.href);
     else if (notification.kind === "call-missed" || notification.kind === "friend-accepted") {
       openDirectMessages(notification.userId);
     }
@@ -1152,7 +1164,13 @@ function InboxList({
   const rows = (entries: InboxEntry[]) => (
     <ul className="-mx-2 flex flex-col">
       {entries.map((entry) => (
-        <InboxRow key={entry.id} entry={entry} typing={entry.type === "dm" && Boolean(live.typing[entry.user.id])} onOpen={() => open(entry)} />
+        <InboxRow
+          key={entry.id}
+          entry={entry}
+          typing={entry.type === "dm" && Boolean(live.typing[entry.user.id])}
+          onOpen={() => open(entry)}
+          onProfile={entry.type === "dm" ? () => setProfileId(entry.user.id) : undefined}
+        />
       ))}
     </ul>
   );
@@ -1161,6 +1179,7 @@ function InboxList({
     <>
       <FriendRequestsModal open={requestsOpen} onClose={() => setRequestsOpen(false)} />
       {ownProfileOpen && account && <UserProfileDialog userId={account.id} onClose={() => setOwnProfileOpen(false)} />}
+      {profileId && <UserProfileDialog userId={profileId} onClose={() => setProfileId(null)} />}
     </>
   );
 
@@ -1185,7 +1204,12 @@ function InboxList({
             </p>
             <ul className="-mx-2 flex flex-col">
               {readShown.map((entry) => (
-                <CompactInboxRow key={entry.id} entry={entry} onOpen={() => open(entry)} />
+                <CompactInboxRow
+                  key={entry.id}
+                  entry={entry}
+                  onOpen={() => open(entry)}
+                  onProfile={entry.type === "dm" ? () => setProfileId(entry.user.id) : undefined}
+                />
               ))}
             </ul>
           </>
@@ -1233,54 +1257,70 @@ const FOCUSED_RECENT_CALM = 3;
  * plain (no colour, no badges) and the preview beside it in grey. The time
  * only when it is from today; older than that, it does not matter here.
  */
-function CompactInboxRow({ entry, onOpen }: { entry: InboxEntry; onOpen: () => void }) {
+function CompactInboxRow({ entry, onOpen, onProfile }: { entry: InboxEntry; onOpen: () => void; onProfile?: () => void }) {
+  const t = useT();
   const name =
     entry.type === "dm" ? entry.user.displayName : entry.type === "bundle" ? entry.title : entry.notification.title;
   const line = entry.type === "dm" ? entry.line : entry.type === "bundle" ? entry.body : entry.notification.body ?? "";
   const today = isFromToday(entry.ts);
   return (
     <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-      >
+      <RowShell onOpen={onOpen} className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900">
         {entry.type === "dm" ? (
-          <UserAvatar src={entry.user.avatarUrl} name={entry.user.displayName} size={24} userId={entry.user.id} className="shrink-0" />
+          <ProfileHit onProfile={onProfile} label={t("common.seeDisplaynameSProfile", { displayName: entry.user.displayName })} className="shrink-0 rounded-full">
+            <UserAvatar src={entry.user.avatarUrl} name={entry.user.displayName} size={24} userId={entry.user.id} className="shrink-0" />
+          </ProfileHit>
         ) : (
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400 [&_svg]:h-3.5 [&_svg]:w-3.5">
             <NotificationKindIcon kind={entry.type === "bundle" ? entry.kind : entry.notification.kind} />
           </span>
         )}
         <span className="min-w-0 flex-1 truncate text-[13px]">
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">{name}</span>
+          {entry.type === "dm" ? (
+            <ProfileHit onProfile={onProfile} className="font-medium text-zinc-700 hover:underline dark:text-zinc-300">
+              {name}
+            </ProfileHit>
+          ) : (
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">{name}</span>
+          )}
           {line && <span className="text-zinc-400 dark:text-zinc-500"> · {line}</span>}
         </span>
         {today && <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500">{relativeTime(entry.ts)}</span>}
-      </button>
+      </RowShell>
     </li>
   );
 }
 
-function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolean; onOpen: () => void }) {
+function InboxRow({
+  entry,
+  typing,
+  onOpen,
+  onProfile,
+}: {
+  entry: InboxEntry;
+  typing: boolean;
+  onOpen: () => void;
+  onProfile?: () => void;
+}) {
   const t = useT();
   const unread = entry.unread > 0;
   return (
     <li>
-      <button
-        type="button"
-        onClick={onOpen}
+      <RowShell
+        onOpen={onOpen}
         className="relative flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
       >
         {entry.type === "dm" ? (
-          <UserAvatar
-            src={entry.user.avatarUrl}
-            name={entry.user.displayName}
-            size={36}
-            userId={entry.user.id}
-            presenceSurface="page"
-            className="shrink-0"
-          />
+          <ProfileHit onProfile={onProfile} label={t("common.seeDisplaynameSProfile", { displayName: entry.user.displayName })} className="shrink-0 rounded-full">
+            <UserAvatar
+              src={entry.user.avatarUrl}
+              name={entry.user.displayName}
+              size={36}
+              userId={entry.user.id}
+              presenceSurface="page"
+              className="shrink-0"
+            />
+          </ProfileHit>
         ) : (
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
             <NotificationKindIcon kind={entry.type === "bundle" ? entry.kind : entry.notification.kind} />
@@ -1288,14 +1328,16 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
         )}
         <span className="min-w-0 flex-1">
           {entry.type === "dm" ? (
-            <DisplayUserName
-              name={entry.user.displayName}
-              verified={verifiedBadge(entry.user.flags)}
-              flags={entry.user.flags}
-              bot={entry.user.bot}
-              color={entry.user.nameColor}
-              className={`block truncate text-sm text-zinc-900 dark:text-zinc-100 ${unread ? "font-semibold" : "font-medium"}`}
-            />
+            <ProfileHit onProfile={onProfile} className="flex max-w-full hover:underline">
+              <DisplayUserName
+                name={entry.user.displayName}
+                verified={verifiedBadge(entry.user.flags)}
+                flags={entry.user.flags}
+                bot={entry.user.bot}
+                color={entry.user.nameColor}
+                className={`block truncate text-sm text-zinc-900 dark:text-zinc-100 ${unread ? "font-semibold" : "font-medium"}`}
+              />
+            </ProfileHit>
           ) : (
             <span className={`block truncate text-sm text-zinc-900 dark:text-zinc-100 ${unread ? "font-semibold" : "font-medium"}`}>
               {entry.type === "bundle" ? entry.title : entry.notification.title}
@@ -1321,8 +1363,63 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
             <span className="hub-accent h-2 w-2 rounded-full" aria-hidden />
           ) : null}
         </span>
-      </button>
+      </RowShell>
     </li>
+  );
+}
+
+/**
+ * An inbox row: the whole of it opens the entry (the conversation, the
+ * notification's place). A div acting as the button rather than a <button>,
+ * because the face and the name inside it are buttons of their own (the
+ * person's profile), and a button cannot hold another.
+ */
+function RowShell({ onOpen, className, children }: { onOpen: () => void; className: string; children: ReactNode }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={className}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** The face or the name of a conversation: opens the person's profile instead of the row's own action. */
+function ProfileHit({
+  onProfile,
+  label,
+  className = "",
+  children,
+}: {
+  onProfile?: () => void;
+  label?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!onProfile) return <span className={className}>{children}</span>;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onProfile();
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+      className={`cursor-pointer text-left ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 

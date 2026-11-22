@@ -32,6 +32,8 @@ import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
 import { HubCentralHome, type HubCentralLink } from "@/components/groups/HubCentral";
+import { ChamadosSection } from "@/components/chamados/Chamados";
+import { useChamadosEnabled } from "@/lib/chamados";
 import { HUB_CENTRAL_EVENTS, trackHubCentral, useHubCentral } from "@/lib/hubCentral";
 
 // The two pages of the experiment groups-hub (see lib/groupsHub):
@@ -63,6 +65,9 @@ export function GroupsHubHome() {
   // has none of the three, so only accounts count as exposed.
   const centralLayout = useHubCentral({ track: Boolean(account) });
   const central = account ? centralLayout : null;
+  // The chamados feed (experiment chamados) is on this home and on the
+  // central's "now" layout; exposure counts only where it is drawn.
+  const chamados = useChamadosEnabled({ track: !central || central === "now" });
 
   // Calls going on right now in the groups this person keeps on their list —
   // the one thing about their groups worth putting on a home: somebody is
@@ -105,7 +110,15 @@ export function GroupsHubHome() {
         label: t("common.newGroup"),
       },
     ];
-    return <HubCentralHome layout={central} startRoomForm={startRoomForm} liveGroups={groups === null ? null : live} links={links} />;
+    return (
+      <HubCentralHome
+        layout={central}
+        startRoomForm={startRoomForm}
+        liveGroups={groups === null ? null : live}
+        links={links}
+        chamados={chamados}
+      />
+    );
   }
 
   const startRoom = (
@@ -186,6 +199,7 @@ export function GroupsHubHome() {
           {happening}
           {discover}
         </div>
+        {chamados && <ChamadosSection className="lg:col-span-2" />}
       </div>
     </div>
   );

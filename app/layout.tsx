@@ -23,6 +23,7 @@ import { SiteBeacon } from "@/components/SiteBeacon";
 import { SocialNotifier } from "@/components/SocialNotifier";
 import { GiftNotifier } from "@/components/GiftNotifier";
 import { ThemeLikeNotifier } from "@/components/ThemeLikeNotifier";
+import { ChamadoNotifier } from "@/components/chamados/ChamadoNotifier";
 import { ProfileCommentNotifier } from "@/components/ProfileCommentNotifier";
 import { GiftClaimHost } from "@/components/GiftClaimHost";
 import { PlanUnlockWatcher } from "@/components/PlanUnlockGuide";
@@ -381,6 +382,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <ThemeLikeNotifier />
                 {/* And for a comment on this account's profile (experiment profile-comments). */}
                 <ProfileCommentNotifier />
+                {/* And for a "Tô dentro" on this account's chamado (experiment chamados). */}
+                <ChamadoNotifier />
                 {/* Opens the present somebody arrived holding — see /gift/[code],
                     which redirects here with the code on the URL. */}
                 <GiftClaimHost />

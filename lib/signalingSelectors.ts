@@ -73,6 +73,11 @@ export const selectProfileCommentNudge = (s: SignalingState) => ({
   alertTarget: s.alertTarget,
 });
 
+export const selectChamadoGoingNudge = (s: SignalingState) => ({
+  lastChamadoGoing: s.lastChamadoGoing,
+  alertTarget: s.alertTarget,
+});
+
 export const selectThemeLikeNudge = (s: SignalingState) => ({
   lastThemeLike: s.lastThemeLike,
   alertTarget: s.alertTarget,

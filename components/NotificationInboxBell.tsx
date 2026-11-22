@@ -8,9 +8,11 @@ import {
   MdComment,
   MdFavorite,
   MdHowToReg,
+  MdSportsEsports,
   MdNotificationsNone,
   MdPersonAdd,
 } from "react-icons/md";
+import { useRouter } from "next/navigation";
 import { useNotifications } from "@/lib/useNotifications";
 import { FriendRequestsModal } from "@/components/FriendRequestsModal";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
@@ -62,6 +64,8 @@ export function NotificationKindIcon({ kind }: { kind: InboxNotification["kind"]
           <MdFavorite className="h-4 w-4 text-pink-500" />
         ) : kind === "profile-comment" ? (
           <MdComment className="h-4 w-4 text-sky-500" />
+        ) : kind === "chamado-going" ? (
+          <MdSportsEsports className="h-4 w-4" />
         ) : kind === "friend-accepted" ? (
           <MdHowToReg className="h-4 w-4" />
         ) : (
@@ -108,6 +112,7 @@ function Item({
 
 export function NotificationInboxBell({ className = "" }: { className?: string }) {
   const t = useT();
+  const router = useRouter();
   const items = useNotificationInbox();
   const [open, setOpen] = useState(false);
   // Opened from a notification instead of navigating to /friends. Inside a
@@ -181,6 +186,8 @@ export function NotificationInboxBell({ className = "" }: { className?: string }
                     setOpen(false);
                     if (notification.kind === "friend-request") setRequestsOpen(true);
                     else if (notification.kind === "profile-comment") setOwnProfileOpen(true);
+                    // A "Tô dentro" opens the chamado it was about.
+                    else if (notification.kind === "chamado-going" && notification.href) router.push(notification.href);
                     // A missed call opens the conversation rather than calling
                     // back: the bell is read long after the fact, and a click
                     // that starts ringing somebody's phone is not what

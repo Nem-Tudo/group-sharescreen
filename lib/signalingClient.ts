@@ -265,6 +265,17 @@ export type ReceivedCameraEffect = {
 };
 export type CameraEffectSendResult = { userId: string; ok: boolean; reason: string | null; seq: number };
 
+/** Somebody said "Tô dentro" on this account's chamado (experiment chamados). */
+export type ChamadoGoingEvent = {
+  chamadoId: string;
+  what: string;
+  byId: string | null;
+  byName: string;
+  byAvatarUrl: string | null;
+  /** Bumped per arrival, so the same person twice is still two. */
+  seq: number;
+};
+
 /** Somebody commented on this account's profile (experiment profile-comments). */
 export type ProfileCommentEvent = {
   commentId: string;
@@ -726,6 +737,8 @@ export type SignalingState = {
   lastThemeLike: ThemeLikedEvent | null;
   /** The last comment somebody left on this account's profile. See ProfileCommentNotifier. */
   lastProfileComment: ProfileCommentEvent | null;
+  /** The last "Tô dentro" on this account's chamado. See ChamadoNotifier. */
+  lastChamadoGoing: ChamadoGoingEvent | null;
   // The effect somebody put on this person's camera, for this visit to the room.
   receivedCameraEffect: ReceivedCameraEffect | null;
   cameraEffectSendResult: CameraEffectSendResult | null;
@@ -1060,6 +1073,7 @@ const initialState: SignalingState = {
   lastGiftRedeemed: null,
   lastThemeLike: null,
   lastProfileComment: null,
+  lastChamadoGoing: null,
   receivedCameraEffect: null,
   cameraEffectSendResult: null,
   alertTarget: true,
@@ -2871,6 +2885,18 @@ class SignalingClient {
             ok: msg.ok === true,
             reason: typeof msg.reason === "string" ? msg.reason : null,
             seq: (this.state.cameraEffectSendResult?.seq ?? 0) + 1,
+          },
+        });
+        break;
+      case "chamado-going":
+        this.setState({
+          lastChamadoGoing: {
+            chamadoId: String(msg.chamadoId ?? ""),
+            what: typeof msg.what === "string" ? msg.what : "",
+            byId: typeof msg.byId === "string" ? msg.byId : null,
+            byName: typeof msg.byName === "string" && msg.byName ? msg.byName : translate("common.someone"),
+            byAvatarUrl: typeof msg.byAvatarUrl === "string" ? msg.byAvatarUrl : null,
+            seq: (this.state.lastChamadoGoing?.seq ?? 0) + 1,
           },
         });
         break;

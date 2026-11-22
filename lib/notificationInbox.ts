@@ -30,7 +30,9 @@ export type NotificationKind =
   | "theme-like"
   | "camera-effect-like"
   // Somebody commented on this account's profile (experiment profile-comments).
-  | "profile-comment";
+  | "profile-comment"
+  // Somebody said "Tô dentro" on this account's chamado (experiment chamados).
+  | "chamado-going";
 
 export interface InboxNotification {
   /** Names the thing, not the moment — see the header on dedup. */
