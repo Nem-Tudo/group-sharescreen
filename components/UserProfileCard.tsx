@@ -1743,28 +1743,27 @@ function ProfileContent({
               >
                 {t("userProfileCard.activity")}
               </h2>
-              <div className="mt-3 grid grid-cols-3 gap-3">
+              {/* Rows, label and time apart: three side by side in this
+                  column cut "390h 01min" down to "390h 01…". */}
+              <dl className="mt-3 flex flex-col gap-2">
                 {[
                   { label: t("userProfileCard.inCall"), seconds: account.callSeconds ?? 0 },
                   { label: t("userProfileCard.micOpen"), seconds: account.micSeconds ?? 0 },
                   { label: t("userProfileCard.sharingScreen"), seconds: account.shareSeconds ?? 0 },
                 ].map((stat) => (
-                  <div key={stat.label} className="min-w-0">
-                    <p
-                      className="truncate text-xl font-bold tabular-nums text-zinc-950 dark:text-zinc-50"
+                  <div key={stat.label} className="flex items-baseline justify-between gap-3">
+                    <dt className="text-sm text-zinc-500 dark:text-zinc-400" style={theme ? { color: theme.muted } : undefined}>
+                      {stat.label}
+                    </dt>
+                    <dd
+                      className="shrink-0 whitespace-nowrap text-lg font-bold tabular-nums text-zinc-950 dark:text-zinc-50"
                       style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
                     >
                       {formatDuration(stat.seconds)}
-                    </p>
-                    <p
-                      className="truncate text-xs text-zinc-500 dark:text-zinc-400"
-                      style={theme ? { color: theme.muted } : undefined}
-                    >
-                      {stat.label}
-                    </p>
+                    </dd>
                   </div>
                 ))}
-              </div>
+              </dl>
             </div>
             <div
               className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-5 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400"
