@@ -6860,5 +6860,9 @@
   "groups.discordTemplate.helpStep4": "Haz clic en \"Copiar\" y pega el enlace arriba.",
   "groups.discordTemplate.helpNote": "Necesitas el permiso \"Gestionar servidor\" para generar la plantilla. Si no lo tienes, pide el enlace a un admin del servidor o busca plantillas públicas en sitios como discords.com/templates.",
   "admin.badgesPanel.showInNameHint": "Quien tenga la insignia la muestra junto a su nombre por defecto, y puede ocultarla en /badges o al editar su perfil. Solo se ve para quien está en el experimento name-badges.",
-  "admin.badgesPanel.showInNamePro": "Las insignias Pro no aparecen junto al nombre: ahí el plan muestra solo la marca de verificado."
+  "admin.badgesPanel.showInNamePro": "Las insignias Pro no aparecen junto al nombre: ahí el plan muestra solo la marca de verificado.",
+  "videoTile.stallReport": "¿Se trabó? Avísanos",
+  "videoTile.stallReportSent": "¡Gracias! Guardamos el último minuto de esta transmisión para investigarlo.",
+  "videoTile.stallReportTooSoon": "Ya lo recibimos, gracias.",
+  "videoTile.stallReportFailed": "No se pudo enviar ahora."
 }

@@ -40,7 +40,9 @@ import {
   FlipVerticalIcon,
   ResetIcon,
 } from "@/components/icons";
-import { MdMoreHoriz, MdOutlineChat, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
+import { MdMoreHoriz, MdOutlineChat, MdOutlineReportProblem, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
+import { watchPresentedFrames } from "@/lib/pageHealth";
+import { sendStallReport, STALL_REPORT_FEATURE } from "@/lib/stallReport";
 import { RoomDeclutterContext, ROOM_DECLUTTER_EVENTS, trackRoomDeclutterEvent } from "@/lib/roomDeclutter";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
@@ -433,6 +435,39 @@ const VideoTileView = memo(function VideoTileView({
   // it is being recorded and by whom (see lib/recordingNotice).
   const recordedPeer = connectionStats?.originId;
   const recordedChannel = connectionStats?.channel;
+  // Frames this tile really paints, for quality telemetry: a picture that
+  // arrives and is never painted looked fine in every stat we had (see
+  // lib/pageHealth). Somebody else's picture only.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !recordedPeer || !recordedChannel) return;
+    return watchPresentedFrames(video, String(recordedChannel), recordedPeer);
+  }, [recordedPeer, recordedChannel]);
+  // "Travou?" (experiment sq-stall-report, see lib/stallReport): sends the
+  // last minute of this picture the moment somebody sees it stutter.
+  const stallReportOn = useFeature(STALL_REPORT_FEATURE, { track: Boolean(connectionStats) }).enabled && Boolean(connectionStats);
+  const [stallNote, setStallNote] = useState<string | null>(null);
+  const [stallSending, setStallSending] = useState(false);
+  useEffect(() => {
+    if (!stallNote) return;
+    const id = setTimeout(() => setStallNote(null), 4000);
+    return () => clearTimeout(id);
+  }, [stallNote]);
+  const reportStall = async () => {
+    if (!recordedPeer || !recordedChannel || stallSending) return;
+    setStallSending(true);
+    const result = await sendStallReport(String(recordedChannel), recordedPeer);
+    setStallSending(false);
+    setStallNote(
+      t(
+        result === "sent"
+          ? "videoTile.stallReportSent"
+          : result === "too-soon"
+            ? "videoTile.stallReportTooSoon"
+            : "videoTile.stallReportFailed"
+      )
+    );
+  };
   const isRecording = recordingSince !== null;
   // A recording goes on while the tile is out of sight, so its frames have to
   // keep coming (see lib/streamUse).
@@ -1142,6 +1177,14 @@ const VideoTileView = memo(function VideoTileView({
           {pinchZoom.scale.toFixed(1)}x · redefinir
         </button>
       )}
+      {stallNote && !compact && (
+        <div
+          role="status"
+          className="pointer-events-none absolute left-1/2 top-14 z-30 max-w-[90%] -translate-x-1/2 rounded-lg bg-black/80 px-3 py-2 text-center text-xs text-white backdrop-blur-sm"
+        >
+          {stallNote}
+        </div>
+      )}
       {connectionStats && statsOpen && !compact && (
         <ConnectionStatsOverlay
           channel={connectionStats.channel}
@@ -1178,6 +1221,23 @@ const VideoTileView = memo(function VideoTileView({
                 }`}
               >
                 <ChartIcon className="h-5 w-5" />
+              </button>
+            </Tooltip>
+          )}
+          {/* Not behind "rare": it is only any use at the moment of the stutter.
+              Not while the tile has no picture yet: that is "no video", already
+              measured, and the spinner is where the Pro (TURN) offer sits — a
+              second button there would only take clicks from it. */}
+          {stallReportOn && !isVideoLoading && (
+            <Tooltip content={t("videoTile.stallReport")}>
+              <button
+                type="button"
+                onClick={() => void reportStall()}
+                disabled={stallSending}
+                aria-label={t("videoTile.stallReport")}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80 disabled:opacity-60"
+              >
+                <MdOutlineReportProblem className="h-5 w-5" />
               </button>
             </Tooltip>
           )}

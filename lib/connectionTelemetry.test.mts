@@ -13,6 +13,7 @@ import {
   estimateSessions,
   noteIceAttempt,
   summarize,
+  type PageSample,
   type SenderControlSample,
 } from "./connectionTelemetrySummary";
 import type { PcSnapshot, RecvVideoStats, RouteInfo, SendVideoStats } from "./connectionDiagnostics";
@@ -401,6 +402,41 @@ assert.equal(blameFor("recv", ["freezes", "receiver-drops"], true), "receiver");
   const s = summarize(acc, 30_000, "recv", "screen");
   assert.equal(s.firstFrameS, 10);
   assert.ok(!s.causes.includes("no-video"));
+}
+
+// The page around the connection (PageSample): viewers, long tasks, CPU pressure,
+// frames painted against decoded, and the jitter buffer.
+{
+  const acc = createAccumulator(0);
+  const page = (over: Partial<PageSample>): PageSample => ({
+    viewers: null, longTaskMs: null, cpuBusy: null, presentedFrames: null, decodedFrames: null, ...over,
+  });
+  addSnapshot(acc, snap({ send: send() }, 10_000), null, null, false, page({ viewers: 2, longTaskMs: 500, cpuBusy: false }));
+  addSnapshot(acc, snap({ send: send() }, 20_000), null, null, false, page({ viewers: 4, longTaskMs: 1500, cpuBusy: true }));
+  const s = summarize(acc, 20_000, "send", "screen");
+  assert.equal(s.viewersAvg, 3);
+  assert.equal(s.viewersMax, 4);
+  assert.equal(s.longTaskShare, 0.1);
+  assert.equal(s.cpuBusyShare, 0.5);
+  assert.equal(s.presentedFpsAvg, null);
+}
+{
+  const acc = createAccumulator(0);
+  const page = (presentedFrames: number | null, decodedFrames: number | null): PageSample => ({
+    viewers: null, longTaskMs: null, cpuBusy: null, presentedFrames, decodedFrames,
+  });
+  // 300 decoded, 150 painted; then 310 painted of 300 (a burst) counts as 300.
+  addSnapshot(acc, snap({ recv: recv({ jitterBufferMs: 40 }) }, 10_000), null, true, false, page(150, 300));
+  addSnapshot(acc, snap({ recv: recv({ jitterBufferMs: 80 }) }, 20_000), null, true, false, page(310, 300));
+  // A still screen (a frame now and then) says nothing about painting.
+  addSnapshot(acc, snap({ recv: recv() }, 30_000), null, true, false, page(0, 8));
+  // Unknown (a hidden interval) is left out.
+  addSnapshot(acc, snap({ recv: recv() }, 40_000), null, true, false, page(null, null));
+  const s = summarize(acc, 40_000, "recv", "screen");
+  assert.equal(s.presentedFpsAvg, 22.5);
+  assert.equal(s.renderLossShare, 0.25);
+  assert.equal(s.jitterBufferMsAvg, 45);
+  assert.equal(s.viewersAvg, null);
 }
 
 console.log("connectionTelemetry: ok");

@@ -11,6 +11,7 @@ import {
   diagnose,
   type CauseId,
   type PcSnapshot,
+  type RecvVideoStats,
   type RouteKind,
 } from "./connectionDiagnostics";
 
@@ -113,6 +114,45 @@ export interface SessionAccumulator {
   iceRemote: Set<string>;
   icePairs: number;
   iceResponses: number;
+  /** Send only: viewers this capture was going out to at once (see PageSample.viewers). */
+  viewersSum: number;
+  viewersCount: number;
+  viewersMax: number;
+  /** Milliseconds of long tasks on our page over the measured seconds that knew them. */
+  longTaskMs: number;
+  longTaskKnownSeconds: number;
+  /** Samples with a Compute Pressure reading, and those at "serious" or "critical". */
+  cpuKnown: number;
+  cpuBusy: number;
+  /** Recv only: frames the tile really painted, against those decoded, over the same seconds. */
+  presentedFrames: number;
+  presentedDecoded: number;
+  presentedSeconds: number;
+  /** Recv only: the jitter buffer's hold per frame. */
+  jitterBufferMsSum: number;
+  jitterBufferMsCount: number;
+}
+
+/**
+ * What the page around a connection was doing over a sample's interval —
+ * the part the stats of the connection cannot see. The reports said 82% of
+ * viewers under 15 fps had a sender under 15 fps, and that the sender's
+ * capture itself delivered few frames; whether that was a still screen or a
+ * machine buried by a game, and whether a viewer's "it froze" was a picture
+ * that arrived and was never painted, needed all of this. Each field null
+ * where the browser does not say.
+ */
+export interface PageSample {
+  /** Send only: connections carrying this same capture right now, unpaused, this one included. */
+  viewers: number | null;
+  /** Milliseconds of long tasks (over 50 ms each) on the main thread during the interval. */
+  longTaskMs: number | null;
+  /** Compute Pressure at "serious" or "critical" when sampled. */
+  cpuBusy: boolean | null;
+  /** Recv only: frames the tile's <video> presented during the interval (requestVideoFrameCallback). */
+  presentedFrames: number | null;
+  /** Recv only: frames decoded over the same interval, read off the stats. */
+  decodedFrames: number | null;
 }
 
 /**
@@ -190,6 +230,18 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     iceRemote: new Set(),
     icePairs: 0,
     iceResponses: 0,
+    viewersSum: 0,
+    viewersCount: 0,
+    viewersMax: 0,
+    longTaskMs: 0,
+    longTaskKnownSeconds: 0,
+    cpuKnown: 0,
+    cpuBusy: 0,
+    presentedFrames: 0,
+    presentedDecoded: 0,
+    presentedSeconds: 0,
+    jitterBufferMsSum: 0,
+    jitterBufferMsCount: 0,
   };
 }
 
@@ -229,7 +281,8 @@ export function addSnapshot(
    * (see qualityNegotiation). Such a stretch says nothing about the stream: its
    * frame rate of zero and its freezes are what was asked for.
    */
-  paused = false
+  paused = false,
+  page: PageSample | null = null
 ): SessionAccumulator {
   const { route, send, recv, intervalSeconds } = snapshot;
   if (paused) {
@@ -321,12 +374,56 @@ export function addSnapshot(
         if (visible) acc.visibleSeconds += intervalSeconds;
       }
     }
+    if (page) addPageSample(acc, page, intervalSeconds, send !== null, recv);
     for (const cause of diagnose({ route, send, recv })) {
       acc.causeCounts[cause.id] = (acc.causeCounts[cause.id] ?? 0) + 1;
     }
   }
   acc.samples += 1;
   return acc;
+}
+
+// A tile painting fewer frames than it decoded only counts once there is
+// something to paint: a still screen decodes a frame every few seconds, and
+// none of them missing would read as a loss of 100%.
+const PRESENTED_MIN_DECODED_FPS = 5;
+
+function addPageSample(
+  acc: SessionAccumulator,
+  page: PageSample,
+  intervalSeconds: number,
+  sending: boolean,
+  recv: RecvVideoStats | null
+) {
+  if (sending && page.viewers !== null && page.viewers > 0) {
+    acc.viewersSum += page.viewers;
+    acc.viewersCount += 1;
+    acc.viewersMax = Math.max(acc.viewersMax, page.viewers);
+  }
+  if (page.longTaskMs !== null) {
+    acc.longTaskMs += Math.min(page.longTaskMs, intervalSeconds * 1000);
+    acc.longTaskKnownSeconds += intervalSeconds;
+  }
+  if (page.cpuBusy !== null) {
+    acc.cpuKnown += 1;
+    if (page.cpuBusy) acc.cpuBusy += 1;
+  }
+  if (recv) {
+    if (recv.jitterBufferMs > 0) {
+      acc.jitterBufferMsSum += recv.jitterBufferMs;
+      acc.jitterBufferMsCount += 1;
+    }
+    if (
+      page.presentedFrames !== null &&
+      page.decodedFrames !== null &&
+      page.decodedFrames >= PRESENTED_MIN_DECODED_FPS * intervalSeconds
+    ) {
+      // A burst can paint a few more than decoded in the window; never credit those.
+      acc.presentedFrames += Math.min(page.presentedFrames, page.decodedFrames);
+      acc.presentedDecoded += page.decodedFrames;
+      acc.presentedSeconds += intervalSeconds;
+    }
+  }
 }
 
 export interface SessionSummary {
@@ -389,6 +486,19 @@ export interface SessionSummary {
   /** ...how many candidate pairs it tried, and the answers those checks got. */
   icePairs: number | null;
   iceResponses: number | null;
+  /** Send only: viewers this capture went out to at once, on average and at most. */
+  viewersAvg: number | null;
+  viewersMax: number | null;
+  /** Share of the measured time our page's main thread spent in long tasks, 0..1. */
+  longTaskShare: number | null;
+  /** Share of samples with the machine's CPU under "serious" or "critical" pressure, 0..1. */
+  cpuBusyShare: number | null;
+  /** Recv only: frames painted per second while frames were arriving (see PRESENTED_MIN_DECODED_FPS). */
+  presentedFpsAvg: number | null;
+  /** Recv only: share of decoded frames that never reached the screen, 0..1. */
+  renderLossShare: number | null;
+  /** Recv only: the jitter buffer's average hold per frame, ms — the delay a viewer adds on top of the path. */
+  jitterBufferMsAvg: number | null;
   /**
    * Causes present in at least CAUSE_PRESENCE of the measured samples, plus
    * the session-level "low-source-fps".
@@ -594,6 +704,19 @@ export function summarize(
           iceResponses: acc.iceResponses,
         }
       : { iceLocal: null, iceRemote: null, icePairs: null, iceResponses: null }),
+    viewersAvg: direction === "send" && acc.viewersCount ? round(acc.viewersSum / acc.viewersCount, 1) : null,
+    viewersMax: direction === "send" && acc.viewersCount ? acc.viewersMax : null,
+    longTaskShare:
+      acc.longTaskKnownSeconds > 0 ? round(acc.longTaskMs / 1000 / acc.longTaskKnownSeconds, 3) : null,
+    cpuBusyShare: acc.cpuKnown > 0 ? round(acc.cpuBusy / acc.cpuKnown, 2) : null,
+    presentedFpsAvg:
+      direction === "recv" && acc.presentedSeconds > 0 ? round(acc.presentedFrames / acc.presentedSeconds, 1) : null,
+    renderLossShare:
+      direction === "recv" && acc.presentedDecoded > 0
+        ? round(1 - acc.presentedFrames / acc.presentedDecoded, 2)
+        : null,
+    jitterBufferMsAvg:
+      direction === "recv" && acc.jitterBufferMsCount ? Math.round(acc.jitterBufferMsSum / acc.jitterBufferMsCount) : null,
     causes,
     bad,
     blame,

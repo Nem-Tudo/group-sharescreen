@@ -6860,5 +6860,9 @@
   "groups.discordTemplate.helpStep4": "Click \"Copy\" and paste the link above.",
   "groups.discordTemplate.helpNote": "You need the \"Manage Server\" permission to generate a template. If you do not have it, ask a server admin for the link, or look for public templates on sites like discords.com/templates.",
   "admin.badgesPanel.showInNameHint": "Holders show it next to their name by default, and can hide it on /badges or when editing their profile. Only visible to people in the name-badges experiment.",
-  "admin.badgesPanel.showInNamePro": "Pro badges never show next to the name: the plan shows only the verified mark there."
+  "admin.badgesPanel.showInNamePro": "Pro badges never show next to the name: the plan shows only the verified mark there.",
+  "videoTile.stallReport": "Stuttering? Let us know",
+  "videoTile.stallReportSent": "Thanks! We saved the last minute of this stream to look into it.",
+  "videoTile.stallReportTooSoon": "Already received, thanks.",
+  "videoTile.stallReportFailed": "Could not send right now."
 }

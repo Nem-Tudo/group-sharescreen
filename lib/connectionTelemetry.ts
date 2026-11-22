@@ -26,9 +26,12 @@ import {
   noteIceAttempt,
   QUALITY_SAMPLE_RATE,
   summarize,
+  type PageSample,
   type SessionAccumulator,
   type SessionSummary,
 } from "./connectionTelemetrySummary";
+import type { PcSnapshot } from "./connectionDiagnostics";
+import { cpuBusyNow, longTaskTotal, presentedTotal, startPageHealth } from "./pageHealth";
 import { signalingClient } from "./signalingClient";
 import { getSignalingHttpBase } from "./roomsApi";
 import { getAccountToken } from "./accountApi";
@@ -168,7 +171,35 @@ interface Session {
   peerUserId: string | null;
   acc: SessionAccumulator;
   movingPicture: boolean;
+  /** The page counters at this session's last sample, to take differences (see PageSample). */
+  lastLongTask: number | null;
+  lastPresented: number | null;
+  lastDecoded: number | null;
+  lastSeen: boolean;
+  /** The last minute of samples, for the stall report (see recentSamples). */
+  recent: RecentSample[];
 }
+
+/** One sample, cut down to what a stall report reads. */
+export interface RecentSample {
+  at: number;
+  intervalS: number;
+  fps: number | null;
+  height: number | null;
+  kbps: number | null;
+  loss: number | null;
+  freezes: number | null;
+  freezeS: number | null;
+  dropShare: number | null;
+  jitterBufferMs: number | null;
+  rttMs: number | null;
+  decoder: string | null;
+  decodeLoad: number | null;
+  paused: boolean;
+  visible: boolean | null;
+}
+
+const RECENT_SAMPLES = 6;
 
 function browserOf(ua: string): string {
   const pick = (name: string, re: RegExp) => {
@@ -198,6 +229,7 @@ class ConnectionTelemetry {
   start() {
     if (this.started || !ENABLED || typeof window === "undefined") return;
     this.started = true;
+    startPageHealth();
     connectionRegistry.subscribe((event, connection) => {
       if (event === "open") this.open(connection);
       else this.close(connection.pc, "close");
@@ -229,6 +261,11 @@ class ConnectionTelemetry {
       peerUserId: signalingClient.state.peers.find((p) => p.id === connection.peerId)?.userId ?? null,
       acc,
       movingPicture: false,
+      lastLongTask: longTaskTotal(),
+      lastPresented: null,
+      lastDecoded: null,
+      lastSeen: false,
+      recent: [],
     });
     if (!this.timer) {
       this.timer = setInterval(() => {
@@ -282,7 +319,26 @@ class ConnectionTelemetry {
         connection.direction === "send"
           ? control?.paused === true || nativeSinkPaused(connection.pc)
           : qualityNegotiator.isIdle(connection.channel, connection.peerId);
-      addSnapshot(session.acc, snapshot, control, visible, paused);
+      const page = this.pageSample(session, snapshot, visible, paused);
+      addSnapshot(session.acc, snapshot, control, visible, paused, page);
+      session.recent.push({
+        at: snapshot.at,
+        intervalS: Math.round(snapshot.intervalSeconds),
+        fps: snapshot.recv?.fps ?? snapshot.send?.fps ?? null,
+        height: snapshot.recv?.height ?? snapshot.send?.height ?? null,
+        kbps: snapshot.recv?.kbps ?? snapshot.send?.kbps ?? null,
+        loss: snapshot.recv?.loss ?? snapshot.send?.remoteLoss ?? null,
+        freezes: snapshot.recv?.freezes ?? null,
+        freezeS: snapshot.recv?.freezeSeconds ?? null,
+        dropShare: snapshot.recv?.dropShare ?? null,
+        jitterBufferMs: snapshot.recv?.jitterBufferMs ?? null,
+        rttMs: snapshot.route.rttMs ?? null,
+        decoder: snapshot.recv?.decoder ?? null,
+        decodeLoad: snapshot.recv?.decodeLoad ?? null,
+        paused,
+        visible,
+      });
+      if (session.recent.length > RECENT_SAMPLES) session.recent.shift();
       // Our decoder falling behind steps this tile's request down.
       if (snapshot.recv && snapshot.intervalSeconds > 0 && !paused) {
         qualityNegotiator.noteDecoderDrops(
@@ -293,6 +349,75 @@ class ConnectionTelemetry {
         );
       }
     }
+  }
+
+  // See PageSample. Differences are taken against this session's own last sample,
+  // because sessions are visited round robin and their intervals differ.
+  private pageSample(session: Session, snapshot: PcSnapshot, visible: boolean | null, paused: boolean): PageSample {
+    const { connection } = session;
+    const longTask = longTaskTotal();
+    const longTaskMs =
+      longTask !== null && session.lastLongTask !== null && snapshot.intervalSeconds > 0
+        ? longTask - session.lastLongTask
+        : null;
+    session.lastLongTask = longTask;
+
+    let viewers: number | null = null;
+    if (connection.direction === "send") {
+      viewers = 0;
+      for (const other of connectionRegistry.list()) {
+        if (other.direction !== "send" || other.channel !== connection.channel || other.originId !== connection.originId) continue;
+        if (other.pc.connectionState !== "connected") continue;
+        if (senderQualityState(other.pc)?.paused === true || nativeSinkPaused(other.pc)) continue;
+        viewers += 1;
+      }
+    }
+
+    // Painted against decoded, only over an interval the tile was on screen in a
+    // visible page from end to end: a hidden page paints nothing on purpose.
+    let presentedFrames: number | null = null;
+    let decodedFrames: number | null = null;
+    if (connection.direction === "recv" && connection.originId) {
+      const presented = presentedTotal(connection.channel, connection.originId);
+      const decoded = snapshot.recv?.framesDecodedTotal ?? null;
+      const seen = visible === true && !paused && typeof document !== "undefined" && document.visibilityState === "visible";
+      if (
+        seen &&
+        session.lastSeen &&
+        snapshot.intervalSeconds > 0 &&
+        presented !== null &&
+        session.lastPresented !== null &&
+        decoded !== null &&
+        session.lastDecoded !== null &&
+        decoded >= session.lastDecoded
+      ) {
+        presentedFrames = Math.max(0, presented - session.lastPresented);
+        decodedFrames = decoded - session.lastDecoded;
+      }
+      session.lastPresented = presented;
+      session.lastDecoded = decoded;
+      session.lastSeen = seen;
+    }
+    return { viewers, longTaskMs, cpuBusy: cpuBusyNow(), presentedFrames, decodedFrames };
+  }
+
+  /**
+   * The receiving session of one picture, as it stands: its summary so far and
+   * its last minute of samples. Null when we hold no such connection.
+   */
+  recentFor(channel: string, originId: string): { summary: SessionSummary; recent: RecentSample[]; peerId: string; roomId: string; peerUserId: string | null } | null {
+    for (const session of this.sessions.values()) {
+      const { connection } = session;
+      if (connection.direction !== "recv" || connection.channel !== channel || connection.originId !== originId) continue;
+      return {
+        summary: summarize(session.acc, Date.now(), "recv", channel),
+        recent: [...session.recent],
+        peerId: connection.peerId,
+        roomId: session.roomId,
+        peerUserId: session.peerUserId,
+      };
+    }
+    return null;
   }
 
   private close(pc: RTCPeerConnection, endedBy: "close" | "pagehide") {
@@ -436,6 +561,11 @@ class ConnectionTelemetry {
 }
 
 const telemetry = new ConnectionTelemetry();
+
+/** See ConnectionTelemetry.recentFor. Null until telemetry has started, or when disabled. */
+export function recentReceiveSession(channel: string, originId: string) {
+  return telemetry.recentFor(channel, originId);
+}
 
 /** Starts collecting. Idempotent; a no-op on the server and when disabled. */
 export function startConnectionTelemetry() {

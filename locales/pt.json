@@ -6860,5 +6860,9 @@
   "groups.discordTemplate.helpStep4": "Clique em \"Copiar\" e cole o link aqui em cima.",
   "groups.discordTemplate.helpNote": "Você precisa da permissão \"Gerenciar servidor\" para gerar o modelo. Se não tiver, peça o link a um admin do servidor, ou procure templates públicos em sites como discords.com/templates.",
   "admin.badgesPanel.showInNameHint": "Quem tiver a badge mostra ela ao lado do nome por padrão, e pode ocultar em /badges ou no editar perfil. Só aparece para quem está no experiment name-badges.",
-  "admin.badgesPanel.showInNamePro": "Badges de Pro não aparecem no nome: ali o plano mostra só o selo de verificado."
+  "admin.badgesPanel.showInNamePro": "Badges de Pro não aparecem no nome: ali o plano mostra só o selo de verificado.",
+  "videoTile.stallReport": "Travou? Avise a gente",
+  "videoTile.stallReportSent": "Valeu! Guardamos o último minuto desta transmissão para investigar.",
+  "videoTile.stallReportTooSoon": "Já recebemos, obrigado.",
+  "videoTile.stallReportFailed": "Não deu para enviar agora."
 }
