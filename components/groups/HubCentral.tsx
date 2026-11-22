@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { MdCall, MdChatBubbleOutline, MdChevronRight, MdMoreVert, MdPalette, MdPeople, MdPersonOutline, MdSearch } from "react-icons/md";
+import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
@@ -25,7 +25,7 @@ import { HUB_CENTRAL_EVENTS, trackHubCentral, type HubCentralLayout } from "@/li
 import { markAllRead, useNotificationInbox, type InboxNotification } from "@/lib/notificationInbox";
 import { usePresenceMap } from "@/lib/presence";
 import type { PresenceInfo } from "@/lib/signalingClient";
-import type { SocialUser } from "@/lib/socialApi";
+import { acceptFriend, removeFriend, type SocialUser } from "@/lib/socialApi";
 import { prefetchGroup } from "@/lib/useGroups";
 import { useRecentConversations } from "@/lib/useRecentConversations";
 import { useSocialGraph } from "@/lib/useSocialGraph";
@@ -80,7 +80,7 @@ type InboxEntry =
 function useCentralData(inboxSize: number) {
   const t = useT();
   const { account } = useAuth();
-  const { graph, loading: graphLoading } = useSocialGraph();
+  const { graph, loading: graphLoading, refresh: refreshGraph } = useSocialGraph();
   const presence = usePresenceMap(graph.friends.map((user) => user.id));
   const recent = useRecentConversations(inboxSize);
   const notifications = useNotificationInbox();
@@ -129,6 +129,9 @@ function useCentralData(inboxSize: number) {
     online,
     presence,
     incoming: graph.incoming.length,
+    incomingUsers: graph.incoming,
+    outgoingUsers: graph.outgoing,
+    refreshGraph,
     friendsLoading: graphLoading && graph.friends.length === 0,
     inbox,
     inboxLoaded: recent.loaded,
@@ -205,26 +208,27 @@ interface LayoutProps {
 
 // ─── Layout: now ──────────────────────────────────────────────────────────
 
-// Discord's friends page, reshaped: the friends are the page (a list with
-// tabs, a search and the actions on each row), and what is waiting for you —
-// messages and the bell, one inbox — is the card in the top-right corner,
-// where Discord keeps "Ativo agora". The ways out (explore, rooms, map,
-// invite, new group) are not repeated here: the rail and the shell's bar
-// already have every one of them.
+// The friends are the page, and what is waiting for you (messages and the
+// bell, one inbox) is a column glued to the right edge, full height, with the
+// way to the themes at its foot. Nothing floats in the middle of a wide
+// screen: the left side takes every pixel the column leaves, and the friends
+// fill it as a grid of cards rather than one thin list. The ways out
+// (explore, rooms, map, invite, new group) are not repeated here: the rail and
+// the shell's bar already have every one of them.
 function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
   const t = useT();
   const live = liveGroups ?? [];
   return (
-    <div className={`${page("max-w-6xl 2xl:max-w-7xl")} lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_24rem]`}>
-      <div className="flex min-h-0 min-w-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-7 2xl:px-10">
         <Greeting data={data} />
 
         <StartStrip form={startRoomForm} className="mt-5" />
 
         {live.length > 0 && (
-          <section className="mt-4 shrink-0">
+          <section className="mt-6 shrink-0">
             <SectionTitle>{t("groups.hub.happening")}</SectionTitle>
-            <ul className="mt-2 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+            <ul className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-2">
               {live.slice(0, 6).map((group) => (
                 <LiveGroupBanner key={group.id} group={group} />
               ))}
@@ -232,165 +236,313 @@ function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
           </section>
         )}
 
-        <FriendsPanel data={data} actions={actions} className="mt-4 min-h-[22rem] flex-1" />
+        <FriendsSection data={data} actions={actions} />
       </div>
 
-      <aside className="mt-4 flex min-h-0 flex-col gap-4 lg:mt-0">
-        <section className={`${tile} flex min-h-[18rem] flex-1 flex-col`}>
+      <aside className="flex min-h-[24rem] shrink-0 flex-col border-t border-zinc-200 bg-white lg:h-full lg:min-h-0 lg:w-[22rem] lg:border-l lg:border-t-0 2xl:w-[24rem] dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex min-h-0 flex-1 flex-col px-4 pt-6">
           <InboxHeader data={data} compact />
           <Scroll>
             <InboxList data={data} grouped />
           </Scroll>
-        </section>
-        <ThemesCard />
+        </div>
+        <ThemesLink />
       </aside>
     </div>
   );
 }
 
-/** The friends, as Discord lists them: tabs, a search, then one row per person with the actions on the right. */
-function FriendsPanel({ data, actions, className = "" }: { data: CentralData; actions: FriendActions; className?: string }) {
+type FriendsTab = "online" | "all" | "pending";
+
+/**
+ * The friends, in the site's own look: a segmented switch like the room
+ * form's Pública/Privada, a search, and the people as cards that fill the
+ * width. "Pendentes" is a tab of the same list, with accept and decline on
+ * each request, not a popup.
+ */
+function FriendsSection({ data, actions }: { data: CentralData; actions: FriendActions }) {
   const t = useT();
-  const [tab, setTab] = useState<"online" | "all">("online");
+  const [tab, setTab] = useState<FriendsTab>("online");
   const [query, setQuery] = useState("");
   const [searched, setSearched] = useState(false);
   const { busyId, error, call } = useCall();
+  const [requestBusy, setRequestBusy] = useState<string | null>(null);
 
-  const pool = tab === "online" ? data.online : data.friends;
   const q = query.trim().toLowerCase();
-  const shown = q
-    ? pool.filter((user) => user.displayName.toLowerCase().includes(q) || user.username.toLowerCase().includes(q))
-    : pool;
+  const matches = (user: SocialUser) =>
+    !q || user.displayName.toLowerCase().includes(q) || user.username.toLowerCase().includes(q);
 
-  function choose(next: "online" | "all") {
+  function choose(next: FriendsTab) {
     if (next === tab) return;
-    trackHubCentral(HUB_CENTRAL_EVENTS.friendsTab, { tags: { tab: next } });
+    trackHubCentral(next === "pending" ? HUB_CENTRAL_EVENTS.requests : HUB_CENTRAL_EVENTS.friendsTab, { tags: { tab: next } });
     setTab(next);
   }
 
-  const tabClass = (active: boolean) =>
-    `cursor-pointer rounded-md px-2.5 py-1 text-sm font-medium transition ${
-      active
-        ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
-        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-    }`;
+  async function answer(userId: string, accept: boolean, action: "accept" | "decline" | "cancel") {
+    if (requestBusy) return;
+    trackHubCentral(HUB_CENTRAL_EVENTS.requestReply, { tags: { action } });
+    setRequestBusy(userId);
+    await (accept ? acceptFriend(userId) : removeFriend(userId));
+    data.refreshGraph();
+    setRequestBusy(null);
+  }
 
-  return (
-    <section className={`${tile} flex min-h-0 flex-col !p-0 ${className}`}>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <h2 className="mr-2 flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          <MdPeople className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
-          {t("common.friends")}
-        </h2>
-        <span className="mr-1 h-5 w-px bg-zinc-200 dark:bg-zinc-800" aria-hidden />
-        <button type="button" onClick={() => choose("online")} className={tabClass(tab === "online")}>
-          {t("common.online")}
+  const pendingCount = data.incomingUsers.length;
+  const tabs: { key: FriendsTab; label: string; count?: number }[] = [
+    { key: "online", label: t("common.online"), count: data.online.length },
+    { key: "all", label: t("groups.central.tabAll"), count: data.friends.length },
+    { key: "pending", label: t("groups.central.tabPending") },
+  ];
+
+  const grid = "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2";
+  const card = (user: SocialUser, presence: PresenceInfo | undefined, side: ReactNode) => (
+    <li
+      key={user.id}
+      className="group flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-zinc-200 transition hover:ring-zinc-300 dark:bg-zinc-950 dark:ring-zinc-800 dark:hover:ring-zinc-700"
+    >
+      <button
+        type="button"
+        onClick={() => actions.openProfile(user.id)}
+        aria-label={t("common.seeDisplaynameSProfile", { displayName: user.displayName })}
+        className={`flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left ${
+          tab === "pending" || connected(presence) ? "" : "opacity-60 group-hover:opacity-100"
+        }`}
+      >
+        <UserAvatar src={user.avatarUrl} name={user.displayName} size={40} userId={user.id} className="shrink-0" />
+        <span className="min-w-0 flex-1">
+          <DisplayUserName
+            name={user.displayName}
+            verified={verifiedBadge(user.flags)}
+            flags={user.flags}
+            bot={user.bot}
+            color={user.nameColor}
+            className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
+          />
+          <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+            {tab === "pending" ? `@${user.username}` : shortStatus(presence, t)}
+          </span>
+        </span>
+      </button>
+      {side}
+    </li>
+  );
+
+  const iconButton =
+    "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50";
+  const friendActions = (user: SocialUser) => (
+    <span className="flex shrink-0 gap-0.5 opacity-0 transition group-focus-within:opacity-100 group-hover:opacity-100">
+      <Tooltip content={t("common.chatWithDisplayname", { displayName: user.displayName })}>
+        <button type="button" onClick={() => chat(user)} aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })} className={iconButton}>
+          <MdChatBubbleOutline className="h-4 w-4" />
         </button>
-        <button type="button" onClick={() => choose("all")} className={tabClass(tab === "all")}>
-          {t("groups.central.tabAll")}
+      </Tooltip>
+      <Tooltip content={t("common.callDisplayname", { displayName: user.displayName })}>
+        <button
+          type="button"
+          disabled={busyId === user.id}
+          onClick={() => void call(user)}
+          aria-label={t("common.callDisplayname", { displayName: user.displayName })}
+          className={iconButton}
+        >
+          <MdCall className="h-4 w-4" />
         </button>
-        <button type="button" onClick={actions.openRequests} className={`${tabClass(false)} inline-flex items-center gap-1.5`}>
-          {t("groups.central.tabPending")}
-          {data.incoming > 0 && <span className={`${unreadBadge} !bg-red-500 !text-white`}>{data.incoming > 99 ? "99+" : data.incoming}</span>}
-        </button>
+      </Tooltip>
+    </span>
+  );
+
+  let body: ReactNode;
+  if (data.friendsLoading) {
+    body = (
+      <ul aria-hidden className={grid}>
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <li key={i} className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
+        ))}
+      </ul>
+    );
+  } else if (tab === "pending") {
+    const incoming = data.incomingUsers.filter(matches);
+    const outgoing = data.outgoingUsers.filter(matches);
+    body =
+      incoming.length === 0 && outgoing.length === 0 ? (
+        <Empty>{q ? t("groups.central.noMatch") : t("groups.central.noPending")}</Empty>
+      ) : (
+        <>
+          {incoming.length > 0 && (
+            <>
+              <SubTitle>{t("groups.central.receivedSection", { count: incoming.length })}</SubTitle>
+              <ul className={grid}>
+                {incoming.map((user) =>
+                  card(
+                    user,
+                    undefined,
+                    <span className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        disabled={requestBusy === user.id}
+                        onClick={() => void answer(user.id, true, "accept")}
+                        className="inline-flex cursor-pointer items-center gap-1 rounded-lg bg-zinc-950 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                      >
+                        <MdCheck className="h-3.5 w-3.5" />
+                        {t("common.accept")}
+                      </button>
+                      <Tooltip content={t("common.decline")}>
+                        <button
+                          type="button"
+                          disabled={requestBusy === user.id}
+                          onClick={() => void answer(user.id, false, "decline")}
+                          aria-label={t("common.decline")}
+                          className={iconButton}
+                        >
+                          <MdClose className="h-4 w-4" />
+                        </button>
+                      </Tooltip>
+                    </span>
+                  )
+                )}
+              </ul>
+            </>
+          )}
+          {outgoing.length > 0 && (
+            <>
+              <SubTitle>{t("groups.central.sentSection", { count: outgoing.length })}</SubTitle>
+              <ul className={grid}>
+                {outgoing.map((user) =>
+                  card(
+                    user,
+                    undefined,
+                    <button
+                      type="button"
+                      disabled={requestBusy === user.id}
+                      onClick={() => void answer(user.id, false, "cancel")}
+                      className="shrink-0 cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-50 dark:text-zinc-300 dark:ring-zinc-800 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                    >
+                      {t("groups.central.cancelRequest")}
+                    </button>
+                  )
+                )}
+              </ul>
+            </>
+          )}
+        </>
+      );
+  } else if (data.friends.length === 0) {
+    body = (
+      <Empty>
+        {t("common.youDonTHaveAnyFriends")}{" "}
         <button
           type="button"
           onClick={actions.addFriend}
-          className="hub-accent ml-1 cursor-pointer rounded-md px-2.5 py-1 text-sm font-medium transition hover:brightness-110"
+          className="cursor-pointer font-medium underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
         >
-          {t("common.addFriend")}
+          {t("homeFriendsPanel.addSomeone")}
         </button>
-      </div>
+      </Empty>
+    );
+  } else {
+    const shown = (tab === "online" ? data.online : data.friends).filter(matches);
+    body =
+      shown.length === 0 ? (
+        <Empty>{q ? t("groups.central.noMatch") : t("groups.central.nobodyNow")}</Empty>
+      ) : (
+        <ul className={grid}>
+          {shown.slice(0, 300).map((user) => card(user, data.presence[user.id], friendActions(user)))}
+        </ul>
+      );
+  }
 
-      <div className="shrink-0 px-4 pt-3">
-        <div className="relative">
-          <MdSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (!searched && e.target.value) {
-                setSearched(true);
-                trackHubCentral(HUB_CENTRAL_EVENTS.friendsSearch);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && query) {
-                e.preventDefault();
-                setQuery("");
-              }
-            }}
-            placeholder={t("groups.central.searchFriends")}
-            aria-label={t("groups.central.searchFriends")}
-            maxLength={60}
-            className="w-full rounded-lg bg-zinc-100 py-2 pl-8 pr-3 text-sm text-zinc-950 outline-none ring-1 ring-transparent transition placeholder:text-zinc-400 focus:ring-zinc-300 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:ring-zinc-700 [&::-webkit-search-cancel-button]:hidden"
-          />
-        </div>
-        <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          {tab === "online"
-            ? t("groups.central.onlineSection", { count: shown.length })
-            : t("groups.central.allSection", { count: shown.length })}
-        </p>
-        {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      </div>
-
-      <div className="mt-1 min-h-0 flex-1 overflow-y-auto px-4 pb-3">
-        {data.friendsLoading ? (
-          <ul aria-hidden className="mt-2 flex flex-col gap-2">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <li key={i} className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
-            ))}
-          </ul>
-        ) : data.friends.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-            {t("common.youDonTHaveAnyFriends")}{" "}
+  return (
+    <section className="mt-6 flex shrink-0 flex-col">
+      <div className="flex flex-wrap items-center gap-3">
+        <SectionTitle>{t("common.friends")}</SectionTitle>
+        <div className="inline-flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900" role="tablist">
+          {tabs.map(({ key, label, count }) => (
             <button
+              key={key}
               type="button"
-              onClick={actions.addFriend}
-              className="cursor-pointer font-medium underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => choose(key)}
+              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1 text-sm font-medium transition ${
+                tab === key
+                  ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                  : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              }`}
             >
-              {t("homeFriendsPanel.addSomeone")}
+              {label}
+              {key === "pending" && pendingCount > 0 ? (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                  {pendingCount > 99 ? "99+" : pendingCount}
+                </span>
+              ) : count !== undefined ? (
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">{count}</span>
+              ) : null}
             </button>
-          </p>
-        ) : shown.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-            {q ? t("groups.central.noMatch") : t("groups.central.nobodyNow")}
-          </p>
-        ) : (
-          <ul className="flex flex-col">
-            {shown.slice(0, 300).map((user) => (
-              <FriendRow
-                key={user.id}
-                user={user}
-                presence={data.presence[user.id]}
-                busy={busyId === user.id}
-                onCall={() => void call(user)}
-                onProfile={() => actions.openProfile(user.id)}
-              />
-            ))}
-          </ul>
-        )}
+          ))}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <MdSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (!searched && e.target.value) {
+                  setSearched(true);
+                  trackHubCentral(HUB_CENTRAL_EVENTS.friendsSearch);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && query) {
+                  e.preventDefault();
+                  setQuery("");
+                }
+              }}
+              placeholder={t("groups.central.searchFriends")}
+              aria-label={t("groups.central.searchFriends")}
+              maxLength={60}
+              className="w-56 rounded-lg border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:placeholder:text-zinc-500 [&::-webkit-search-cancel-button]:hidden"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={actions.addFriend}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-zinc-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          >
+            <MdPersonAdd className="h-4 w-4" />
+            {t("common.addFriend")}
+          </button>
+        </div>
       </div>
+      {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <div className="mt-3">{body}</div>
     </section>
   );
 }
 
-/** "Temas": the way to the workshop, where the site's look is chosen. */
-function ThemesCard() {
+function Empty({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+      {children}
+    </p>
+  );
+}
+
+/** "Temas", at the foot of the right column: the way to the workshop. */
+function ThemesLink() {
   const t = useT();
   return (
     <GroupLink
       href="/workshop"
       onClick={() => trackHubCentral(HUB_CENTRAL_EVENTS.link, { tags: { to: "themes" } })}
-      className={`${tile} group flex shrink-0 items-center gap-3 !py-4 transition hover:ring-zinc-300 dark:hover:ring-zinc-700`}
+      className="group flex shrink-0 items-center gap-3 border-t border-zinc-200 px-4 py-3.5 transition hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900"
     >
-      <span className="hub-accent flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+      <span className="hub-accent flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
         <MdPalette className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("groups.central.themesTitle")}</span>
-        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{t("groups.central.themesHint")}</span>
+        <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">{t("groups.central.themesHint")}</span>
       </span>
       <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5 dark:text-zinc-500" />
     </GroupLink>
@@ -768,73 +920,6 @@ function FaceButton({ user }: { user: SocialUser }) {
 function SubTitle({ children }: { children: ReactNode }) {
   return (
     <p className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{children}</p>
-  );
-}
-
-/**
- * One friend in the list, Discord's way: a line between rows, the face with
- * its status dot, the name and a short status, and the actions always on the
- * right as round buttons (they light up with the row on hover). Clicking the
- * row talks, as Discord's does.
- */
-function FriendRow({
-  user,
-  presence,
-  busy,
-  onCall,
-  onProfile,
-}: {
-  user: SocialUser;
-  presence: PresenceInfo | undefined;
-  busy: boolean;
-  onCall: () => void;
-  onProfile: () => void;
-}) {
-  const t = useT();
-  const on = connected(presence);
-  const action =
-    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-zinc-100 text-zinc-500 transition hover:text-zinc-950 disabled:opacity-50 group-hover:bg-white dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 dark:group-hover:bg-zinc-950";
-  return (
-    <li className="group -mx-2 border-t border-zinc-200 first:border-t-0 hover:border-transparent dark:border-zinc-800 [&:hover+li]:border-transparent">
-      <div className="flex items-center gap-3 rounded-lg px-2 py-2 transition group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900">
-        <button
-          type="button"
-          onClick={() => chat(user)}
-          aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
-          className={`flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left ${on ? "" : "opacity-70 group-hover:opacity-100"}`}
-        >
-          <UserAvatar src={user.avatarUrl} name={user.displayName} size={36} userId={user.id} presenceSurface="page" className="shrink-0" />
-          <span className="min-w-0 flex-1">
-            <DisplayUserName
-              name={user.displayName}
-              verified={verifiedBadge(user.flags)}
-              flags={user.flags}
-              bot={user.bot}
-              color={user.nameColor}
-              className="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
-            />
-            <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">{shortStatus(presence, t)}</span>
-          </span>
-        </button>
-        <span className="flex shrink-0 gap-2">
-          <Tooltip content={t("common.chatWithDisplayname", { displayName: user.displayName })}>
-            <button type="button" onClick={() => chat(user)} aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })} className={action}>
-              <MdChatBubbleOutline className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content={t("common.callDisplayname", { displayName: user.displayName })}>
-            <button type="button" disabled={busy} onClick={onCall} aria-label={t("common.callDisplayname", { displayName: user.displayName })} className={action}>
-              <MdCall className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content={t("common.viewProfile")}>
-            <button type="button" onClick={onProfile} aria-label={t("common.viewProfile")} className={action}>
-              <MdMoreVert className="h-4 w-4" />
-            </button>
-          </Tooltip>
-        </span>
-      </div>
-    </li>
   );
 }
 

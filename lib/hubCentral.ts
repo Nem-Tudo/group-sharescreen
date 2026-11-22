@@ -32,7 +32,7 @@ export const HUB_CENTRAL_EVENTS = {
   notifOpen: "central_notif_open",
   /** "Adicionar amigo" from the friends card. */
   friendAdd: "central_friend_add",
-  /** The pending friend requests line opened. */
+  /** The pending friend requests opened (the line in inbox/bento, the Pendentes tab in now). */
   requests: "central_requests_open",
   /** One of the ways out (explore, rooms, map, invite, new group). Tag `to`: which. */
   link: "central_link",
@@ -42,6 +42,8 @@ export const HUB_CENTRAL_EVENTS = {
   friendsTab: "central_friends_tab",
   /** Something typed in the friends list's search (once per visit). */
   friendsSearch: "central_friends_search",
+  /** A friend request answered from the Pendentes tab. Tag `action`: accept, decline or cancel (one this person sent). */
+  requestReply: "central_request_reply",
 } as const;
 
 export type HubCentralLayout = "now" | "inbox" | "bento";
