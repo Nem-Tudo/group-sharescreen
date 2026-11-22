@@ -1323,9 +1323,9 @@ function ProfileContent({
           empty middle sat invisibly on top of the banner's bottom strip and
           swallowed every click meant for the "alterar banner" button in that
           corner. */}
-      <div className={`pointer-events-none relative -mt-12 flex shrink-0 items-end justify-between px-5 sm:px-6 ${compact ? "" : "sm:-mt-16"}`}>
+      <div className={`pointer-events-none relative flex shrink-0 items-end justify-between ${twoColumns ? "-mt-14 px-6 sm:px-8" : `-mt-12 px-5 sm:px-6 ${compact ? "" : "sm:-mt-16"}`}`}>
         <div
-          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden ${shapeRoundingClass(shownAvatarShape)} border-4 shadow-md ${compact ? "" : "sm:h-28 sm:w-28"} ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
+          className={`group pointer-events-auto relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden ${shapeRoundingClass(shownAvatarShape)} border-4 shadow-md ${twoColumns ? "!h-28 !w-28" : compact ? "" : "sm:h-28 sm:w-28"} ${theme ? "" : "border-white bg-zinc-100 dark:border-zinc-950 dark:bg-zinc-900"
             }`}
           style={theme ? { borderColor: theme.ring, background: theme.surface } : undefined}
         >
@@ -1623,6 +1623,63 @@ function ProfileContent({
           onChange={handleBannerPicked}
         />
 
+        {/* The popup's header (two-column fit): name, handle, badges and
+            points beside the picture, the actions at the far right. */}
+        {twoColumns && (
+          <div className="pointer-events-auto ml-5 flex min-w-0 flex-1 flex-wrap items-end justify-between gap-x-4 gap-y-2 pb-2">
+            <div className="min-w-0">
+              <h1
+                className="flex min-w-0 items-center gap-2 text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50"
+                style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+              >
+                <span
+                  style={nameStyleOf(account.equippedNameColor).style}
+                  className={`truncate ${nameStyleOf(account.equippedNameColor).className ?? ""}`}
+                >
+                  {account.displayName}
+                </span>
+                <VerifiedBadge flags={headerVerifiedFlags} className="h-6 w-6 shrink-0" />
+                {headerNameBadges.map((badge) => (
+                  <Tooltip key={badge.id} content={badge.name}>
+                    <span className="inline-flex shrink-0 items-center self-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={badge.iconUrl} alt={badge.name} className="pointer-events-none h-5 w-5 shrink-0 select-none object-contain" />
+                    </span>
+                  </Tooltip>
+                ))}
+              </h1>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span
+                  className="text-base text-zinc-600 dark:text-zinc-300"
+                  style={theme ? { color: theme.muted, textShadow: theme.textShadow } : undefined}
+                >
+                  @{account.username}
+                </span>
+                {account.bot && <BotTag />}
+                <UserBadges account={account} isOwner={isOwner} theme={theme ?? undefined} />
+                <span
+                  aria-hidden
+                  className="h-5 w-px bg-zinc-300 dark:bg-zinc-700"
+                  style={theme ? { background: theme.border } : undefined}
+                />
+                <span
+                  className="text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+                  style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+                >
+                  {tc("common.pointsCount", account.points ?? 0)}
+                </span>
+              </div>
+            </div>
+            <SocialActions
+              variant="header"
+              userId={account.id}
+              displayName={account.displayName}
+              onLeave={onNavigate}
+              className="shrink-0"
+            />
+          </div>
+        )}
+
         {isOwner && !isEditing && (
           <button
             type="button"
@@ -1635,12 +1692,113 @@ function ProfileContent({
         )}
       </div>
 
-      <div
-        className={`px-5 pb-5 sm:px-6 sm:pb-6 ${
-          twoColumns ? "lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:grid-rows-[minmax(0,1fr)] lg:gap-x-8" : ""
-        }`}
-      >
-        <div className={twoColumns ? "min-w-0 lg:overflow-y-auto lg:pb-1" : "contents"}>
+      {twoColumns ? (
+        // The popup's two columns: who they are on the left, what they do on
+        // the right — each scrolling inside itself when it outgrows the
+        // window, never the page.
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-y-6 px-6 pb-6 pt-6 sm:px-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,8fr)] lg:grid-rows-[minmax(0,1fr)]">
+          <div className="min-w-0 lg:overflow-y-auto lg:pr-8">
+            {live && (
+              <Link
+                href={`/watch/${live.room}`}
+                onClick={onNavigate}
+                className="mb-5 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-400"
+              >
+                <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+                {t("userProfileCard.isInAPublicRoomRight")} {live.peopleCount}{" "}
+                {tc("common.personNoun", live.peopleCount)}{t("userProfileCard.goInto")}{live.room}&quot;
+              </Link>
+            )}
+            {account.bot && (
+              <Link
+                href={botAddPath(account.id)}
+                onClick={onNavigate}
+                target="_blank"
+                className="mb-5 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+              >
+                {t("addBot.addToAGroup")}
+              </Link>
+            )}
+            <p
+              className="whitespace-pre-line text-base leading-relaxed text-zinc-800 dark:text-zinc-200"
+              style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+            >
+              {account.bio || t("userProfileCard.noDescription")}
+            </p>
+            <ProfileLinksRow links={shownLinks} theme={theme} />
+            {account.profileSong && (
+              <div className="mt-6">
+                <ProfileSongPlayer song={account.profileSong} autoPlay={autoPlaySong} theme={theme} />
+              </div>
+            )}
+            <div
+              className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-5 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400"
+              style={theme ? { borderColor: theme.border, color: theme.muted } : undefined}
+            >
+              <span>
+                {t("userProfileCard.memberSince")} {memberSince}
+              </span>
+              <span className="text-xs">
+                <CopyIdButton id={account.id} />
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="min-w-0 border-zinc-200 lg:-mr-2 lg:overflow-y-auto lg:border-l lg:pl-8 lg:pr-2 dark:border-zinc-800"
+            style={theme ? { borderColor: theme.border } : undefined}
+          >
+            <h2
+              className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
+              style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+            >
+              {t("userProfileCard.activity")}
+            </h2>
+            <div className="mt-3 grid grid-cols-3 gap-4">
+              {[
+                { label: t("userProfileCard.inCall"), seconds: account.callSeconds ?? 0 },
+                { label: t("userProfileCard.micOpen"), seconds: account.micSeconds ?? 0 },
+                { label: t("userProfileCard.sharingScreen"), seconds: account.shareSeconds ?? 0 },
+              ].map((stat) => (
+                <div key={stat.label} className="min-w-0">
+                  <p
+                    className="truncate text-2xl font-bold tabular-nums text-zinc-950 dark:text-zinc-50"
+                    style={theme ? { color: theme.text, textShadow: theme.textShadow } : undefined}
+                  >
+                    {formatDuration(stat.seconds)}
+                  </p>
+                  <p
+                    className="truncate text-sm text-zinc-500 dark:text-zinc-400"
+                    style={theme ? { color: theme.muted } : undefined}
+                  >
+                    {stat.label}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {profile.profileGroup && (
+              <div
+                className="mt-5 border-t border-zinc-200 pt-5 dark:border-zinc-800"
+                style={theme ? { borderColor: theme.border } : undefined}
+              >
+                <ProfileGroupCard ownerId={account.id} group={profile.profileGroup} onNavigate={onNavigate} theme={theme} flat />
+              </div>
+            )}
+            {sections && (
+              <div
+                data-scheme={theme ? (theme.dark ? "dark" : "light") : undefined}
+                className={`flex flex-col [&>*]:mt-5 [&>*]:border-t [&>*]:pt-5 ${
+                  theme ? "[&>*]:border-[var(--profile-border)]" : "[&>*]:border-zinc-200 dark:[&>*]:border-zinc-800"
+                }`}
+                style={theme ? ({ "--profile-border": theme.border } as React.CSSProperties) : undefined}
+              >
+                {sections}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+      <div className="px-5 pb-5 sm:px-6 sm:pb-6">
         {/* One view, always. Editing used to swap the whole card for a
             column of labelled inputs that looked nothing like the profile it
             produced — the only way to see the result was to save and find
@@ -2059,11 +2217,6 @@ function ProfileContent({
           </div>
         )}
 
-        </div>
-        {/* The right column in the popup's two-column fit: the group, the
-            numbers, the actions and the sections (comments) — the one that
-            scrolls, inside itself, when a long comment thread outgrows it. */}
-        <div className={twoColumns ? "min-w-0 lg:-mr-2 lg:overflow-y-auto lg:pr-2 lg:pt-3 lg:[&>*:first-child]:mt-0" : "contents"}>
         {profile.profileGroup && !(isEditing && profileGroupChanged) && (
           <div className="mt-4">
             <ProfileGroupCard ownerId={account.id} group={profile.profileGroup} onNavigate={onNavigate} theme={theme} />
@@ -2324,8 +2477,8 @@ function ProfileContent({
             {sections}
           </div>
         )}
-        </div>
       </div>
+      )}
     </div>
   );
 }

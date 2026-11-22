@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   MdBlock,
   MdCall,
   MdChatBubbleOutline,
   MdCheck,
   MdClose,
+  MdMoreHoriz,
   MdPersonAdd,
   MdPersonRemove,
 } from "react-icons/md";
@@ -21,7 +22,7 @@ import {
 import { openDirectMessages } from "@/lib/dmWindow";
 import { startCall } from "@/lib/callsApi";
 import { AccountModal, type AccountModalMode } from "@/components/AccountModal";
-import { Tooltip } from "@/components/Tooltip";
+import { Popover, Tooltip } from "@/components/Tooltip";
 
 const BUTTON_BASE =
   "flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -69,10 +70,20 @@ export function SocialActions({
   className = "",
   onLeave,
   unavailable,
+  variant = "buttons",
+  extraMenu,
 }: {
   userId: string;
   displayName: string;
   className?: string;
+  /**
+   * `header`: the profile popup's top-right — "Mensagem" as the one solid
+   * button, a call icon, and everything about the friendship (and blocking)
+   * behind a "⋯". Same states, same calls.
+   */
+  variant?: "buttons" | "header";
+  /** With `header`: more rows for the "⋯" (e.g. "Copiar ID"). */
+  extraMenu?: ReactNode;
   /**
    * Called when something here replaces this card with another surface.
    *
@@ -98,6 +109,7 @@ export function SocialActions({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accountModal, setAccountModal] = useState<AccountModalMode | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Your own card is the one case with genuinely nothing to show: there is no
   // version of "adicionar" that means anything pointed at yourself.
@@ -144,6 +156,135 @@ export function SocialActions({
   }
 
   const relationship = relationshipWith(graph, userId);
+
+  if (variant === "header") {
+    const menuRow =
+      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50";
+    const menuTone = "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900";
+    const act = (action: () => Promise<{ ok: boolean; error?: string }>) => () => {
+      setMenuOpen(false);
+      void run(action);
+    };
+    const iconButton =
+      "flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg text-zinc-700 transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-white/10";
+    return (
+      <div className={`flex flex-col items-end gap-1 ${className}`}>
+        <div className="flex items-center gap-1.5">
+          {relationship === "blocked" ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => run(() => unblockUser(userId))}
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            >
+              <MdBlock className="h-4 w-4 shrink-0" />
+              {t("common.unblock")}
+            </button>
+          ) : (
+            <>
+              {relationship === "incoming" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => run(() => acceptFriend(userId))}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <MdCheck className="h-4 w-4 shrink-0" />
+                  {t("common.accept")}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  onLeave?.();
+                  openDirectMessages(userId);
+                }}
+                className="cursor-pointer rounded-lg bg-blue-500 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-600"
+              >
+                {t("common.message")}
+              </button>
+              <Tooltip content={t("common.turnOn")}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("common.turnOn")}
+                  onClick={() =>
+                    void run(async () => {
+                      const result = await startCall(userId);
+                      return result.ok ? { ok: true } : { ok: false, error: result.error };
+                    })
+                  }
+                  className={iconButton}
+                >
+                  <MdCall className="h-5 w-5" />
+                </button>
+              </Tooltip>
+            </>
+          )}
+          <Popover
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            placement="bottom-end"
+            content={
+              <div className="flex w-56 flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                {relationship === "none" && (
+                  <button type="button" disabled={busy} onClick={act(() => addFriend(userId))} className={`${menuRow} ${menuTone}`}>
+                    <MdPersonAdd className="h-4 w-4 shrink-0" />
+                    {t("common.add")}
+                  </button>
+                )}
+                {relationship === "incoming" && (
+                  <button type="button" disabled={busy} onClick={act(() => removeFriend(userId))} className={`${menuRow} ${menuTone}`}>
+                    <MdClose className="h-4 w-4 shrink-0" />
+                    {t("common.decline")}
+                  </button>
+                )}
+                {relationship === "outgoing" && (
+                  <button type="button" disabled={busy} onClick={act(() => removeFriend(userId))} className={`${menuRow} ${menuTone}`}>
+                    <MdClose className="h-4 w-4 shrink-0" />
+                    {t("socialActions.cancelRequest")}
+                  </button>
+                )}
+                {relationship === "friends" && (
+                  <button type="button" disabled={busy} onClick={act(() => removeFriend(userId))} className={`${menuRow} ${menuTone}`}>
+                    <MdPersonRemove className="h-4 w-4 shrink-0" />
+                    {t("socialActions.unfriend")}
+                  </button>
+                )}
+                {extraMenu}
+                {relationship !== "blocked" && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (!window.confirm(t("socialActions.blockDisplayname", { displayName }))) return;
+                      void run(() => blockUser(userId));
+                    }}
+                    className={`${menuRow} text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40`}
+                  >
+                    <MdBlock className="h-4 w-4 shrink-0" />
+                    {t("socialActions.block")}
+                  </button>
+                )}
+              </div>
+            }
+          >
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-label={t("contextMenu.options")}
+              aria-expanded={menuOpen}
+              className={iconButton}
+            >
+              <MdMoreHoriz className="h-6 w-6" />
+            </button>
+          </Popover>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+      </div>
+    );
+  }
 
   async function run(action: () => Promise<{ ok: boolean; error?: string }>) {
     if (busy) return;

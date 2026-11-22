@@ -24,9 +24,12 @@ export function ProfileGroupCard({
   group,
   onNavigate,
   theme,
+  flat = false,
 }: {
   ownerId: string;
   group: ProfileGroup;
+  /** A plain row (the profile popup's two-column fit): no box, no banner, a text "Entrar". */
+  flat?: boolean;
   /** Closes whatever the profile is shown in, before leaving for the group. */
   onNavigate?: () => void;
   theme?: { text: string; muted: string; surface: string; border: string } | null;
@@ -70,27 +73,38 @@ export function ProfileGroupCard({
     "shrink-0 cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
-    <div className={group.bannerUrl ? "w-full overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800" : "contents"}>
-      {group.bannerUrl && (
+    <div className={group.bannerUrl && !flat ? "w-full overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800" : "contents"}>
+      {group.bannerUrl && !flat && (
         // eslint-disable-next-line @next/next/no-img-element -- a CDN picture of any shape
         <img src={group.bannerUrl} alt="" loading="lazy" draggable={false} className="block h-16 w-full object-cover" />
       )}
     <div
-      className={`flex w-full items-center gap-3 border-zinc-200 bg-zinc-50 p-3 text-left text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-100 ${
-        group.bannerUrl ? "" : "rounded-xl border"
-      }`}
-      style={theme ? { background: theme.surface, borderColor: theme.border, color: theme.text } : undefined}
+      className={
+        flat
+          ? "flex w-full items-center gap-4 text-left text-zinc-900 dark:text-zinc-100"
+          : `flex w-full items-center gap-3 border-zinc-200 bg-zinc-50 p-3 text-left text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-100 ${
+              group.bannerUrl ? "" : "rounded-xl border"
+            }`
+      }
+      style={theme ? (flat ? { color: theme.text } : { background: theme.surface, borderColor: theme.border, color: theme.text }) : undefined}
     >
-      <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={48} className="shrink-0 rounded-xl" />
+      <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={flat ? 52 : 48} className="shrink-0 rounded-xl" />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span
-          className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
-          style={theme ? { color: theme.muted } : undefined}
-        >
-          {t("profileGroup.label")}
-        </span>
-        <GroupName name={group.name} flags={group.flags} className="min-w-0 text-sm font-semibold" badgeClassName="h-3.5 w-3.5" />
-        {group.description && (
+        {!flat && (
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+            style={theme ? { color: theme.muted } : undefined}
+          >
+            {t("profileGroup.label")}
+          </span>
+        )}
+        <GroupName
+          name={group.name}
+          flags={group.flags}
+          className={`min-w-0 font-semibold ${flat ? "text-lg" : "text-sm"}`}
+          badgeClassName={flat ? "h-4 w-4" : "h-3.5 w-3.5"}
+        />
+        {group.description && !flat && (
           <span
             className="line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400"
             style={theme ? { color: theme.muted } : undefined}
@@ -99,15 +113,24 @@ export function ProfileGroupCard({
           </span>
         )}
         <span
-          className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400"
+          className={`mt-0.5 flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400 ${flat ? "text-sm" : "text-[11px]"}`}
           style={theme ? { color: theme.muted } : undefined}
         >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+          {!flat && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
           {group.onlineCount} online · {tc("common.memberCount", group.memberCount)}
         </span>
         {error && <span className="mt-0.5 text-[11px] text-red-500">{error}</span>}
       </span>
-      {member ? (
+      {flat ? (
+        <button
+          type="button"
+          onClick={() => (member ? open(group.id) : void join())}
+          disabled={busy || loading}
+          className="shrink-0 cursor-pointer text-base font-semibold text-blue-500 transition hover:text-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {member ? t("groups.homeGroupsPanel.open") : busy ? t("common.joining2") : t("groups.inviteEmbed.join")}
+        </button>
+      ) : member ? (
         <button
           type="button"
           onClick={() => open(group.id)}
