@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { UserProfileCard } from "./UserProfileCard";
@@ -64,6 +64,36 @@ export function UserProfileDialog({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  // The profile as it always was, unless it does not fit the window: then
+  // (on a screen wide enough for two columns) the two-column fit, which is
+  // no taller than the window (see UserProfileCard's `compact`). Measured on
+  // the card itself, so a profile that grows after opening — the comments
+  // arriving — switches when it outgrows the window, and one that fits never
+  // does. Sticky until the window changes size, which measures again from
+  // the ordinary layout; no flip-flopping between the two while it is open.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [fit, setFit] = useState(false);
+  useEffect(() => {
+    if (fit || !onClient) return;
+    const card = cardRef.current;
+    if (!card) return;
+    const check = () => {
+      if (window.innerWidth < 1024) return;
+      // The backdrop's padding (p-4) on both sides.
+      if (card.offsetHeight > window.innerHeight - 32) setFit(true);
+    };
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [fit, onClient]);
+  useEffect(() => {
+    if (!fit) return;
+    const onResize = () => setFit(false);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [fit]);
+
   if (!onClient) return null;
 
   return createPortal(
@@ -88,7 +118,8 @@ export function UserProfileDialog({
         // The backdrop closes on click; the card must not, or every click
         // inside it — including selecting the bio text — would dismiss it.
         onClick={(e) => e.stopPropagation()}
-        className={`golive-dialog-card relative w-full max-w-2xl ${guest ? "" : "lg:max-w-5xl"}`}
+        ref={cardRef}
+        className={`golive-dialog-card relative w-full max-w-2xl ${fit && !guest ? "lg:max-w-5xl" : ""}`}
       >
         {/* Both window controls together, over the banner rather than
             above the card: the banner is decorative and full-bleed, so there
@@ -146,7 +177,7 @@ export function UserProfileDialog({
           <UserProfileCard
             id={userId}
             onNavigate={onClose}
-            compact
+            compact={fit}
             // Inside the card, not under it (see `sections` there).
             // Experiment profile-comments — the newest few, expanding in
             // place (see ProfileComments).
