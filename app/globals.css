@@ -438,6 +438,77 @@ html[data-room-theme][data-theme="light"] :is(.tippy-box, .ntpopups-main, .goliv
   color: var(--room-accent-text, var(--color-zinc-950));
 }
 
+/* ─── The central's highlight (components/groups/HubCentral) ──────────────
+   What was a fixed emerald — unread counts, "Adicionar amigo", the requests
+   line — is the worn theme's accent when there is one, so a pink theme does
+   not get green badges. Emerald without a theme, as before. */
+.hub-accent {
+  background-color: var(--room-accent, var(--color-emerald-500));
+  color: var(--room-accent-text, #ffffff);
+}
+.hub-accent-text {
+  color: var(--room-accent, var(--color-emerald-600));
+}
+html[data-theme="dark"] .hub-accent-text {
+  color: var(--room-accent, var(--color-emerald-400));
+}
+
+/* ─── Herobrine (components/groups/HubGreeting, 1 visit in 200) ───────────
+   Its own dark room in every theme: fixed colours, never the zinc tokens. A
+   fog that drifts, white eyes that glow, and a title that flickers like a
+   torch about to go out. Still for somebody who asked for less motion. */
+.hb-card {
+  background:
+    radial-gradient(120% 140% at 0% 50%, rgb(255 255 255 / 0.07), transparent 55%),
+    linear-gradient(100deg, #050506 0%, #121214 60%, #050506 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06), 0 10px 40px -12px rgb(0 0 0 / 0.8);
+}
+.hb-card::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(40% 30% at 30% 60%, rgb(255 255 255 / 0.06), transparent 70%),
+    radial-gradient(35% 25% at 75% 40%, rgb(255 255 255 / 0.04), transparent 70%);
+  animation: hb-fog 14s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.hb-face {
+  image-rendering: pixelated;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px #000, 0 0 24px rgb(255 255 255 / 0.12);
+}
+.hb-eye {
+  filter: drop-shadow(0 0 0.35px #fff) drop-shadow(0 0 0.8px #fff);
+  animation: hb-eyes 4.5s ease-in-out infinite;
+}
+.hb-title {
+  text-shadow: 0 0 8px rgb(255 255 255 / 0.35), 0 0 22px rgb(255 255 255 / 0.15);
+  animation: hb-flicker 7s linear infinite;
+}
+@keyframes hb-fog {
+  from { transform: translate3d(-4%, 0, 0); }
+  to { transform: translate3d(4%, -3%, 0); }
+}
+@keyframes hb-eyes {
+  0%, 100% { opacity: 1; }
+  48% { opacity: 1; }
+  50% { opacity: 0.15; }
+  52% { opacity: 1; }
+}
+@keyframes hb-flicker {
+  0%, 18%, 22%, 62%, 64%, 66%, 100% { opacity: 1; }
+  20% { opacity: 0.35; }
+  63% { opacity: 0.55; }
+  65% { opacity: 0.2; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hb-card::before,
+  .hb-eye,
+  .hb-title {
+    animation: none;
+  }
+}
+
 /* ─── The group banner's "novo" tip (components/groups/GroupBannerTip) ─────
    A rooms column in miniature: the banner grows in over its top, the name on
    it turns white, holds, and goes back — one 4.8s loop, all three in step.

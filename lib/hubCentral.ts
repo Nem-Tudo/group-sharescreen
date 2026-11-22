@@ -36,6 +36,12 @@ export const HUB_CENTRAL_EVENTS = {
   requests: "central_requests_open",
   /** One of the ways out (explore, rooms, map, invite, new group). Tag `to`: which. */
   link: "central_link",
+  /** The Herobrine greeting showed (0.5% of visits, see HubGreeting). */
+  herobrine: "central_herobrine",
+  /** The friends list's tab changed (now layout). Tag `tab`: online or all. */
+  friendsTab: "central_friends_tab",
+  /** Something typed in the friends list's search (once per visit). */
+  friendsSearch: "central_friends_search",
 } as const;
 
 export type HubCentralLayout = "now" | "inbox" | "bento";

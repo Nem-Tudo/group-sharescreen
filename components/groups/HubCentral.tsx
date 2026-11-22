@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { MdCall, MdChatBubbleOutline, MdChevronRight, MdPersonAdd, MdPersonOutline } from "react-icons/md";
+import { MdCall, MdChatBubbleOutline, MdChevronRight, MdMoreVert, MdPalette, MdPeople, MdPersonOutline, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
@@ -12,6 +12,7 @@ import { NotificationKindIcon, relativeTime } from "@/components/NotificationInb
 import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
+import { HubGreeting } from "@/components/groups/HubGreeting";
 import { useAuth } from "@/lib/AuthContext";
 import { startCall } from "@/lib/callsApi";
 import { useDmLive } from "@/lib/dmLive";
@@ -204,53 +205,195 @@ interface LayoutProps {
 
 // ─── Layout: now ──────────────────────────────────────────────────────────
 
-function NowLayout({ data, actions, startRoomForm, liveGroups, links }: LayoutProps) {
+// Discord's friends page, reshaped: the friends are the page (a list with
+// tabs, a search and the actions on each row), and what is waiting for you —
+// messages and the bell, one inbox — is the card in the top-right corner,
+// where Discord keeps "Ativo agora". The ways out (explore, rooms, map,
+// invite, new group) are not repeated here: the rail and the shell's bar
+// already have every one of them.
+function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
   const t = useT();
   const live = liveGroups ?? [];
   return (
-    <div className={page("max-w-6xl 2xl:max-w-7xl")}>
-      <div className="flex shrink-0 flex-wrap items-end justify-between gap-4">
+    <div className={`${page("max-w-6xl 2xl:max-w-7xl")} lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_24rem]`}>
+      <div className="flex min-h-0 min-w-0 flex-col">
         <Greeting data={data} />
-        <div className="flex items-center gap-1">
-          {links.map((link) => (
-            <LinkIconButton key={link.key} link={link} />
-          ))}
-        </div>
+
+        <StartStrip form={startRoomForm} className="mt-5" />
+
+        {live.length > 0 && (
+          <section className="mt-4 shrink-0">
+            <SectionTitle>{t("groups.hub.happening")}</SectionTitle>
+            <ul className="mt-2 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+              {live.slice(0, 6).map((group) => (
+                <LiveGroupBanner key={group.id} group={group} />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <FriendsPanel data={data} actions={actions} className="mt-4 min-h-[22rem] flex-1" />
       </div>
 
-      <StartStrip form={startRoomForm} className="mt-5" />
-
-      <section className="mt-6 shrink-0">
-        <SectionTitle>{t("groups.central.now")}</SectionTitle>
-        {data.online.length === 0 && live.length === 0 ? (
-          <NobodyNow onAdd={actions.addFriend} />
-        ) : (
-          <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
-            {live.map((group) => (
-              <LiveGroupTile key={group.id} group={group} />
-            ))}
-            {data.online.map((user) => (
-              <FriendTile key={user.id} user={user} presence={data.presence[user.id]} actions={actions} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <div className="mt-6 grid min-h-0 flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <section className="flex min-h-0 flex-col">
-          <InboxHeader data={data} />
+      <aside className="mt-4 flex min-h-0 flex-col gap-4 lg:mt-0">
+        <section className={`${tile} flex min-h-[18rem] flex-1 flex-col`}>
+          <InboxHeader data={data} compact />
           <Scroll>
             <InboxList data={data} grouped />
           </Scroll>
         </section>
-        <aside className="flex min-h-0 flex-col rounded-2xl bg-zinc-100/70 p-4 dark:bg-zinc-900/50">
-          <FriendsHeader data={data} actions={actions} />
-          <Scroll>
-            <FriendList data={data} actions={actions} max={60} sections />
-          </Scroll>
-        </aside>
-      </div>
+        <ThemesCard />
+      </aside>
     </div>
+  );
+}
+
+/** The friends, as Discord lists them: tabs, a search, then one row per person with the actions on the right. */
+function FriendsPanel({ data, actions, className = "" }: { data: CentralData; actions: FriendActions; className?: string }) {
+  const t = useT();
+  const [tab, setTab] = useState<"online" | "all">("online");
+  const [query, setQuery] = useState("");
+  const [searched, setSearched] = useState(false);
+  const { busyId, error, call } = useCall();
+
+  const pool = tab === "online" ? data.online : data.friends;
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? pool.filter((user) => user.displayName.toLowerCase().includes(q) || user.username.toLowerCase().includes(q))
+    : pool;
+
+  function choose(next: "online" | "all") {
+    if (next === tab) return;
+    trackHubCentral(HUB_CENTRAL_EVENTS.friendsTab, { tags: { tab: next } });
+    setTab(next);
+  }
+
+  const tabClass = (active: boolean) =>
+    `cursor-pointer rounded-md px-2.5 py-1 text-sm font-medium transition ${
+      active
+        ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
+        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+    }`;
+
+  return (
+    <section className={`${tile} flex min-h-0 flex-col !p-0 ${className}`}>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <h2 className="mr-2 flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          <MdPeople className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
+          {t("common.friends")}
+        </h2>
+        <span className="mr-1 h-5 w-px bg-zinc-200 dark:bg-zinc-800" aria-hidden />
+        <button type="button" onClick={() => choose("online")} className={tabClass(tab === "online")}>
+          {t("common.online")}
+        </button>
+        <button type="button" onClick={() => choose("all")} className={tabClass(tab === "all")}>
+          {t("groups.central.tabAll")}
+        </button>
+        <button type="button" onClick={actions.openRequests} className={`${tabClass(false)} inline-flex items-center gap-1.5`}>
+          {t("groups.central.tabPending")}
+          {data.incoming > 0 && <span className={`${unreadBadge} !bg-red-500 !text-white`}>{data.incoming > 99 ? "99+" : data.incoming}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={actions.addFriend}
+          className="hub-accent ml-1 cursor-pointer rounded-md px-2.5 py-1 text-sm font-medium transition hover:brightness-110"
+        >
+          {t("common.addFriend")}
+        </button>
+      </div>
+
+      <div className="shrink-0 px-4 pt-3">
+        <div className="relative">
+          <MdSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (!searched && e.target.value) {
+                setSearched(true);
+                trackHubCentral(HUB_CENTRAL_EVENTS.friendsSearch);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query) {
+                e.preventDefault();
+                setQuery("");
+              }
+            }}
+            placeholder={t("groups.central.searchFriends")}
+            aria-label={t("groups.central.searchFriends")}
+            maxLength={60}
+            className="w-full rounded-lg bg-zinc-100 py-2 pl-8 pr-3 text-sm text-zinc-950 outline-none ring-1 ring-transparent transition placeholder:text-zinc-400 focus:ring-zinc-300 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:ring-zinc-700 [&::-webkit-search-cancel-button]:hidden"
+          />
+        </div>
+        <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          {tab === "online"
+            ? t("groups.central.onlineSection", { count: shown.length })
+            : t("groups.central.allSection", { count: shown.length })}
+        </p>
+        {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      </div>
+
+      <div className="mt-1 min-h-0 flex-1 overflow-y-auto px-4 pb-3">
+        {data.friendsLoading ? (
+          <ul aria-hidden className="mt-2 flex flex-col gap-2">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <li key={i} className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
+            ))}
+          </ul>
+        ) : data.friends.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+            {t("common.youDonTHaveAnyFriends")}{" "}
+            <button
+              type="button"
+              onClick={actions.addFriend}
+              className="cursor-pointer font-medium underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              {t("homeFriendsPanel.addSomeone")}
+            </button>
+          </p>
+        ) : shown.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+            {q ? t("groups.central.noMatch") : t("groups.central.nobodyNow")}
+          </p>
+        ) : (
+          <ul className="flex flex-col">
+            {shown.slice(0, 300).map((user) => (
+              <FriendRow
+                key={user.id}
+                user={user}
+                presence={data.presence[user.id]}
+                busy={busyId === user.id}
+                onCall={() => void call(user)}
+                onProfile={() => actions.openProfile(user.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** "Temas": the way to the workshop, where the site's look is chosen. */
+function ThemesCard() {
+  const t = useT();
+  return (
+    <GroupLink
+      href="/workshop"
+      onClick={() => trackHubCentral(HUB_CENTRAL_EVENTS.link, { tags: { to: "themes" } })}
+      className={`${tile} group flex shrink-0 items-center gap-3 !py-4 transition hover:ring-zinc-300 dark:hover:ring-zinc-700`}
+    >
+      <span className="hub-accent flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+        <MdPalette className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("groups.central.themesTitle")}</span>
+        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{t("groups.central.themesHint")}</span>
+      </span>
+      <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5 dark:text-zinc-500" />
+    </GroupLink>
   );
 }
 
@@ -333,7 +476,7 @@ function BentoLayout({ data, actions, startRoomForm, liveGroups, links }: Layout
             <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               {t("groups.central.now")}
               {data.online.length > 0 && (
-                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="hub-accent-text text-xs font-medium">
                   {t("groups.central.onlineCount", { count: data.online.length })}
                 </span>
               )}
@@ -406,11 +549,14 @@ function StartStrip({ form, className = "" }: { form: ReactNode; className?: str
 }
 
 
-const tile = "rounded-2xl bg-zinc-100/70 p-5 dark:bg-zinc-900/50";
+// A block is drawn with the panel tokens every theme defines (surface + border:
+// white/zinc-950, zinc-200/zinc-800), and its rows hover to the raised one
+// (zinc-100/zinc-900), so a theme repaints the page as it repaints a room.
+const tile = "rounded-2xl bg-white p-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800";
 const quietLink =
   "shrink-0 cursor-pointer text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100";
 const unreadBadge =
-  "flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white";
+  "flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold hub-accent";
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{children}</h2>;
@@ -418,9 +564,6 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 function Greeting({ data }: { data: CentralData }) {
   const t = useT();
-  const hour = new Date().getHours();
-  const key =
-    hour >= 5 && hour < 12 ? "groups.central.morning" : hour >= 12 && hour < 18 ? "groups.central.afternoon" : "groups.central.evening";
   const summary = [
     data.online.length > 0 &&
       (data.online.length === 1
@@ -430,15 +573,8 @@ function Greeting({ data }: { data: CentralData }) {
       (data.totalUnread === 1
         ? t("groups.central.unreadMessage")
         : t("groups.central.unreadMessages", { count: data.totalUnread })),
-  ].filter(Boolean);
-  return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-        {t(key, { name: data.account?.displayName ?? "" })}
-      </h1>
-      {summary.length > 0 && <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{summary.join(" · ")}</p>}
-    </div>
-  );
+  ].filter((line): line is string => typeof line === "string");
+  return <HubGreeting name={data.account?.displayName ?? ""} summary={summary} />;
 }
 
 function LinkWrap({ link, className, children }: { link: HubCentralLink; className: string; children: ReactNode }) {
@@ -460,22 +596,6 @@ function LinkWrap({ link, className, children }: { link: HubCentralLink; classNa
   );
 }
 
-function LinkIconButton({ link }: { link: HubCentralLink }) {
-  return (
-    <Tooltip content={link.title ?? link.label}>
-      <span>
-        <LinkWrap
-          link={link}
-          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 [&_svg]:h-5 [&_svg]:w-5"
-        >
-          {link.icon}
-          <span className="sr-only">{link.label}</span>
-        </LinkWrap>
-      </span>
-    </Tooltip>
-  );
-}
-
 function LinkChip({ link }: { link: HubCentralLink }) {
   return (
     <LinkWrap
@@ -492,7 +612,7 @@ function LinkTile({ link }: { link: HubCentralLink }) {
   return (
     <LinkWrap
       link={link}
-      className="flex h-full w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-950 [&_svg]:h-5 [&_svg]:w-5"
+      className="flex h-full w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-900 [&_svg]:h-5 [&_svg]:w-5"
     >
       <span className="text-zinc-500 dark:text-zinc-400">{link.icon}</span>
       <span className="min-w-0 truncate">{link.label}</span>
@@ -522,7 +642,7 @@ function RequestsLine({ count, onOpen }: { count: number; onOpen: () => void }) 
     <button
       type="button"
       onClick={onOpen}
-      className="mt-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+      className="mt-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium hub-accent-text transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
     >
       {count === 1 ? t("groups.central.request") : t("groups.central.requests", { count })}
       <MdChevronRight className="h-4 w-4 shrink-0" />
@@ -577,7 +697,7 @@ function FriendTile({
   return (
     <div
       className={`group relative flex shrink-0 flex-col items-center rounded-xl px-2 pb-2.5 pt-3 text-center transition hover:bg-zinc-100 dark:hover:bg-zinc-900 ${
-        fluid ? "w-full hover:bg-white dark:hover:bg-zinc-950" : "w-28"
+        fluid ? "w-full" : "w-28"
       }`}
     >
       <button
@@ -645,118 +765,18 @@ function FaceButton({ user }: { user: SocialUser }) {
   );
 }
 
-function FriendsHeader({ data, actions }: { data: CentralData; actions: FriendActions }) {
-  const t = useT();
-  return (
-    <>
-      <div className="flex items-center justify-between gap-2">
-        <SectionTitle>{t("common.friends")}</SectionTitle>
-        <Tooltip content={t("common.addFriend")}>
-          <button
-            type="button"
-            onClick={actions.addFriend}
-            aria-label={t("common.addFriend")}
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          >
-            <MdPersonAdd className="h-4 w-4" />
-          </button>
-        </Tooltip>
-      </div>
-      {data.incoming > 0 && <RequestsLine count={data.incoming} onOpen={actions.openRequests} />}
-    </>
-  );
-}
-
-function FriendList({
-  data,
-  actions,
-  max,
-  sections = false,
-  offlineOnly = false,
-}: {
-  data: CentralData;
-  actions: FriendActions;
-  max: number;
-  /** Discord's split: "Online — N" over "Offline — N". */
-  sections?: boolean;
-  /** Only who is not online (the bento's big tile already shows the rest). */
-  offlineOnly?: boolean;
-}) {
-  const t = useT();
-  const { busyId, error, call } = useCall();
-  if (data.friendsLoading) {
-    return (
-      <ul aria-hidden className="mt-3 flex flex-col gap-2">
-        {[0, 1, 2, 3].map((i) => (
-          <li key={i} className="h-10 animate-pulse rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60" />
-        ))}
-      </ul>
-    );
-  }
-  if (data.friends.length === 0) {
-    return (
-      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-        {t("common.youDonTHaveAnyFriends")}{" "}
-        <button
-          type="button"
-          onClick={actions.addFriend}
-          className="cursor-pointer font-medium underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-        >
-          {t("homeFriendsPanel.addSomeone")}
-        </button>
-      </p>
-    );
-  }
-  const pool = offlineOnly ? data.friends.filter((user) => !connected(data.presence[user.id])) : data.friends;
-  const shown = pool.slice(0, max);
-  const onlineShown = shown.filter((user) => connected(data.presence[user.id]));
-  const offlineShown = shown.filter((user) => !connected(data.presence[user.id]));
-  const row = (user: SocialUser) => (
-    <FriendRow
-      key={user.id}
-      user={user}
-      presence={data.presence[user.id]}
-      busy={busyId === user.id}
-      onCall={() => void call(user)}
-      onProfile={() => actions.openProfile(user.id)}
-    />
-  );
-  return (
-    <>
-      {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      {sections ? (
-        <>
-          {onlineShown.length > 0 && (
-            <>
-              <SubTitle>{t("groups.central.onlineSection", { count: data.online.length })}</SubTitle>
-              <ul className="-mx-2 flex flex-col">{onlineShown.map(row)}</ul>
-            </>
-          )}
-          {offlineShown.length > 0 && (
-            <>
-              <SubTitle>{t("groups.central.offlineSection", { count: data.friends.length - data.online.length })}</SubTitle>
-              <ul className="-mx-2 flex flex-col">{offlineShown.map(row)}</ul>
-            </>
-          )}
-        </>
-      ) : (
-        <ul className="-mx-2 mt-2 flex flex-col">{shown.map(row)}</ul>
-      )}
-      {pool.length > max && (
-        <GroupLink href="/friends" className={`${quietLink} mt-2 inline-block`}>
-          {t("common.seeAll")}
-        </GroupLink>
-      )}
-    </>
-  );
-}
-
 function SubTitle({ children }: { children: ReactNode }) {
   return (
     <p className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{children}</p>
   );
 }
 
+/**
+ * One friend in the list, Discord's way: a line between rows, the face with
+ * its status dot, the name and a short status, and the actions always on the
+ * right as round buttons (they light up with the row on hover). Clicking the
+ * row talks, as Discord's does.
+ */
 function FriendRow({
   user,
   presence,
@@ -772,50 +792,48 @@ function FriendRow({
 }) {
   const t = useT();
   const on = connected(presence);
+  const action =
+    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-zinc-100 text-zinc-500 transition hover:text-zinc-950 disabled:opacity-50 group-hover:bg-white dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 dark:group-hover:bg-zinc-950";
   return (
-    <li className="group flex items-center gap-1 rounded-lg px-2 py-1 transition hover:bg-white dark:hover:bg-zinc-800/70">
-      <button
-        type="button"
-        onClick={onProfile}
-        aria-label={t("common.seeDisplaynameSProfile", { displayName: user.displayName })}
-        className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left ${on ? "" : "opacity-60 group-hover:opacity-100"}`}
-      >
-        <UserAvatar src={user.avatarUrl} name={user.displayName} size={32} userId={user.id} className="shrink-0" />
-        <span className="min-w-0 flex-1">
-          <DisplayUserName
-            name={user.displayName}
-            verified={verifiedBadge(user.flags)}
-            flags={user.flags}
-            bot={user.bot}
-            color={user.nameColor}
-            className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
-          />
-          <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">{shortStatus(presence, t)}</span>
+    <li className="group -mx-2 border-t border-zinc-200 first:border-t-0 hover:border-transparent dark:border-zinc-800 [&:hover+li]:border-transparent">
+      <div className="flex items-center gap-3 rounded-lg px-2 py-2 transition group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900">
+        <button
+          type="button"
+          onClick={() => chat(user)}
+          aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
+          className={`flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left ${on ? "" : "opacity-70 group-hover:opacity-100"}`}
+        >
+          <UserAvatar src={user.avatarUrl} name={user.displayName} size={36} userId={user.id} presenceSurface="page" className="shrink-0" />
+          <span className="min-w-0 flex-1">
+            <DisplayUserName
+              name={user.displayName}
+              verified={verifiedBadge(user.flags)}
+              flags={user.flags}
+              bot={user.bot}
+              color={user.nameColor}
+              className="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+            />
+            <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">{shortStatus(presence, t)}</span>
+          </span>
+        </button>
+        <span className="flex shrink-0 gap-2">
+          <Tooltip content={t("common.chatWithDisplayname", { displayName: user.displayName })}>
+            <button type="button" onClick={() => chat(user)} aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })} className={action}>
+              <MdChatBubbleOutline className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("common.callDisplayname", { displayName: user.displayName })}>
+            <button type="button" disabled={busy} onClick={onCall} aria-label={t("common.callDisplayname", { displayName: user.displayName })} className={action}>
+              <MdCall className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("common.viewProfile")}>
+            <button type="button" onClick={onProfile} aria-label={t("common.viewProfile")} className={action}>
+              <MdMoreVert className="h-4 w-4" />
+            </button>
+          </Tooltip>
         </span>
-      </button>
-      <span className="flex shrink-0 gap-0.5 opacity-0 transition group-focus-within:opacity-100 group-hover:opacity-100">
-        <Tooltip content={t("common.callDisplayname", { displayName: user.displayName })}>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onCall}
-            aria-label={t("common.callDisplayname", { displayName: user.displayName })}
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-emerald-600 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-emerald-400"
-          >
-            <MdCall className="h-4 w-4" />
-          </button>
-        </Tooltip>
-        <Tooltip content={t("common.chatWithDisplayname", { displayName: user.displayName })}>
-          <button
-            type="button"
-            onClick={() => chat(user)}
-            aria-label={t("common.chatWithDisplayname", { displayName: user.displayName })}
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-          >
-            <MdChatBubbleOutline className="h-4 w-4" />
-          </button>
-        </Tooltip>
-      </span>
+      </div>
     </li>
   );
 }
@@ -836,29 +854,6 @@ function LiveDot({ group }: { group: GroupSummary }) {
       className={`h-2 w-2 shrink-0 rounded-full ${group.voiceActivity === "voice" ? "bg-emerald-500" : "bg-red-500"}`}
       aria-hidden
     />
-  );
-}
-
-/** A group in a call, as one of the "Agora" strip's tiles. */
-function LiveGroupTile({ group }: { group: GroupSummary }) {
-  const t = useT();
-  return (
-    <GroupLink
-      href={groupPath(group.id)}
-      onMouseEnter={() => prefetchGroup(group.id)}
-      className="flex w-28 shrink-0 flex-col items-center rounded-xl px-2 pb-2.5 pt-3 text-center transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-    >
-      <GroupIcon name={group.name} iconUrl={group.iconUrl} seed={group.id} size={56} className="rounded-2xl" />
-      <GroupName
-        name={group.name}
-        flags={group.flags}
-        className="mt-2 flex max-w-full justify-center truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
-      />
-      <span className="flex max-w-full items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-        <LiveDot group={group} />
-        <span className="truncate">{activityLabel(group, t)}</span>
-      </span>
-    </GroupLink>
   );
 }
 
@@ -1023,7 +1018,7 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
             </span>
           )}
           {typing ? (
-            <span className="block truncate text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="hub-accent-text block truncate text-xs font-medium">
               {t("directMessagesModal.typing")}
             </span>
           ) : (
@@ -1039,7 +1034,7 @@ function InboxRow({ entry, typing, onOpen }: { entry: InboxEntry; typing: boolea
           {entry.type === "dm" && unread ? (
             <span className={unreadBadge}>{entry.unread > 99 ? "99+" : entry.unread}</span>
           ) : unread ? (
-            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+            <span className="hub-accent h-2 w-2 rounded-full" aria-hidden />
           ) : null}
         </span>
       </button>
