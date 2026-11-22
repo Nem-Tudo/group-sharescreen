@@ -58,7 +58,8 @@ export function RoomStartForm({
   layout?: "stack" | "bar";
   /**
    * The bar as the page's main action (the central's "now" layout): a taller
-   * field and the button in the theme's accent instead of the plain primary.
+   * field that shows the room's address as it is typed (host/watch/…), with
+   * example names typing themselves in the placeholder, and a bigger button.
    */
   prominent?: boolean;
 }) {
@@ -76,6 +77,11 @@ export function RoomStartForm({
   useEffect(() => {
     answersRef.current = answers;
   }, [answers]);
+
+  // Prominent only: the room's real address in front of the field, and the
+  // placeholder typing room names people actually make, one after another.
+  const host = useState(() => (typeof window === "undefined" ? "" : window.location.host))[0];
+  const typed = useTypedExamples(prominent && mode === "public" && !input, t("page.roomNameExamples"));
 
   const trimmed = input.trim();
   const publicToCheck = mode === "public" && trimmed && ROOM_HANDLE_RE.test(trimmed) ? trimmed : null;
@@ -173,23 +179,45 @@ export function RoomStartForm({
           <label htmlFor="hub-room" className="sr-only">
             {t("common.roomName")}
           </label>
-          <input
-            id="hub-room"
-            autoFocus={autoFocus}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            maxLength={mode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 200}
-            placeholder={mode === "private-join" ? t("page.exFamily123456OrLink") : t("page.exTeamMeetingOrLink")}
-            className={`min-w-48 flex-1 rounded-lg border border-zinc-300 bg-white px-3.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 ${
-              prominent ? "py-3 text-base" : "py-2 text-sm"
-            }`}
-          />
+          {prominent && mode === "public" && host ? (
+            // One box, two parts: the address (fixed, grey) and the name
+            // (typed). Clicking the grey part focuses the field.
+            <label
+              htmlFor="hub-room"
+              className="flex min-w-48 flex-1 cursor-text items-center rounded-lg border border-zinc-300 bg-white text-base focus-within:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
+            >
+              <span className="select-none whitespace-nowrap py-3 pl-3.5 text-zinc-400 dark:text-zinc-500">{host}/watch/</span>
+              <input
+                id="hub-room"
+                autoFocus={autoFocus}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                maxLength={200}
+                placeholder={typed}
+                spellCheck={false}
+                autoComplete="off"
+                className="min-w-0 flex-1 bg-transparent py-3 pr-3.5 text-zinc-950 outline-none placeholder:text-zinc-300 dark:text-zinc-50 dark:placeholder:text-zinc-600"
+              />
+            </label>
+          ) : (
+            <input
+              id="hub-room"
+              autoFocus={autoFocus}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              maxLength={mode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 200}
+              placeholder={mode === "private-join" ? t("page.exFamily123456OrLink") : t("page.exTeamMeetingOrLink")}
+              className={`min-w-48 flex-1 rounded-lg border border-zinc-300 bg-white px-3.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 ${
+                prominent ? "py-3 text-base" : "py-2 text-sm"
+              }`}
+            />
+          )}
           <button
             type="submit"
             disabled={!trimmed || checking || navigating}
             className={`flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
               prominent
-                ? "hub-accent px-6 py-3 text-base font-semibold shadow-sm hover:brightness-110"
+                ? "bg-zinc-950 px-6 py-3 text-base font-semibold text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 : "bg-zinc-950 px-4 py-2 text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
             }`}
           >
@@ -291,4 +319,47 @@ export function RoomStartForm({
       </button>
     </form>
   );
+}
+
+/**
+ * A placeholder that types the example names (comma-separated in the
+ * locale), holds each one, erases it and types the next. Static (the first
+ * name) when off, or for somebody who asked for less motion.
+ */
+function useTypedExamples(active: boolean, list: string): string {
+  const names = list.split(",").map((name) => name.trim()).filter(Boolean);
+  const [text, setText] = useState(names[0] ?? "");
+  const key = names.join(",");
+  useEffect(() => {
+    const all = key.split(",");
+    if (!active || all.length === 0) return;
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let index = 0;
+    let shown = all[0].length;
+    let erasing = false;
+    let wait = 0;
+    const timer = window.setInterval(() => {
+      if (wait > 0) {
+        wait -= 1;
+        return;
+      }
+      const name = all[index];
+      if (!erasing) {
+        if (shown < name.length) shown += 1;
+        else {
+          erasing = true;
+          wait = 22; // ~1.8 s on screen
+        }
+      } else if (shown > 0) {
+        shown -= 1;
+      } else {
+        erasing = false;
+        index = (index + 1) % all.length;
+        wait = 4;
+      }
+      setText(all[index].slice(0, shown));
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, [active, key]);
+  return active ? text : (names[0] ?? "");
 }

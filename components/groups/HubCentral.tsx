@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdScreenShare, MdSearch } from "react-icons/md";
+import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
@@ -769,20 +769,12 @@ function Scroll({ children }: { children: ReactNode }) {
 function StartStrip({ form, className = "", hero = false }: { form: ReactNode; className?: string; hero?: boolean }) {
   const t = useT();
   if (hero) {
-    // The page's main action, and it looks it: a header with an icon and a
-    // line of what it does, a tint of the theme's accent behind it, and the
-    // form drawn large (see RoomStartForm's `prominent`).
+    // The page's main action, and the form is what says so: drawn large, with
+    // the room's real address in the field (see RoomStartForm's `prominent`).
+    // No glow, no icon tile: a plain card with a plain title, like the rest.
     return (
-      <section className={`${tile} hub-hero shrink-0 !p-6 ${className}`}>
-        <div className="mb-4 flex items-center gap-3">
-          <span className="hub-accent flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm">
-            <MdScreenShare className="h-6 w-6" />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.hub.startRoomHint")}</p>
-          </div>
-        </div>
+      <section className={`${tile} shrink-0 !p-6 ${className}`}>
+        <h2 className="mb-4 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
         {form}
       </section>
     );
