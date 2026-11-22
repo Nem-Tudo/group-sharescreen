@@ -446,6 +446,16 @@ html[data-room-theme][data-theme="light"] :is(.tippy-box, .ntpopups-main, .goliv
   background-color: var(--room-accent, var(--color-emerald-500));
   color: var(--room-accent-text, #ffffff);
 }
+/* The central's "Começar uma sala": a tint of the accent from the top-left
+   corner over the card's own surface, and a ring in the same hue. */
+.hub-hero {
+  background-image: radial-gradient(
+    120% 160% at 0% 0%,
+    color-mix(in oklab, var(--room-accent, var(--color-emerald-500)) 14%, transparent),
+    transparent 60%
+  );
+  --tw-ring-color: color-mix(in oklab, var(--room-accent, var(--color-emerald-500)) 35%, transparent) !important;
+}
 .hub-accent-text {
   color: var(--room-accent, var(--color-emerald-600));
 }

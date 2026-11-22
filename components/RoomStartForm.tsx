@@ -44,6 +44,7 @@ export function RoomStartForm({
   onStart,
   autoFocus = false,
   layout = "stack",
+  prominent = false,
 }: {
   /** Told which kind of room is being opened, before the navigation. */
   onStart?: (mode: RoomMode) => void;
@@ -55,6 +56,11 @@ export function RoomStartForm({
    * components/groups/HubCentral). Same modes, same answers.
    */
   layout?: "stack" | "bar";
+  /**
+   * The bar as the page's main action (the central's "now" layout): a taller
+   * field and the button in the theme's accent instead of the plain primary.
+   */
+  prominent?: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -149,7 +155,7 @@ export function RoomStartForm({
     return (
       <form onSubmit={submit} className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex shrink-0 rounded-lg bg-zinc-200/70 p-0.5 dark:bg-zinc-800/70">
+          <div className={`inline-flex shrink-0 rounded-lg bg-zinc-200/70 p-0.5 dark:bg-zinc-800/70 ${prominent ? "[&>button]:py-2.5" : ""}`}>
             <button type="button" onClick={() => switchMode("public")} aria-pressed={mode === "public"} className={segmentClass(mode === "public")}>
               <GlobeIcon className="h-4 w-4 shrink-0" />
               {t("page.public")}
@@ -174,12 +180,18 @@ export function RoomStartForm({
             onChange={(e) => setInput(e.target.value)}
             maxLength={mode === "private-create" ? MAX_PRIVATE_ROOM_NAME_LENGTH : 200}
             placeholder={mode === "private-join" ? t("page.exFamily123456OrLink") : t("page.exTeamMeetingOrLink")}
-            className="min-w-48 flex-1 rounded-lg border border-zinc-300 bg-white px-3.5 py-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+            className={`min-w-48 flex-1 rounded-lg border border-zinc-300 bg-white px-3.5 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 ${
+              prominent ? "py-3 text-base" : "py-2 text-sm"
+            }`}
           />
           <button
             type="submit"
             disabled={!trimmed || checking || navigating}
-            className="flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            className={`flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              prominent
+                ? "hub-accent px-6 py-3 text-base font-semibold shadow-sm hover:brightness-110"
+                : "bg-zinc-950 px-4 py-2 text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            }`}
           >
             {(checking || navigating) && <ButtonSpinner />}
             {submitLabel}

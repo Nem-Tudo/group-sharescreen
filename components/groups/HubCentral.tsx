@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdSearch } from "react-icons/md";
+import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdScreenShare, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserProfileDialog } from "@/components/UserProfileDialog";
@@ -267,7 +267,7 @@ function NowLayout({ data, actions, startRoomForm, liveGroups }: LayoutProps) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-7 2xl:px-10">
         <Greeting data={data} />
 
-        <StartStrip form={startRoomForm} className="mt-5" />
+        <StartStrip form={startRoomForm} className="mt-5" hero />
 
         {live.length > 0 && (
           <section className="mt-6 shrink-0">
@@ -749,8 +749,27 @@ function Scroll({ children }: { children: ReactNode }) {
 }
 
 /** The room form, always on screen, as one bar (RoomStartForm's `bar` layout). */
-function StartStrip({ form, className = "" }: { form: ReactNode; className?: string }) {
+function StartStrip({ form, className = "", hero = false }: { form: ReactNode; className?: string; hero?: boolean }) {
   const t = useT();
+  if (hero) {
+    // The page's main action, and it looks it: a header with an icon and a
+    // line of what it does, a tint of the theme's accent behind it, and the
+    // form drawn large (see RoomStartForm's `prominent`).
+    return (
+      <section className={`${tile} hub-hero shrink-0 !p-6 ${className}`}>
+        <div className="mb-4 flex items-center gap-3">
+          <span className="hub-accent flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm">
+            <MdScreenShare className="h-6 w-6" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.hub.startRoomHint")}</p>
+          </div>
+        </div>
+        {form}
+      </section>
+    );
+  }
   return (
     <section className={`${tile} shrink-0 !py-4 ${className}`}>
       <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("groups.hub.startRoom")}</h2>
