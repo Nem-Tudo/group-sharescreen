@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { MdCall, MdChatBubbleOutline, MdCheck, MdChevronRight, MdClose, MdPalette, MdPersonAdd, MdPersonOutline, MdSearch } from "react-icons/md";
 import { DisplayUserName } from "@/components/DisplayUserName";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -13,7 +13,8 @@ import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { HubGreeting } from "@/components/groups/HubGreeting";
-import { ChamadosSection } from "@/components/chamados/Chamados";
+import { ChamadosPanel } from "@/components/chamados/Chamados";
+import { fetchPublicRoomDirectory, type PublicRoom } from "@/lib/roomsApi";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { startCall } from "@/lib/callsApi";
@@ -268,48 +269,57 @@ interface LayoutProps {
 
 // ─── Layout: now ──────────────────────────────────────────────────────────
 
-// The friends are the page, and what is waiting for you (messages and the
-// bell, one inbox) is a column glued to the right edge, full height, with the
-// way to the themes at its foot. Nothing floats in the middle of a wide
-// screen: the left side takes every pixel the column leaves, and the friends
-// fill it as a grid of cards rather than one thin list. The ways out
-// (explore, rooms, map, invite, new group) are not repeated here: the rail and
-// the shell's bar already have every one of them.
-function NowLayout({ data, actions, startRoomForm, liveGroups, chamados = false }: LayoutProps) {
+// A centred composition, checked in screenshots at 2560, 1920 and 1366
+// before it was written: the room card on the page's axis with the greeting
+// over it, flanked by two panels of the same width and the card's exact height
+// (what is live in your groups on one side; chamados, or the public rooms
+// live, on the other), and the friends across the full width under that band,
+// running to the bottom. The symmetry is what lets a centred card belong to
+// the page instead of floating in it. Below 2xl the card keeps the axis on its
+// own row and the two panels sit side by side under it.
+//
+// What is waiting for you (messages and the bell, one inbox) is the column
+// glued to the right edge, with the way to the themes at its foot. The ways
+// out (explore, rooms, map, invite, new group) are not repeated here: the
+// rail and the shell's bar already have every one of them.
+function NowLayout({ data, actions, startRoomForm, liveGroups, links, chamados = false }: LayoutProps) {
   const live = liveGroups ?? [];
-  // Lifted so the inbox's requests line can open the Pendentes tab.
-  const [friendsTab, setFriendsTab] = useState<FriendsTab>("online");
+  const roomsHref = links.find((link) => link.key === "rooms")?.href ?? "/rooms";
+  // Lifted so the inbox's requests line can open the Pendentes tab. "Todos"
+  // first (online on top, the rest dimmed): an Online tab with five people
+  // left the panel a band of nothing.
+  const [friendsTab, setFriendsTab] = useState<FriendsTab>("all");
   const friendsRef = useRef<HTMLElement | null>(null);
   function showPending() {
     setFriendsTab("pending");
     friendsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  // Three panes, the way Discord, Slack and Steam lay a home out: a fixed
-  // column for the one thing you do here (start a room) and what is live in
-  // your groups, a flexible one for people (chamados, friends), and the inbox
-  // glued to the right. Every pane starts on the same line and runs to the
-  // bottom of the screen, its list scrolling inside it, so the page is one
-  // grid with no orphan block in the middle and no dead band under a short
-  // list. Below xl there is no room for three: the two left panes stack and
-  // the column scrolls as a whole.
+  // The side panels take the card's height, not their own: `h-0 min-h-full`
+  // inside the grid row makes the card the row's measure, and their lists
+  // scroll inside. Stacked (below 2xl) they are capped instead.
+  const side = "max-h-72 2xl:h-0 2xl:max-h-none 2xl:min-h-full";
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-4 pt-4 xl:px-5 2xl:px-6">
-        <div className="shrink-0 px-1 pb-4 pt-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-4 pt-5 xl:px-6 2xl:px-8">
+        <div className="mx-auto w-full max-w-2xl shrink-0 text-center">
           <Greeting data={data} />
         </div>
 
-        <div className="flex flex-col gap-4 xl:grid xl:min-h-0 xl:flex-1 xl:grid-cols-[22rem_minmax(0,1fr)] xl:gap-4 2xl:grid-cols-[25rem_minmax(0,1fr)]">
-          <div className="flex flex-col gap-4 xl:min-h-0 xl:overflow-y-auto">
-            <StartStrip form={startRoomForm} hero />
-            <LivePanel live={live} loading={liveGroups === null} />
-          </div>
-
-          <div className="flex flex-col gap-4 xl:min-h-0">
-            {chamados && <ChamadosSection className="shrink-0" />}
-            <FriendsSection data={data} actions={actions} tab={friendsTab} setTab={setFriendsTab} sectionRef={friendsRef} />
-          </div>
+        <div className="mt-5 grid shrink-0 grid-cols-2 gap-4 2xl:grid-cols-[minmax(0,1fr)_30rem_minmax(0,1fr)]">
+          <StartStrip
+            form={startRoomForm}
+            hero
+            className="col-span-2 mx-auto max-w-xl 2xl:col-span-1 2xl:col-start-2 2xl:row-start-1 2xl:max-w-none"
+          />
+          <LivePanel live={live} loading={liveGroups === null} className={`2xl:col-start-1 2xl:row-start-1 ${side}`} />
+          {chamados ? (
+            <ChamadosPanel className={`2xl:col-start-3 2xl:row-start-1 ${side}`} />
+          ) : (
+            <PublicRoomsPanel href={roomsHref} className={`2xl:col-start-3 2xl:row-start-1 ${side}`} />
+          )}
         </div>
+
+        <FriendsSection data={data} actions={actions} tab={friendsTab} setTab={setFriendsTab} sectionRef={friendsRef} />
       </div>
 
       {/* Cards, like the rest of the page, held to the right edge by the
@@ -539,7 +549,7 @@ function FriendsSection({
   }
 
   return (
-    <section ref={sectionRef} className={`${tile} flex min-h-[22rem] scroll-mt-4 flex-col !p-4 xl:min-h-0 xl:flex-1`}>
+    <section ref={sectionRef} className={`${tile} mt-4 flex min-h-[16rem] flex-1 shrink-0 scroll-mt-4 flex-col !p-4`}>
       <div className="flex flex-wrap items-center gap-3">
         <SectionTitle>{t("common.friends")}</SectionTitle>
         <div className="inline-flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900" role="tablist">
@@ -607,7 +617,7 @@ function FriendsSection({
         </div>
       </div>
       {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      <div className="-mr-2 mt-3 pr-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">{body}</div>
+      <div className="mt-3">{body}</div>
     </section>
   );
 }
@@ -789,7 +799,7 @@ function StartStrip({ form, className = "", hero = false }: { form: ReactNode; c
     // of its own, centred, with the form standing up inside (RoomStartForm's
     // `stack`). No glow, no icon tile: a title, a line, the form.
     return (
-      <section className={`${tile} hub-ring w-full shrink-0 !p-5 2xl:!p-6 ${className}`}>
+      <section className={`${tile} hub-ring w-full shrink-0 !p-6 ${className}`}>
         <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h2>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("groups.hub.startRoomHint")}</p>
         <div className="mt-5">{form}</div>
@@ -1052,10 +1062,10 @@ function LiveDot({ group }: { group: GroupSummary }) {
  * as plain rows. With none, it says so and offers the way to find more —
  * an empty state with somewhere to go, not a blank box.
  */
-function LivePanel({ live, loading }: { live: GroupSummary[]; loading: boolean }) {
+function LivePanel({ live, loading, className = "" }: { live: GroupSummary[]; loading: boolean; className?: string }) {
   const t = useT();
   return (
-    <section className={`${tile} flex min-h-[10rem] flex-col !p-4 xl:min-h-[9rem] xl:flex-1`}>
+    <section className={`${tile} flex min-h-[10rem] flex-col !p-4 ${className}`}>
       <SectionTitle>{t("groups.hub.happening")}</SectionTitle>
       <div className="-mr-2 mt-2 min-h-0 flex-1 overflow-y-auto pr-2">
         {loading ? (
@@ -1086,6 +1096,88 @@ function LivePanel({ live, loading }: { live: GroupSummary[]; loading: boolean }
                     <span className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                       <LiveDot group={group} />
                       <span className="truncate">{activityLabel(group, t)}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-300 transition group-hover:bg-white dark:text-zinc-200 dark:ring-zinc-700 dark:group-hover:bg-zinc-950">
+                    {t("groups.central.join")}
+                  </span>
+                </GroupLink>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * "Salas ao vivo": the public rooms with people in them, busiest first — the
+ * site-wide twin of "Acontecendo nos seus grupos", and the panel across from
+ * it when the chamados are not on. Read on arrival and every 30 s.
+ */
+function PublicRoomsPanel({ href, className = "" }: { href: string; className?: string }) {
+  const t = useT();
+  const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const { rooms: list } = await fetchPublicRoomDirectory();
+        if (alive) setRooms(list.filter((room) => room.peopleCount > 0).slice(0, 12));
+      } catch {
+        if (alive) setRooms((current) => current ?? []);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return (
+    <section className={`${tile} flex min-h-[10rem] flex-col !p-4 ${className}`}>
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <SectionTitle>{t("groups.central.liveRooms")}</SectionTitle>
+        <GroupLink href={href} className={quietLink}>
+          {t("common.seeAll")}
+        </GroupLink>
+      </div>
+      <div className="-mr-2 mt-2 min-h-0 flex-1 overflow-y-auto pr-2">
+        {rooms === null ? (
+          <ul aria-hidden className="flex flex-col gap-2">
+            {[0, 1].map((i) => (
+              <li key={i} className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
+            ))}
+          </ul>
+        ) : rooms.length === 0 ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("groups.central.noLiveRooms")}</p>
+        ) : (
+          <ul className="-mx-2 flex flex-col">
+            {rooms.map((room) => (
+              <li key={room.handle}>
+                <GroupLink
+                  href={`/watch/${encodeURIComponent(room.handle)}`}
+                  onClick={() => trackHubCentral(HUB_CENTRAL_EVENTS.link, { tags: { to: "live_room" } })}
+                  className="group flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-semibold uppercase text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+                    {room.handle.slice(0, 1)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{room.handle}</span>
+                    <span className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${(room.screenCount ?? 0) > 0 ? "bg-red-500" : "bg-emerald-500"}`} aria-hidden />
+                      <span className="truncate">
+                        {room.peopleCount === 1
+                          ? t("groups.central.inRoomOne")
+                          : t("groups.central.inRoomMany", { count: room.peopleCount })}
+                        {room.description ? ` · ${room.description}` : ""}
+                      </span>
                     </span>
                   </span>
                   <span className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-300 transition group-hover:bg-white dark:text-zinc-200 dark:ring-zinc-700 dark:group-hover:bg-zinc-950">

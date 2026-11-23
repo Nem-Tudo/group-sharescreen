@@ -565,3 +565,131 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     </div>
   );
 }
+
+/**
+ * The chamados as a side panel of the groups home's central (the "now"
+ * layout puts it beside the room card): a header with "Abrir chamado", then
+ * one row per chamado — who calls, for what, how full — with "Entrar". The
+ * row itself opens the chamado's page, where the full card lives ("Tô
+ * dentro", the link, report, end).
+ */
+export function ChamadosPanel({ className = "" }: { className?: string }) {
+  const t = useT();
+  const router = useRouter();
+  const { account } = useAuth();
+  const { chamados } = useChamadosFeed(true);
+  const [creating, setCreating] = useState(false);
+
+  const mine = chamados?.find((c) => c.author?.id === account?.id) ?? null;
+  const list = mine ? [mine, ...(chamados ?? []).filter((c) => c !== mine)] : (chamados ?? []);
+
+  function openNew() {
+    if (!account) return;
+    trackChamado(CHAMADO_EVENTS.newOpen);
+    setCreating(true);
+  }
+
+  return (
+    <section className={`flex flex-col rounded-2xl bg-white p-4 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 ${className}`}>
+      <div className="flex shrink-0 items-center gap-2">
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("chamados.title")}</h2>
+        {chamados && chamados.length > 0 && <span className="text-xs text-zinc-500 dark:text-zinc-400">{chamados.length}</span>}
+        {!mine && (
+          <button
+            type="button"
+            onClick={openNew}
+            disabled={!account}
+            title={account ? undefined : t("chamados.loginToCreate")}
+            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-lg bg-zinc-950 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          >
+            <MdAdd className="h-3.5 w-3.5" />
+            {t("chamados.new")}
+          </button>
+        )}
+      </div>
+      <div className="-mr-2 mt-2 min-h-0 flex-1 overflow-y-auto pr-2">
+        {chamados === null ? (
+          <ul aria-hidden className="flex flex-col gap-2">
+            {[0, 1].map((i) => (
+              <li key={i} className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
+            ))}
+          </ul>
+        ) : list.length === 0 ? (
+          <button
+            type="button"
+            onClick={openNew}
+            className="w-full cursor-pointer rounded-xl border border-dashed border-zinc-300 px-3 py-4 text-left text-sm text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+          >
+            {t("chamados.empty")}
+          </button>
+        ) : (
+          <ul className="-mx-2 flex flex-col">
+            {list.map((chamado) => {
+              const isMine = Boolean(account && chamado.author?.id === account.id);
+              const full = chamadoFull(chamado);
+              const spots = chamadoSpotsLeft(chamado);
+              const inRoom = chamado.live?.peopleCount ?? 0;
+              const KindIcon = CHAMADO_KIND_ICON[chamado.kind];
+              const meta = full
+                ? t("chamados.full")
+                : inRoom > 0
+                  ? inRoom === 1
+                    ? t("chamados.inRoomOne")
+                    : t("chamados.inRoomMany", { count: inRoom })
+                  : spots !== null
+                    ? spots === 1
+                      ? t("chamados.spotOne")
+                      : t("chamados.spotsMany", { count: spots })
+                    : t("chamados.roomEmpty");
+              return (
+                <li key={chamado.id}>
+                  <div
+                    role="link"
+                    tabIndex={0}
+                    onClick={() => router.push(chamadoPath(chamado.id))}
+                    onKeyDown={(e) => {
+                      if (e.target === e.currentTarget && e.key === "Enter") router.push(chamadoPath(chamado.id));
+                    }}
+                    className="group flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                  >
+                    {chamado.author ? (
+                      <UserAvatar src={chamado.author.avatarUrl} name={chamado.author.displayName} size={36} userId={chamado.author.id} className="shrink-0" />
+                    ) : (
+                      <KindIcon className="h-9 w-9 shrink-0 p-2 text-zinc-400" />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        <KindIcon className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden />
+                        <span className="truncate">{chamado.what}</span>
+                      </span>
+                      <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+                        {isMine ? t("chamados.yoursShort") : `${chamado.author?.displayName ?? ""} ${t(`chamados.calls.${chamado.kind}`)}`}
+                        {" · "}
+                        <span className={full ? "font-medium text-red-600 dark:text-red-400" : ""}>{meta}</span>
+                      </span>
+                    </span>
+                    {chamado.handle && (
+                      <button
+                        type="button"
+                        disabled={full && !isMine}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          trackChamado(CHAMADO_EVENTS.join, { tags: { from: "feed" } });
+                          router.push(`/watch/${chamado.handle}`);
+                        }}
+                        className="shrink-0 cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-300 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-200 dark:ring-zinc-700 dark:hover:bg-zinc-950"
+                      >
+                        {t("chamados.enter")}
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      {creating && <NewChamadoDialog onClose={() => setCreating(false)} />}
+    </section>
+  );
+}
