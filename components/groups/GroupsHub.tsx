@@ -31,7 +31,7 @@ import { GROUPS_HUB_EVENTS, noteExploreVisit, trackGroupsHub } from "@/lib/group
 import type { GroupSummary } from "@/lib/groupsApi";
 import { prefetchGroup, useMyGroups } from "@/lib/useGroups";
 import { useT } from "@/lib/useI18n";
-import { HubCentralHome, type HubCentralLink } from "@/components/groups/HubCentral";
+import { GoliveOnline, HubCentralHome, type HubCentralLink } from "@/components/groups/HubCentral";
 import { ChamadosSection } from "@/components/chamados/Chamados";
 import { useChamadosEnabled } from "@/lib/chamados";
 import { HUB_CENTRAL_EVENTS, trackHubCentral, useHubCentral } from "@/lib/hubCentral";
@@ -196,6 +196,9 @@ export function GroupsHubHome() {
     // screen empty below; when they don't fit, it scrolls from the top as usual.
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6 lg:my-auto lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:py-10 2xl:max-w-6xl 2xl:gap-6">
+        <div className="flex justify-center lg:col-span-2">
+          <GoliveOnline />
+        </div>
         {startRoom}
         <div className="flex min-w-0 flex-col gap-4">
           {happening}

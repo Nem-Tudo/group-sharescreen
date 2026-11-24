@@ -303,8 +303,9 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, links, chamados =
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-4 pt-5 xl:px-6 2xl:px-8">
-        <div className="mx-auto w-full max-w-2xl shrink-0 text-center">
+        <div className="mx-auto flex w-full max-w-2xl shrink-0 flex-col items-center text-center">
           <Greeting data={data} />
+          <GoliveOnline className="mt-3" />
         </div>
 
         <div className="mt-5 grid shrink-0 grid-cols-2 gap-4 2xl:grid-cols-[minmax(0,1fr)_30rem_minmax(0,1fr)]">
@@ -830,17 +831,33 @@ function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{children}</h2>;
 }
 
+/**
+ * Everybody on Go Live right now, as its own pill with a live dot: the number
+ * the site's home shows, and the one that says the place is alive even when
+ * no friend is around. Nothing until the first count arrives (no "0").
+ */
+export function GoliveOnline({ className = "" }: { className?: string }) {
+  const t = useT();
+  const everyone = usePeopleOnline();
+  if (everyone === null || everyone <= 0) return null;
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 ${className}`}
+    >
+      <span className="relative flex h-2 w-2" aria-hidden>
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60 motion-reduce:animate-none" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+      </span>
+      {everyone === 1
+        ? t("groups.central.goliveOnlineOne")
+        : t("groups.central.goliveOnlineMany", { count: everyone.toLocaleString(formatLocale()) })}
+    </span>
+  );
+}
+
 function Greeting({ data }: { data: CentralData }) {
   const t = useT();
-  // Everybody on Go Live right now, first: the number the site's home shows,
-  // and the one that says the place is alive even with no friend around.
-  const everyone = usePeopleOnline();
   const summary = [
-    everyone !== null &&
-      everyone > 0 &&
-      (everyone === 1
-        ? t("groups.central.goliveOnlineOne")
-        : t("groups.central.goliveOnlineMany", { count: everyone.toLocaleString(formatLocale()) })),
     data.online.length > 0 &&
       (data.online.length === 1
         ? t("groups.central.friendOnline")
