@@ -13,6 +13,8 @@ import { GroupIcon } from "@/components/groups/GroupIcon";
 import { GroupLink } from "@/components/groups/GroupLink";
 import { GroupName } from "@/components/groups/GroupName";
 import { HubGreeting } from "@/components/groups/HubGreeting";
+import { usePeopleOnline } from "@/lib/peopleOnline";
+import { formatLocale } from "@/lib/i18n";
 import { ChamadosPanel } from "@/components/chamados/Chamados";
 import { fetchPublicRoomDirectory, type PublicRoom } from "@/lib/roomsApi";
 import { useRouter } from "next/navigation";
@@ -830,7 +832,15 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 function Greeting({ data }: { data: CentralData }) {
   const t = useT();
+  // Everybody on Go Live right now, first: the number the site's home shows,
+  // and the one that says the place is alive even with no friend around.
+  const everyone = usePeopleOnline();
   const summary = [
+    everyone !== null &&
+      everyone > 0 &&
+      (everyone === 1
+        ? t("groups.central.goliveOnlineOne")
+        : t("groups.central.goliveOnlineMany", { count: everyone.toLocaleString(formatLocale()) })),
     data.online.length > 0 &&
       (data.online.length === 1
         ? t("groups.central.friendOnline")

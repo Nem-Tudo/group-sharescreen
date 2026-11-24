@@ -13,7 +13,12 @@ import { useT } from "@/lib/useI18n";
 // face, white eyes) on purpose: an easter egg that looks like the other lines
 // is one nobody notices. `?herobrine` in the URL forces it, to see it.
 
-const GENERIC = Array.from({ length: 24 }, (_, i) => `g${i + 1}`);
+// Only lines that read as a joke. Out: anything that sounds like the app
+// telling you something real — "você tá mutado", "caiu da call", "salvando
+// progresso", "carregando", "ping baixo", "câmera pronta", "avisa o grupo",
+// "o áudio não vai picotar" — because somebody reads those as a status and
+// goes checking their mic.
+const GENERIC = ["g1", "g2", "g3", "g4", "g6", "g7", "g8", "g9", "g13", "g15", "g16", "g18", "g20", "g21", "g23", "g24"];
 const LATE_NIGHT = ["n1", "n2", "n3", "n4"];
 const MORNING = ["morning", "m1", "m2"];
 const AFTERNOON = ["afternoon", "a1", "a2"];
