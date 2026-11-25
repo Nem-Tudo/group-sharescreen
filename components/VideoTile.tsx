@@ -71,6 +71,7 @@ import {
   clearLocalOrientation,
   flipOrientation,
   isDefaultOrientation,
+  orientationFitScale,
   rotateOrientation,
   sameOrientation,
   setLocalOrientation,
@@ -821,6 +822,15 @@ const VideoTileView = memo(function VideoTileView({
     sizeCallbackRef.current = onRenderedSizeChange;
   }, [onRenderedSizeChange]);
 
+  // A pinch zoom or a quarter turn is a transform, which no layout size includes: what it
+  // does to the picture goes in separately, and the size is reported again when it changes.
+  const zoomRef = useRef({ scale: 1, rotation: 0 as Orientation["rotation"] });
+  const reportSizeRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    zoomRef.current = { scale: pinchZoom.scale, rotation: appliedOrientation.rotation };
+    reportSizeRef.current?.();
+  }, [pinchZoom.scale, appliedOrientation.rotation]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -828,9 +838,12 @@ const VideoTileView = memo(function VideoTileView({
     const seen = { counted: false };
     const report = () => {
       if (!box) return;
-      const size = reportedSize(box.width, box.height, video, seen);
+      const { scale, rotation } = zoomRef.current;
+      const fit = orientationFitScale(rotation, box.width, box.height, video.videoWidth, video.videoHeight);
+      const size = reportedSize(box.width, box.height, video, seen, scale * fit);
       sizeCallbackRef.current?.(Math.round(size.width), Math.round(size.height));
     };
+    reportSizeRef.current = report;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
@@ -840,6 +853,7 @@ const VideoTileView = memo(function VideoTileView({
     observer.observe(video);
     video.addEventListener("resize", report);
     return () => {
+      reportSizeRef.current = null;
       observer.disconnect();
       video.removeEventListener("resize", report);
     };

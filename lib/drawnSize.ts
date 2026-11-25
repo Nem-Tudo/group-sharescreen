@@ -34,17 +34,19 @@ export const onDrawnSizeChange = flag.onChange;
 
 /**
  * What a tile reports: the drawn picture in the experiment, the box outside it (see
- * drawnNeed in lib/videoQuality). `seen` is the tile's own, so each counts once.
+ * drawnNeed in lib/videoQuality). `seen` is the tile's own, so each counts once. `magnify` is
+ * what a transform does to the picture on top of the layout: a pinch zoom, a quarter turn's fit.
  */
 export function reportedSize(
   boxWidth: number,
   boxHeight: number,
   video: { videoWidth: number; videoHeight: number } | null,
-  seen?: { counted: boolean }
+  seen?: { counted: boolean },
+  magnify = 1
 ): { width: number; height: number } {
   const box = { width: boxWidth, height: boxHeight };
   if (!video) return box;
-  const drawn = drawnNeed(boxWidth, boxHeight, video.videoWidth, video.videoHeight);
+  const drawn = drawnNeed(boxWidth, boxHeight, video.videoWidth, video.videoHeight, magnify);
   if (seen && !seen.counted && drawn.height !== boxHeight) {
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
     const lines = (w: number, h: number) => tierSpec(tierForRenderedSize(w, h, dpr, MAX_TIER_FPS)).height;

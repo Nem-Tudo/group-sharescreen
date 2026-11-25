@@ -35,6 +35,22 @@ const scale = scaleForHeight(720, 2560, 1080);
 assert.ok(Math.round(2560 / scale) >= 1600 && Math.round(1080 / scale) >= 675);
 // A phone's screen shared upright, in a 16:9 tile: drawn 405x720, and asked for as such.
 assert.equal(lines([1280, 720], [1080, 2400], 1, true), 720);
+// A transform on the picture (pinch zoom, quarter turn) is not in any layout size: it comes in
+// as `magnify`. The phone upright, zoomed 2x: 438 CSS lines drawn, 1314 device lines, so 1440.
+const zoomed = (box: [number, number], video: [number, number], dpr: number, magnify: number) => {
+  const size = drawnNeed(box[0], box[1], video[0], video[1], magnify);
+  return tierSpec(tierForRenderedSize(size.width, size.height, dpr, MAX_TIER_FPS)).height;
+};
+assert.equal(zoomed([390, 844], [1920, 1080], 3, 1), 720);
+assert.equal(zoomed([390, 844], [1920, 1080], 3, 2), 1440);
+// The same picture turned a quarter on the upright phone: orientationFitScale(90, 390, 844,
+// 1920, 1080) = 390 / 219.4 ≈ 1.778, so it is drawn as tall as the phone held sideways.
+assert.equal(zoomed([390, 844], [1920, 1080], 3, 390 / ((390 * 1080) / 1920)), 1440);
+// A quarter turn in a 16:9 tile draws it smaller (fit 0.5625, 506 lines): fewer, not more.
+assert.equal(zoomed([1600, 900], [1920, 1080], 1, 0.5625), 576);
+assert.equal(zoomed([1600, 900], [1920, 1080], 1, 1), 1080);
+// No transform, nothing changes.
+assert.deepEqual(drawnNeed(390, 844, 1920, 1080, 1), drawnNeed(390, 844, 1920, 1080));
 // Before the first frame the picture's shape is not known: the box, as before.
 assert.deepEqual(drawnNeed(390, 844, 0, 0), { width: 390, height: 844 });
 
