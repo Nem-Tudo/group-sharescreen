@@ -46,6 +46,7 @@
 
 import { getDesktopBridge } from "./desktop";
 import { noteGpuShareEnded } from "./gpuShareSurvey";
+import { isKeyPace, onKeyPaceChange } from "./keyPace";
 import type { NativeSinkStats } from "./nativeVideoSink";
 import {
   ParameterSetKeeper,
@@ -123,7 +124,7 @@ interface NativeFrame {
 
 // Generated from lib/nativeVideoSink.worker.ts (see lib/nativeVideoSink.build.mjs).
 // Bump the version whenever it changes: a browser goes on using the one it has.
-const SINK_WORKER_VERSION = 1;
+const SINK_WORKER_VERSION = 2;
 const SINK_WORKER_URL = `/workers/native-video-sink.js?v=${SINK_WORKER_VERSION}`;
 
 // Far past any frame rate there is: see MIN_WRITE_GAP_MS in lib/nativeVideoSink.
@@ -144,10 +145,16 @@ export function nativeSinkStats(pc: RTCPeerConnection): NativeSinkStats | null {
 }
 
 const pausedSinks = new WeakSet<RTCPeerConnection>();
+const pauseChangedAt = new WeakMap<RTCPeerConnection, number>();
 
 /** Whether this connection's viewer is not looking, so no GPU capture is going to them. */
 export function nativeSinkPaused(pc: RTCPeerConnection): boolean {
   return pausedSinks.has(pc);
+}
+
+/** When that last changed (Date.now()), 0 if never. See lib/connectionTelemetry. */
+export function nativeSinkPauseChangedAt(pc: RTCPeerConnection): number {
+  return pauseChangedAt.get(pc) ?? 0;
 }
 // How often the links are sampled. Deliberately not the 2000 ms of the shared
 // mediaStats pump: two timers on the same period land on the same tick for
@@ -298,6 +305,7 @@ export class NativeVideoSource {
   private statsCursor = 0;
   private lastKeyRequest = 0;
   private keyTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly unsubscribePace: () => void;
   private stopped = false;
 
   constructor(ceilingKbps: number) {
@@ -308,6 +316,9 @@ export class NativeVideoSource {
     this.worker = new Worker(SINK_WORKER_URL);
     this.worker.onmessage = (event: MessageEvent) => this.onWorkerMessage(event.data);
     this.worker.postMessage({ type: "preview", active: true });
+    // Experiment sq-key-pace: the worker paces the viewers' keyframe requests (see KeyPacer).
+    this.worker.postMessage({ type: "pace", on: isKeyPace() });
+    this.unsubscribePace = onKeyPaceChange(() => this.worker.postMessage({ type: "pace", on: isKeyPace() }));
     // A shell new enough to hand frames straight to the worker sends this port
     // when the capture starts (see electron/nativeVideo.ts). Older ones go on
     // delivering to onFrame below, one hop through this thread.
@@ -400,6 +411,7 @@ export class NativeVideoSource {
       sink.paused = paused;
       if (paused) pausedSinks.add(pc);
       else pausedSinks.delete(pc);
+      pauseChangedAt.set(pc, Date.now());
       this.worker.postMessage({ type: "paused", id: sink.id, paused });
     }
   }
@@ -482,6 +494,7 @@ export class NativeVideoSource {
     this.keyTimer = null;
     clearInterval(this.bitrateTimer);
     this.unsubscribe();
+    this.unsubscribePace();
     if (this.onPortMessage) window.removeEventListener("message", this.onPortMessage);
     this.bridge.stop();
     this.worker.postMessage({ type: "stop" });

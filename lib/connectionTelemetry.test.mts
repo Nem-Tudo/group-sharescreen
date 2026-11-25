@@ -440,3 +440,56 @@ assert.equal(blameFor("recv", ["freezes", "receiver-drops"], true), "receiver");
 }
 
 console.log("connectionTelemetry: ok");
+
+// The codec comes from samples that carried frames. A connection stopped for a viewer who is not
+// looking is left on VP8 with the last encoder's name, and a sample just as it came back read as
+// hardware VP8 where it was hardware H264.
+{
+  const acc = createAccumulator(0);
+  const h264 = { codec: "H264", encoder: "MediaFoundationVideoEncodeAccelerator", hardware: true };
+  addSnapshot(acc, snap({ send: send(h264), intervalSeconds: 0 }, 0));
+  addSnapshot(acc, snap({ send: send(h264) }, 10_000));
+  addSnapshot(acc, snap({ send: send({ ...h264, codec: "VP8", fps: 0, kbps: 0 }) }, 20_000));
+  const s = summarize(acc, 30_000, "send", "screen");
+  assert.equal(s.codec, "H264");
+  assert.equal(s.hardware, true);
+  // Until there is a sample with frames, whatever there is.
+  const early = createAccumulator(0);
+  addSnapshot(early, snap({ send: send({ codec: "AV1", fps: 0 }), intervalSeconds: 0 }, 0));
+  assert.equal(summarize(early, 25_000, "send", "screen").codec, "AV1");
+}
+
+// The controller's steps and the time off the graphics card (see SenderQualityState), as they
+// ended, paused stretches included; null where no controller said.
+{
+  const acc = createAccumulator(0);
+  const control = (offCard: boolean, steps: number, paused = false): SenderControlSample => ({
+    tier: "1080p30",
+    ceilingKbps: 4000,
+    degradationPreference: "balanced",
+    linkCapHeight: null,
+    machineLevel: 0,
+    paused,
+    offCard,
+    linkDowns: steps,
+    linkUps: steps,
+    linkFailedUps: 1,
+    codecSwitches: 2,
+    cameraTries: 3,
+  });
+  addSnapshot(acc, snap({ send: send(), intervalSeconds: 0 }, 0), control(false, 0));
+  for (let i = 1; i <= 4; i += 1) addSnapshot(acc, snap({ send: send() }, i * 10_000), control(i > 1, i));
+  addSnapshot(acc, snap({ send: send() }, 50_000), control(true, 6, true), null, true);
+  const s = summarize(acc, 60_000, "send", "screen");
+  assert.equal(s.offCardShare, 0.75);
+  assert.equal(s.linkDowns, 6);
+  assert.equal(s.linkFailedUps, 1);
+  assert.equal(s.codecSwitches, 2);
+  assert.equal(s.cameraTries, 3);
+  const plain = createAccumulator(0);
+  for (let i = 0; i <= 3; i += 1) addSnapshot(plain, snap({ send: send() }, i * 10_000));
+  const p = summarize(plain, 40_000, "send", "screen");
+  assert.equal(p.linkDowns, null);
+  assert.equal(p.offCardShare, null);
+  assert.equal(summarize(acc, 60_000, "recv", "screen").linkDowns, null);
+}

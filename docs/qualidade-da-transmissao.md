@@ -492,6 +492,87 @@ e altura: a taxa de sessões "ruins" não é comparável entre os dois grupos, p
 espectador pausado contam de outro jeito. O evento
 `send_moving_picture` conta as conexões em que o modo câmera do AV1 ficou, testado ou herdado.
 
+## Reparos de 2026-11-25 (experiments a 0%)
+
+Uma revisão do código e a leitura de `connection_quality_reports` (2026-11-17..25) acharam o que
+está abaixo. Cada reparo muda o que é enviado, então fica atrás de um experiment, e o grupo de
+controle continua fazendo exatamente o que fazia (os testes antigos passam sem mudança).
+
+- **`sq-adapt-fix`** (`lib/adaptFix.ts`, só dentro de `sq-new-send`). Quatro defeitos dos
+  adaptadores que não aparecem nas médias das sessões:
+  - Quem volta de uma pausa mantém o que o link ensinou (`LinkAdapter.restart`). Antes, o adaptador
+    recomeçava com a altura presa mas sem saber em quantos bits faltou, o "link dobrou" era verdade
+    na hora e a altura voltava ~14 s depois, num link tão curto quanto antes.
+  - Quem perde o AV1 num link curto começa o H264 numa altura que o link carrega
+    (`LinkAdapter.leftSharp`, só em imagem em movimento, fora de "text"). Antes, eram 12 s ou mais
+    de H264 no topo perdendo quadros até o adaptador notar.
+  - A espera para tentar mais (link e máquina) cai pela metade quando a subida se mantém por 25 s,
+    e só volta ao começo num episódio novo. Antes, o reset era checado na própria subida que
+    esperou o teto, então o teto de 5 minutos nunca se mantinha.
+  - O modo câmera do AV1 que saiu pior numa conexão não é tentado nas outras da mesma captura por
+    5 minutos (`PictureWatch.verdictUntil`). Antes, cada conexão tentava por conta própria.
+- **`sq-offcard-cap`** (`lib/offCardCap.ts`, só dentro de `sq-new-send`). A conexão além do que a
+  placa segura (`CARD_STREAMS_MAX`, em VP8 no software) sai no máximo em 720p30, com o teto de bits
+  dessa altura. As da placa não mudam. É o governador que deixa de segurar todo mundo por causa das
+  conexões caras.
+- **`sq-key-pace`** (`lib/keyPace.ts`, `KeyPacer` em `lib/nativeVideoSink.ts`, worker v2). Na
+  captura por GPU, com 2+ espectadores, quem perde a imagem de novo logo depois de atendido espera
+  mais (2 s, depois 4), o intervalo mínimo entre IDRs cresce acima de 3 espectadores (até 2,5 s) e
+  quem acabou de chegar não espera. Qualquer IDR atende todo mundo que estava esperando. É uma troca:
+  o espectador de link ruim espera mais pela imagem, para os outros não receberem um IDR por segundo.
+- **`sq-drawn-size`** (`lib/drawnSize.ts`, `drawnNeed` em `lib/videoQuality.ts`). O tile pede pela
+  imagem desenhada (o `<video>` é `object-contain`), não pela caixa: uma caixa 16:9 com tantas
+  linhas quanto a imagem é desenhada, refeita quando a imagem muda de forma. Celular em pé em tela
+  cheia pedia mais linhas que qualquer tier e levava o máximo do transmissor; agora 720p.
+
+Medição, sem experiment (vale para todos os relatórios a partir do deploy):
+
+- Uma amostra que pega a volta de uma pausa conta como pausa. Ela tinha o fps médio do intervalo
+  inteiro (quase zero) e, às vezes, o codec em que o encoder parado ficou (VP8 inativo) com o nome
+  do encoder anterior: H264 por hardware do app desktop aparecia como "VP8 por hardware perdendo
+  34% dos quadros", e quem assistia tinha decodificado H264.
+- O codec, o encoder e o "hardware" do relatório vêm da última amostra com quadros.
+- Campos novos no relatório de envio: `linkDowns`, `linkUps`, `linkFailedUps`, `codecSwitches`,
+  `cameraTries`, `offCardShare` e, na captura por GPU, `nativeKeys` e `nativeKeyWaitS`. A API
+  precisa de deploy para guardá-los; uma API antiga só os ignora.
+
+Simulação com os módulos reais (amostras a cada 2,0-2,2 s, como as do `mediaStats`), sem e com o
+experiment:
+
+| Caso | Sem | Com |
+|---|---|---|
+| 10 voltas de pausa num link que carrega 720p e não 1080p | 63 s acima do link, ~1300 quadros perdidos | 0 |
+| Link em que toda subida falha, por hora | 23,5 subidas falhas | 13 |
+| AV1 que sobrecarrega a máquina, voltas por hora | 23 | 12,5 |
+| Modo câmera numa página densa, 6 conexões, tentativas por hora | 72 | 12 |
+| GPU, 1 espectador perdendo a imagem a cada segundo + 3 bons, IDRs/min | 60 | 15 (o ruim espera ~3,5 s) |
+| GPU, 10 espectadores pedindo a cada 5 s, IDRs/min | 60 | 24 (espera média 0,8 → 1,5 s) |
+| Celular em pé em tela cheia (390x844 @3x), linhas pedidas | 2160 | 720 |
+| Ultrawide em tela cheia (3440x1440) | 2160 | 1440 |
+
+Laboratório do `sq-offcard-cap`: Chrome 158 headless, o controlador real, transmissor preso a 2
+núcleos (`start /affinity 3`), cena de canvas 1080p30 com texto rolando e imagem em movimento, 3
+conexões com a "placa" segurando uma (as outras duas vão em VP8 no software), espectadores em outro
+Chrome. Quatro rodadas alternadas de 80 s:
+
+| | Sem o experiment | Com ele |
+|---|---|---|
+| Conexão da placa (H264) | 27,1 e 29,5 fps; 798 e 1080 linhas | 29,5 e 29,6 fps; 1080 linhas |
+| Conexões fora da placa (VP8) | 19 a 23,6 fps, limitadas por CPU 38-92% do tempo | 28,3 a 28,8 fps em 720 (uma a 20,6), limitadas 0-5% |
+| Governador segurando todas | 78% do tempo numa rodada (nível médio 5), nada na outra | nada |
+| CPU do transmissor | 1,34 e 1,56 núcleo | 1,30 e 1,45 |
+
+Sem o teto, ou o governador desce todo mundo (inclusive a conexão da placa, que não custa CPU), ou
+as conexões em software ficam perdendo quadros por CPU. Com ele, elas vão a 720p com quase todos os
+quadros, e a da placa fica em 1080p30.
+
+Não consertado, de propósito: as tentativas de conexão que nunca dão certo (cada uma custa pouco
+no envio novo e 23% dos pares que conectam depois de falhar só conseguem depois de 6+ tentativas,
+até uma hora depois; o conserto é TURN para quem não é Pro); o bitrate da captura por GPU preso ao
+espectador mais fraco (precisa de camadas temporais no helper); os 8 fps de quem transmite pelo app
+Android (precisa de um encoder nativo); a decodificação de AV1 "por hardware" em máquinas de até 4
+núcleos (~700 sessões em 9 dias).
+
 ## Verificar
 
 ```bash

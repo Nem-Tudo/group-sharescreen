@@ -93,6 +93,7 @@ import { annotatedVideoDrawer, openCanvasPip } from "@/components/roomTools/canv
 import { useRoomToolsSelector, type RoomToolsState } from "@/lib/roomTools";
 import { ReactionButton, ReactionFloats } from "@/components/roomTools/ReactionLayer";
 import { trackFeatureEvent, useFeature } from "@/lib/features";
+import { reportedSize } from "@/lib/drawnSize";
 import { CONNECTING_TILE_EVENTS, CONNECTING_TILE_FEATURE, CONNECTING_TILE_SLOW_MS } from "@/lib/connectingTile";
 import { ROOM_REDESIGN_EVENTS, ROOM_REDESIGN_FEATURE, trackRoomRedesignEvent } from "@/lib/roomRedesign";
 
@@ -807,6 +808,12 @@ const VideoTileView = memo(function VideoTileView({
   // ResizeObserver (not a resize listener) because most size changes here
   // come from layout — the grid reflowing as people join, fullscreen, PiP —
   // and never fire a window resize at all.
+  //
+  // The element's box is not the picture either: it is object-contain, so a
+  // picture of another shape is drawn smaller, with bars, and a phone held
+  // upright reported a box taller than any tier. In experiment sq-drawn-size
+  // the picture is what is reported (see lib/drawnSize), which also has to be
+  // done again when the picture changes shape: the video's own "resize".
   // Held in a ref so callers may pass an inline arrow without tearing down
   // and rebuilding the observer on every single render.
   const sizeCallbackRef = useRef(onRenderedSizeChange);
@@ -817,13 +824,25 @@ const VideoTileView = memo(function VideoTileView({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect;
+    let box: { width: number; height: number } | null = null;
+    const seen = { counted: false };
+    const report = () => {
       if (!box) return;
-      sizeCallbackRef.current?.(Math.round(box.width), Math.round(box.height));
+      const size = reportedSize(box.width, box.height, video, seen);
+      sizeCallbackRef.current?.(Math.round(size.width), Math.round(size.height));
+    };
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      box = { width: rect.width, height: rect.height };
+      report();
     });
     observer.observe(video);
-    return () => observer.disconnect();
+    video.addEventListener("resize", report);
+    return () => {
+      observer.disconnect();
+      video.removeEventListener("resize", report);
+    };
   }, []);
 
   useEffect(() => {

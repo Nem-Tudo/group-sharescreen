@@ -171,6 +171,31 @@ export function tierForRenderedSize(
 }
 
 /**
+ * What a video of `videoWidth` x `videoHeight` drawn object-fit: contain in a box of
+ * `boxWidth` x `boxHeight` needs, for tierForRenderedSize: a 16:9 size with as many lines as
+ * the picture is drawn tall. The sender scales by height (see scaleForHeight), so a picture of
+ * any shape sent at that many lines covers what is drawn. The box itself while the picture's
+ * shape is not known yet (no frame so far).
+ *
+ * The box alone over-asks whenever the two shapes differ: a 16:9 share on a phone held upright
+ * fills the width and a fifth of the height, and a box 844 px tall at 3x is more lines than any
+ * tier has, which used to ask for the top one. See lib/drawnSize.
+ */
+export function drawnNeed(
+  boxWidth: number,
+  boxHeight: number,
+  videoWidth: number,
+  videoHeight: number
+): { width: number; height: number } {
+  if (!(boxWidth > 0 && boxHeight > 0 && videoWidth > 0 && videoHeight > 0)) {
+    return { width: boxWidth, height: boxHeight };
+  }
+  const scale = Math.min(boxWidth / videoWidth, boxHeight / videoHeight);
+  const lines = videoHeight * scale;
+  return { width: Math.round((lines * 16) / 9), height: Math.round(lines) };
+}
+
+/**
  * Cap a tier by the broadcaster's own ceiling (their resolution + fps dials).
  *
  * Resolution and frame rate are clamped *independently*, which a plain walk
