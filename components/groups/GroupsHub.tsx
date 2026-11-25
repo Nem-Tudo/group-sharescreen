@@ -23,6 +23,7 @@ import { ExploreMap } from "@/components/groups/ExploreMap";
 import { useExploreMap } from "@/lib/exploreMap";
 import { setGroupsHomeQuery, useGroupsHomeQuery } from "@/components/groups/groupSearch";
 import { RoomStartForm } from "@/components/RoomStartForm";
+import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { useAuth } from "@/lib/AuthContext";
 import { useFeature } from "@/lib/features";
 import { GROUPS_EXPLORE_PATH, GROUPS_ROOMS_PATH, groupPath } from "@/lib/groupLinks";
@@ -179,7 +180,11 @@ export function GroupsHubHome() {
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 px-4 py-6 lg:my-auto lg:py-10">
         <div className="flex w-full flex-col items-center gap-4">
-          <GoliveOnline />
+          {/* The site home's row: the count and, on a computer's browser, the app. */}
+          <div className="flex flex-wrap items-center justify-center gap-2 empty:hidden">
+            <GoliveOnline />
+            <DownloadAppButton source="groups-hub" />
+          </div>
           {startRoom}
         </div>
         {happening}

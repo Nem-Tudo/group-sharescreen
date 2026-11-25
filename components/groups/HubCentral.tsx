@@ -35,6 +35,7 @@ import { prefetchGroup } from "@/lib/useGroups";
 import { useRecentConversations } from "@/lib/useRecentConversations";
 import { useSocialGraph } from "@/lib/useSocialGraph";
 import { useT } from "@/lib/useI18n";
+import { DownloadAppButton } from "@/components/DownloadAppButton";
 
 // The home inside the groups layout as the app's central (experiment
 // hub-central, see lib/hubCentral). Three layouts of the same parts, one per
@@ -305,7 +306,10 @@ function NowLayout({ data, actions, startRoomForm, liveGroups, links, chamados =
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-4 pt-5 xl:px-6 2xl:px-8">
         <div className="mx-auto flex w-full max-w-2xl shrink-0 flex-col items-center text-center">
           <Greeting data={data} />
-          <GoliveOnline className="mt-3" />
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2 empty:hidden">
+            <GoliveOnline />
+            <DownloadAppButton source="groups-hub" />
+          </div>
         </div>
 
         <div className="mt-5 grid shrink-0 grid-cols-2 gap-4 2xl:grid-cols-[minmax(0,1fr)_30rem_minmax(0,1fr)]">
