@@ -40,10 +40,9 @@ import {
   FlipVerticalIcon,
   ResetIcon,
 } from "@/components/icons";
-import { MdMoreHoriz, MdOutlineChat, MdOutlineReportProblem, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
+import { MdOutlineChat, MdOutlineReportProblem, MdOutlineScreenShare, MdPauseCircleOutline } from "react-icons/md";
 import { watchPresentedFrames } from "@/lib/pageHealth";
 import { sendStallReport, STALL_REPORT_FEATURE } from "@/lib/stallReport";
-import { RoomDeclutterContext, ROOM_DECLUTTER_EVENTS, trackRoomDeclutterEvent } from "@/lib/roomDeclutter";
 import { ButtonSpinner } from "@/components/ButtonSpinner";
 import { RecordingModal, formatDuration } from "@/components/RecordingModal";
 import { markFeatureUsed } from "@/components/NewBadge";
@@ -401,14 +400,6 @@ const VideoTileView = memo(function VideoTileView({
     [shownOrientation.rotation, shownOrientation.flipX, shownOrientation.flipY]
   );
   const canOrient = Boolean(tileId) && !compact && orientationMode.active;
-  // room-declutter (lib/roomDeclutter): out of fullscreen, the buttons used
-  // now and then — stats, OBS, recording, clips, rotation, hyperfocus, stop
-  // watching — wait behind a "⋯" at the end of the row, which lays them out
-  // in place (their own panels still hang off them). One that is doing
-  // something (recording, rotated, panel open, OBS on) stays out, to say so.
-  const declutter = useContext(RoomDeclutterContext) && !isFullscreen;
-  const [moreOpen, setMoreOpen] = useState(false);
-  const rare = !declutter || moreOpen;
   // The zoom bar, same experiment as the panel above. Only where the picture
   // is big enough for zooming into it to mean anything — on the stage, in
   // hyperfocus, or in fullscreen — and only for a pointer: a touchscreen
@@ -1209,7 +1200,7 @@ const VideoTileView = memo(function VideoTileView({
             overlayLeftOffset ? "left-[50px]" : "left-2"
           } ${compact ? "hidden" : ""} ${overlayVisibilityClass}`}
         >
-          {(connectionStats || ownStatsChannel) && (rare || statsOpen) && (
+          {(connectionStats || ownStatsChannel) && (
             <Tooltip content={t(ownStatsChannel ? "ownStreamStats.title" : "connectionStats.open")}>
               <button
                 type="button"
@@ -1224,8 +1215,7 @@ const VideoTileView = memo(function VideoTileView({
               </button>
             </Tooltip>
           )}
-          {/* Not behind "rare": it is only any use at the moment of the stutter.
-              Not while the tile has no picture yet: that is "no video", already
+          {/* Not while the tile has no picture yet: that is "no video", already
               measured, and the spinner is where the Pro (TURN) offer sits — a
               second button there would only take clicks from it. */}
           {stallReportOn && !isVideoLoading && (
@@ -1241,7 +1231,7 @@ const VideoTileView = memo(function VideoTileView({
               </button>
             </Tooltip>
           )}
-          {onObsSource && (rare || isObsActive) && (
+          {onObsSource && (
             <Tooltip
               content={
                 isObsActive
@@ -1426,7 +1416,7 @@ const VideoTileView = memo(function VideoTileView({
             onClose={() => setRecording(null)}
           />
         )}
-        {canRecord && (rare || recordingSince !== null) && (
+        {canRecord && (
           <Tooltip
             content={
               recordingSince !== null ? (
@@ -1462,7 +1452,7 @@ const VideoTileView = memo(function VideoTileView({
             </button>
           </Tooltip>
         )}
-        {canClip && rare && (
+        {canClip && (
           <Tooltip content={t("videoTile.clipLast30s", { seconds: CLIP_MS / 1000 })}>
             <button
               type="button"
@@ -1517,7 +1507,7 @@ const VideoTileView = memo(function VideoTileView({
             </span>
           </div>
         )}
-        {canOrient && tileId && (rare || orientationOpen || !isDefaultOrientation(shownOrientation)) && (
+        {canOrient && tileId && (
           <Popover
             open={orientationOpen}
             onClose={() => setOrientationOpen(false)}
@@ -1596,7 +1586,7 @@ const VideoTileView = memo(function VideoTileView({
             </button>
           </Tooltip>
         )}
-        {onHyperfocus && (rare || isHyperfocused) && (
+        {onHyperfocus && (
           <Tooltip
             content={
               !hasAccount
@@ -1650,7 +1640,7 @@ const VideoTileView = memo(function VideoTileView({
             )}
           </button>
         </Tooltip>
-        {onStopWatching && rare && (
+        {onStopWatching && (
           <Tooltip content={stopWatchingLabel ?? t("videoTile.stopWatching")}>
             <button
               type="button"
@@ -1659,25 +1649,6 @@ const VideoTileView = memo(function VideoTileView({
               className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 active:bg-black/80"
             >
               <EyeOffIcon className="h-5 w-5" />
-            </button>
-          </Tooltip>
-        )}
-        {declutter &&
-          (canRecord || canClip || canOrient || onHyperfocus || onStopWatching || connectionStats || ownStatsChannel || onObsSource) && (
-          <Tooltip content={moreOpen ? t("videoTile.fewerOptions") : t("videoTile.moreOptions")}>
-            <button
-              type="button"
-              onClick={() => {
-                if (!moreOpen) trackRoomDeclutterEvent(ROOM_DECLUTTER_EVENTS.tileMenuOpen);
-                setMoreOpen((open) => !open);
-              }}
-              aria-label={moreOpen ? t("videoTile.fewerOptions") : t("videoTile.moreOptions")}
-              aria-expanded={moreOpen}
-              className={`rounded-full p-2 text-white active:bg-black/80 ${
-                moreOpen ? "bg-white/25 hover:bg-white/30" : "bg-black/60 hover:bg-black/80"
-              }`}
-            >
-              <MdMoreHoriz className="h-5 w-5" />
             </button>
           </Tooltip>
         )}
