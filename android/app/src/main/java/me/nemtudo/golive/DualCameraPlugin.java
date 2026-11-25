@@ -21,6 +21,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Base64;
+import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.WindowManager;
@@ -188,15 +189,30 @@ public class DualCameraPlugin extends Plugin {
             final Lens lens = new Lens(id, front ? "front" : "back", sensor, front);
             lens.reader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.YUV_420_888, 2);
             lens.reader.setOnImageAvailableListener(reader -> {
-                Image image = reader.acquireLatestImage();
+                // Everything here runs on the camera thread, where an uncaught
+                // exception kills the app. stop() closes the reader from
+                // another thread, which closes the image under a frame being
+                // read (IllegalStateException), and a device whose YUV planes
+                // are shorter than their strides suggest underflows the copy:
+                // either way that frame is lost, not the app.
+                Image image;
+                try {
+                    image = reader.acquireLatestImage();
+                } catch (RuntimeException ex) {
+                    return;
+                }
                 if (image == null) return;
                 try {
                     long now = System.currentTimeMillis();
                     if (!running || now - lens.lastFrameAt < frameIntervalMs) return;
                     lens.lastFrameAt = now;
                     sendFrame(lens, image);
+                } catch (RuntimeException ex) {
+                    Log.w("GoLiveDualCamera", "frame dropped", ex);
                 } finally {
-                    image.close();
+                    try {
+                        image.close();
+                    } catch (RuntimeException ignored) {}
                 }
             }, handler);
             lenses.add(lens);
@@ -246,7 +262,15 @@ public class DualCameraPlugin extends Plugin {
     @RequiresApi(api = Build.VERSION_CODES.R)
     private void createSession(Lens lens, Done done, Failed failed) {
         try {
-            Executor executor = runnable -> handler.post(runnable);
+            // The handler captured now, not read later: stopAll() nulls the
+            // field, and a session callback arriving after that would
+            // otherwise throw a NullPointerException on the camera thread.
+            final Handler sessionHandler = handler;
+            if (sessionHandler == null) {
+                failed.run("A câmera foi fechada.");
+                return;
+            }
+            Executor executor = runnable -> sessionHandler.post(runnable);
             List<OutputConfiguration> outputs = Collections.singletonList(new OutputConfiguration(lens.reader.getSurface()));
             SessionConfiguration config = new SessionConfiguration(
                 SessionConfiguration.SESSION_REGULAR,
