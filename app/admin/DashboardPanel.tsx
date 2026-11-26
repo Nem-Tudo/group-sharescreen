@@ -73,6 +73,8 @@ export interface AdminSection {
   Panel: (props: { can: AdminCan }) => React.ReactElement;
   /** Drawn in a wider column than the rest — a dashboard of charts side by side. */
   wide?: boolean;
+  /** Shown to every administrator (flag ADMIN), whatever their permissions. */
+  everyAdmin?: boolean;
 }
 
 export const ADMIN_SECTIONS: AdminSection[] = [
@@ -248,6 +250,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     id: "lite",
     get label() { return translate("admin.dashboardPanel.lite"); },
     needs: ["lite"],
+    // Every administrator, not only ADMIN_MASTER or the "lite" permission (the API's
+    // liteRoutes.ts lets any admin in as well).
+    everyAdmin: true,
     Panel: () => (
       <Group>
         <LitePanel />
