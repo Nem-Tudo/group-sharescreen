@@ -589,6 +589,73 @@ export async function setDesktopVersionPolicy(patch: {
   );
 }
 
+// --- Go Live - Lite (the native Rust client): version + modification catalogue.
+// See the API's liteStore.ts / liteRoutes.ts.
+
+export type LiteModificationStatus = "active" | "coming-soon" | "disabled";
+
+export type LiteRelease = {
+  version: string;
+  minVersion: string | null;
+  mandatory: boolean;
+  downloadUrl: string;
+  sha256: string | null;
+  modsDownloadUrl: string | null;
+  modsSha256: string | null;
+  releasePageUrl: string | null;
+  notes: string | null;
+  publishedAt: string;
+};
+
+export type LiteModification = {
+  id: string;
+  name: string;
+  description: string;
+  status: LiteModificationStatus;
+  version: string;
+  downloadUrl: string | null;
+  fileName: string | null;
+  sha256: string | null;
+  order: number;
+  updatedAt: string;
+};
+
+export type LiteConfig = { release: LiteRelease | null; modifications: LiteModification[] };
+
+export type LiteReleaseInput = Omit<LiteRelease, "publishedAt">;
+export type LiteModificationInput = Partial<Omit<LiteModification, "updatedAt">>;
+
+export async function fetchLiteConfig(): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite");
+}
+
+const jsonInit = (method: string, body?: unknown): RequestInit => ({
+  method,
+  headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+
+/** Publishes a version; open Lite clients check for it right away. */
+export async function publishLiteRelease(input: LiteReleaseInput): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/release", jsonInit("PUT", input));
+}
+
+export async function unpublishLiteRelease(): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/release", jsonInit("DELETE"));
+}
+
+export async function createLiteModification(input: LiteModificationInput & { id: string; name: string }): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/modifications", jsonInit("POST", input));
+}
+
+export async function updateLiteModification(id: string, patch: LiteModificationInput): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>(`/admin/lite/modifications/${encodeURIComponent(id)}`, jsonInit("PATCH", patch));
+}
+
+export async function deleteLiteModification(id: string): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>(`/admin/lite/modifications/${encodeURIComponent(id)}`, jsonInit("DELETE"));
+}
+
 export async function fetchAdminSupporters(): Promise<Supporter[]> {
   const data = await adminFetch<{ supporters: Supporter[] }>("/admin/supporters");
   return data.supporters;

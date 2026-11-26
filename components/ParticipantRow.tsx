@@ -64,6 +64,7 @@ export const ParticipantRow = memo(function ParticipantRow({
   isMobileApp = false,
   mobileAppOS = null,
   desktopAppOS = null,
+  isLiteApp = false,
   handRaised = false,
   tools,
   presence = { state: "online" },
@@ -160,6 +161,8 @@ export const ParticipantRow = memo(function ParticipantRow({
   mobileAppOS?: "ios" | "android" | null;
   /** Which system the desktop app runs on; null draws the plain computer. */
   desktopAppOS?: "windows" | "macos" | "linux" | null;
+  /** No Go Live - Lite (cliente nativo): o mesmo computador do app, com um raio. */
+  isLiteApp?: boolean;
   // A raised hand (see components/roomTools/HandRaise) — shown by the name.
   handRaised?: boolean;
   // The room tools this person opened that are still open (see
@@ -338,7 +341,7 @@ export const ParticipantRow = memo(function ParticipantRow({
         )}
         {isApp ? (
           <Tooltip
-            content={t(
+            content={isLiteApp ? t("participantRow.nameIsUsingGoLiveLite", { name }) : t(
               desktopAppOS === "windows"
                 ? "participantRow.nameIsUsingTheGoliveWindows"
                 : desktopAppOS === "macos"
@@ -350,7 +353,7 @@ export const ParticipantRow = memo(function ParticipantRow({
             )}
           >
             <span className="flex shrink-0 items-center self-center">
-              <AppDeviceIcon device="pc" os={desktopAppOS} />
+              <AppDeviceIcon device={isLiteApp ? "lite" : "pc"} os={desktopAppOS} />
             </span>
           </Tooltip>
         ) : (
@@ -513,7 +516,7 @@ function AppDeviceIcon({
   device,
   os,
 }: {
-  device: "phone" | "pc";
+  device: "phone" | "pc" | "lite";
   os: "ios" | "android" | "windows" | "macos" | "linux" | null;
 }) {
   const Logo =
@@ -529,7 +532,12 @@ function AppDeviceIcon({
         <>
           <rect x="0.9" y="1.7" width="14.2" height="9.6" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
           <path d="M8 11.3v2.4M4.8 14.3h6.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          {Logo && <Logo x={5.1} y={3.6} size={5.8} />}
+          {device === "lite" ? (
+            // Go Live - Lite: o raio do logo dele no lugar do logo do sistema.
+            <path d="M8.9 2.9 5.6 7.2h2.3l-.8 3.2 3.4-4.5H8.2l.7-3Z" fill="#f59e0b" />
+          ) : (
+            Logo && <Logo x={5.1} y={3.6} size={5.8} />
+          )}
           {/* Linux: a terminal prompt rather than Tux, whose outline drawing
               turns into a smudge at this size. */}
           {os === "linux" && (

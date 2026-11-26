@@ -28,6 +28,7 @@ import { ThemeModerationPanel } from "./ThemeModerationPanel";
 import { CameraEffectModerationPanel } from "./CameraEffectModerationPanel";
 import { SupportersPanel } from "./SupportersPanel";
 import { DesktopUpdatePanel } from "./DesktopUpdatePanel";
+import { LitePanel } from "./LitePanel";
 import { EvalPanel } from "./EvalPanel";
 import { GroupsPanel } from "./GroupsPanel";
 import { BotsPanel } from "./BotsPanel";
@@ -236,6 +237,20 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         {can("announcement") && <AnnouncementPanel />}
         {can("supporters") && <SupportersPanel />}
         {can("desktop_update") && <DesktopUpdatePanel />}
+      </Group>
+    ),
+  },
+  {
+    // Go Live - Lite (the native Rust client): its updates and the
+    // modification catalogue its setup reads. Its own tab: a release is a
+    // moment of its own, like the desktop one, and the catalogue is a list
+    // that grows. Banners for the Lite are in "Site" > Anúncio (device "Go Live - Lite").
+    id: "lite",
+    get label() { return translate("admin.dashboardPanel.lite"); },
+    needs: ["lite"],
+    Panel: () => (
+      <Group>
+        <LitePanel />
       </Group>
     ),
   },
