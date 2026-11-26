@@ -31,6 +31,8 @@
 // Pure, apart from the PressureObserver wrapper at the end, so the rules can be
 // tested without a browser.
 
+import { isAdaptFix } from "./adaptFix";
+
 export type ShareProfile = "text" | "balanced" | "motion";
 
 export interface SendObservation {
@@ -255,11 +257,19 @@ const LINK_BACK_WAIT_MS = 8000;
 const LINK_COLLAPSED_SHARE = 0.5;
 // The most one sample counts for, however long since the one before.
 const LINK_SAMPLE_MAX_MS = 10_000;
+// Leaving the costly codec on a link the estimate says H264 cannot carry at this height
+// (experiment sq-adapt-fix, see LinkAdapter.leftSharp). Some benefit of the doubt, since an
+// estimate taken while AV1 sent little may be short of the link itself.
+const LEFT_SHARP_SHORT_SHARE = 0.8;
 
 export class LinkAdapter {
   /** The most this connection may send, or null when nothing is short. */
   capHeight: number | null = null;
-  private readonly startedAt: number;
+  /** For the quality reports: steps down, steps up, and steps up taken back within FLAP_WINDOW_MS. */
+  downs = 0;
+  ups = 0;
+  failedUps = 0;
+  private startedAt: number;
   private lastSampleAt: number;
   private shortSince: number | null = null;
   private fineMs = 0;
@@ -267,10 +277,52 @@ export class LinkAdapter {
   private lastUpAt = 0;
   private lastDownAt = 0;
   private shortAtKbps = 0;
+  // Experiment sq-adapt-fix: whether the last step up has held past FLAP_WINDOW_MS.
+  private upHeld = true;
+  // What the last sample said, for leftSharp.
+  private lastMoving = false;
+  private lastAvailableKbps = 0;
 
   constructor(now: number) {
     this.startedAt = now;
     this.lastSampleAt = now;
+  }
+
+  /**
+   * The encoder starts over on the same link: a viewer back from a pause, another codec.
+   * What the link taught stays, since the link did not change; the clock starts again, since
+   * an encoder's first seconds are no evidence of anything (SEND_GRACE_MS).
+   */
+  restart(now: number) {
+    this.startedAt = now;
+    this.lastSampleAt = now;
+    this.shortSince = null;
+    this.fineMs = 0;
+  }
+
+  /**
+   * Goes from the costly codec to a plain one (see chooseSharp). The costly codec is given to
+   * short links first, so this is usually a link H264 cannot carry at the height AV1 was
+   * holding: started there, it loses frames for SEND_GRACE_MS + LINK_HOLD_MS before anything
+   * steps down. So, on a moving picture, it starts at the height H264 holds on what the link
+   * was carrying. True when capHeight changed.
+   */
+  leftSharp(now: number, profile: ShareProfile, topHeight: number): boolean {
+    this.restart(now);
+    if (profile === "text" || !this.lastMoving || this.lastAvailableKbps <= 0) return false;
+    const from = Math.min(this.capHeight ?? topHeight, topHeight);
+    let height = from;
+    while (this.lastAvailableKbps < leastKbps(height, "H264") * LEFT_SHARP_SHORT_SHARE) {
+      const lower = nextDown(height, profile);
+      if (lower === null) break;
+      height = lower;
+    }
+    if (height >= from) return false;
+    this.capHeight = height;
+    this.lastDownAt = now;
+    this.downs += 1;
+    this.shortAtKbps = Math.max(this.lastAvailableKbps, leastKbps(height, "H264"));
+    return true;
   }
 
   /**
@@ -281,6 +333,10 @@ export class LinkAdapter {
     const elapsed = Math.min(now - this.lastSampleAt, LINK_SAMPLE_MAX_MS);
     this.lastSampleAt = now;
     if (now - this.startedAt < SEND_GRACE_MS) return false;
+    // For leftSharp, and only past the grace: an estimator still ramping up is no short link.
+    this.lastMoving = isMoving(o);
+    if (o.availableKbps > 0) this.lastAvailableKbps = o.availableKbps;
+    const fixed = isAdaptFix();
     // Not this connection's to fix: see MachineGovernor.
     const short =
       !encoderBusy(o) && !linkHasRoom(o) && (fallingBehind(o, profile) || blurry(o, profile)) && fewerPixelsWouldHelp(o, profile);
@@ -290,6 +346,7 @@ export class LinkAdapter {
       if (now - this.lastUpAt < FLAP_WINDOW_MS && this.lastUpAt > this.lastDownAt) {
         this.upWaitMs = Math.min(this.upWaitMs * 2, LINK_UP_WAIT_MAX_MS);
         this.lastUpAt = 0;
+        this.failedUps += 1;
       }
       if (now - this.shortSince < LINK_HOLD_MS[profile]) return false;
       this.shortSince = null;
@@ -300,14 +357,23 @@ export class LinkAdapter {
         if (lower === null) break;
         next = lower;
       }
+      // A new shortage, after a long quiet with the last step up holding, is a new story,
+      // and starts on the short wait (sq-adapt-fix; see the step up below for the old rule).
+      if (fixed && this.upHeld && now - this.lastDownAt > LINK_UP_WAIT_MAX_MS) this.upWaitMs = LINK_UP_WAIT_MS;
       this.capHeight = next;
       this.lastDownAt = now;
+      this.downs += 1;
       // Not below what this height needs: twice a collapsed estimate says nothing about
       // the link being back.
       this.shortAtKbps = Math.max(o.targetKbps, o.availableKbps, leastKbps(next, o.codec));
       return true;
     }
     this.shortSince = null;
+    // A step up that held: the next one waits less (sq-adapt-fix).
+    if (fixed && !this.upHeld && this.lastUpAt > this.lastDownAt && now - this.lastUpAt >= FLAP_WINDOW_MS) {
+      this.upHeld = true;
+      this.upWaitMs = Math.max(LINK_UP_WAIT_MS, this.upWaitMs / 2);
+    }
     if (this.capHeight === null) return false;
     // Busy encoders say nothing about the link, and the browser leaves the estimate
     // out of the odd report.
@@ -323,7 +389,11 @@ export class LinkAdapter {
     if (this.fineMs < (back ? Math.min(this.upWaitMs, LINK_BACK_WAIT_MS) : this.upWaitMs)) return false;
     this.fineMs = 0;
     this.lastUpAt = now;
-    if (now - this.lastDownAt > LINK_UP_WAIT_MAX_MS) this.upWaitMs = LINK_UP_WAIT_MS;
+    // Outside sq-adapt-fix. Checked here, the reset fires on the very step up that the
+    // ceiling was waited out for, so a link that keeps failing never stays at the ceiling.
+    if (!fixed && now - this.lastDownAt > LINK_UP_WAIT_MAX_MS) this.upWaitMs = LINK_UP_WAIT_MS;
+    this.upHeld = false;
+    this.ups += 1;
     const up = nextUp(this.capHeight);
     // A cap at or above what would be sent anyway holds nothing back.
     this.capHeight = back || up >= topHeight ? null : up;
@@ -464,7 +534,10 @@ export class MachineGovernor {
   private calmSince: number | null = null;
   private lastStepAt = 0;
   private lastUpAt = 0;
+  private lastDownAt = 0;
   private upWaitMs = MACHINE_UP_WAIT_MS;
+  // Experiment sq-adapt-fix: whether the last step up has held past FLAP_WINDOW_MS.
+  private upHeld = true;
 
   /** One sample of one connection that is actually sending. */
   observe(key: string, o: SendObservation, profile: ShareProfile, software: boolean, top: SendTop, now: number) {
@@ -564,6 +637,12 @@ export class MachineGovernor {
       (this.behindSince !== null && now - this.behindSince >= MACHINE_HOLD_MS) ||
       (this.criticalSince !== null && now - this.criticalSince >= MACHINE_CRITICAL_HOLD_MS) ||
       (this.seriousSince !== null && now - this.seriousSince >= MACHINE_SERIOUS_HOLD_MS);
+    const fixed = isAdaptFix();
+    // A step up that held: the next one waits less (sq-adapt-fix).
+    if (fixed && !this.upHeld && this.lastUpAt > 0 && now - this.lastUpAt >= FLAP_WINDOW_MS) {
+      this.upHeld = true;
+      this.upWaitMs = Math.max(MACHINE_UP_WAIT_MS, this.upWaitMs / 2);
+    }
     if (held) {
       this.calmSince = null;
       if (now - this.lastStepAt < MACHINE_SETTLE_MS) return false;
@@ -572,9 +651,13 @@ export class MachineGovernor {
       if (this.lastUpAt > 0 && now - this.lastUpAt < FLAP_WINDOW_MS) {
         this.upWaitMs = Math.min(this.upWaitMs * 2, MACHINE_UP_WAIT_MAX_MS);
       }
+      // A new shortage after a long quiet, with the last step up holding, starts on the
+      // short wait again (sq-adapt-fix; see the step up below for the old rule).
+      if (fixed && this.upHeld && now - this.lastDownAt > MACHINE_UP_WAIT_MAX_MS) this.upWaitMs = MACHINE_UP_WAIT_MS;
       this.lastUpAt = 0;
       this.level = next;
       this.lastStepAt = now;
+      this.lastDownAt = now;
       return true;
     }
     if (this.level === 0) return false;
@@ -585,7 +668,10 @@ export class MachineGovernor {
     this.calmSince ??= now;
     if (now - this.calmSince < this.upWaitMs) return false;
     this.calmSince = null;
-    if (now - this.lastStepAt > MACHINE_UP_WAIT_MAX_MS) this.upWaitMs = MACHINE_UP_WAIT_MS;
+    // Outside sq-adapt-fix. Checked here, the reset fires on the very step up that the
+    // ceiling was waited out for: a machine the costly codec keeps overloading took it back
+    // 23 times an hour instead of about 11.
+    if (!fixed && now - this.lastStepAt > MACHINE_UP_WAIT_MAX_MS) this.upWaitMs = MACHINE_UP_WAIT_MS;
     let up = this.level - 1;
     while (up > 0 && !this.differs(up, this.level)) up -= 1;
     // And on down through whatever means the same as where that lands.
@@ -593,6 +679,7 @@ export class MachineGovernor {
     this.level = up;
     this.lastStepAt = now;
     this.lastUpAt = now;
+    this.upHeld = false;
     return true;
   }
 }
@@ -793,6 +880,12 @@ export class PictureWatch {
   moving = false;
   /** Whether it was tried and came out better. */
   proven = false;
+  /**
+   * Until when the last verdict says camera mode is worse for this picture: 0 when there is
+   * none, and not set by a try that only lost its bits. Every connection of a share carries
+   * the same capture, so the others can go by it (experiment sq-adapt-fix).
+   */
+  verdictUntil = 0;
   private since: number | null = null;
   private fps = 0;
   private expected = 0;
@@ -939,6 +1032,7 @@ export class PictureWatch {
 
   private giveUp(now: number, wait: number): boolean {
     this.notBefore = now + wait;
+    if (wait >= PICTURE_RETRY_MS) this.verdictUntil = this.notBefore;
     this.moving = false;
     this.proven = false;
     return true;

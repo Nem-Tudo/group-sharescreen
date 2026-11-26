@@ -145,6 +145,10 @@ import {
 import { GPU_SURVEY_FEATURE, noteGpuShareStarted } from "./gpuShareSurvey";
 import { isClassicSend, NEW_SEND_FEATURE, setClassicSend } from "./classicSend";
 import { H264_SEND_FEATURE, setH264Send } from "./h264Send";
+import { ADAPT_FIX_FEATURE, setAdaptFix } from "./adaptFix";
+import { OFF_CARD_CAP_FEATURE, setOffCardCap } from "./offCardCap";
+import { KEY_PACE_FEATURE, setKeyPace } from "./keyPace";
+import { DRAWN_SIZE_FEATURE, setDrawnSize } from "./drawnSize";
 import { SCREEN_CODEC_FEATURE, setScreenCodecVariant } from "./screenCodec";
 import { AV1_HW_ONLY_FEATURE, declineCostlyCodecs, setAv1HwOnly } from "./receiveCodecs";
 import { releasePeerConnection } from "./peerConnectionRelease";
@@ -3255,6 +3259,26 @@ export function useRoomMedia(room: string) {
   useEffect(() => {
     setH264Send(h264SendFeature.enabled);
   }, [h264SendFeature.enabled]);
+  // And for the send path's repairs of 2026-11-25: experiments "sq-adapt-fix" (lib/adaptFix),
+  // "sq-offcard-cap" (lib/offCardCap) and, for the GPU capture, "sq-key-pace" (lib/keyPace).
+  const adaptFixFeature = useFeature(ADAPT_FIX_FEATURE, { track: false });
+  useEffect(() => {
+    setAdaptFix(adaptFixFeature.enabled);
+  }, [adaptFixFeature.enabled]);
+  const offCardCapFeature = useFeature(OFF_CARD_CAP_FEATURE, { track: false });
+  useEffect(() => {
+    setOffCardCap(offCardCapFeature.enabled);
+  }, [offCardCapFeature.enabled]);
+  const keyPaceFeature = useFeature(KEY_PACE_FEATURE, { track: false });
+  useEffect(() => {
+    setKeyPace(keyPaceFeature.enabled);
+  }, [keyPaceFeature.enabled]);
+  // Experiment "sq-drawn-size" (see lib/drawnSize): the viewer's side, read by every tile
+  // when it reports its size; the exposure is counted once a share is being received.
+  const drawnSizeFeature = useFeature(DRAWN_SIZE_FEATURE, { track: false });
+  useEffect(() => {
+    setDrawnSize(drawnSizeFeature.enabled);
+  }, [drawnSizeFeature.enabled]);
   // Experiment "sq-av1-hw-only" (see lib/receiveCodecs): the viewer's side, read when
   // answering a share; the exposure is counted once one is being received.
   const av1HwOnlyFeature = useFeature(AV1_HW_ONLY_FEATURE, { track: false });
@@ -4790,6 +4814,10 @@ export function useRoomMedia(room: string) {
   useFeature(STEREO_AUDIO_FEATURE, { track: screen.active });
   useFeature(OWN_AUDIO_FILTER_FEATURE, { track: screen.active });
   useFeature(AV1_HW_ONLY_FEATURE, { track: Object.keys(screen.remoteStreams).length > 0 });
+  useFeature(ADAPT_FIX_FEATURE, { track: screen.active });
+  useFeature(OFF_CARD_CAP_FEATURE, { track: screen.active });
+  useFeature(KEY_PACE_FEATURE, { track: screen.active && nativeVideoBridge && nativeVideoWanted });
+  useFeature(DRAWN_SIZE_FEATURE, { track: Object.keys(screen.remoteStreams).length > 0 });
 
   // Mirrors noiseSuppressionOn below without going stale inside the capture
   // closure, which useBroadcastChannel only ever calls once per mic start

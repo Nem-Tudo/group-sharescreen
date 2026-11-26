@@ -24,6 +24,7 @@ import {
   addSnapshot,
   createAccumulator,
   noteIceAttempt,
+  noteSteps,
   QUALITY_SAMPLE_RATE,
   summarize,
   type PageSample,
@@ -50,9 +51,13 @@ import { isClassicSend, NEW_SEND_FEATURE } from "./classicSend";
 import { defaultShareProfile, screenCodecTag } from "./screenCodec";
 import { H264_SEND_FEATURE, isH264Send } from "./h264Send";
 import { AV1_HW_ONLY_FEATURE, isAv1HwOnly } from "./receiveCodecs";
+import { ADAPT_FIX_FEATURE, isAdaptFix } from "./adaptFix";
+import { isOffCardCap, OFF_CARD_CAP_FEATURE } from "./offCardCap";
+import { isKeyPace, KEY_PACE_FEATURE } from "./keyPace";
+import { DRAWN_SIZE_FEATURE, isDrawnSize } from "./drawnSize";
 import { senderQualityState } from "./peerQualityController";
 import { qualityNegotiator } from "./qualityNegotiation";
-import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
+import { nativeSinkPauseChangedAt, nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
 
 // One of each per session of our own screen, at its end, from both groups of
 // experiments sq-new-send and sq-h264-send (see lib/classicSend, lib/h264Send), so
@@ -66,6 +71,16 @@ import { nativeSinkPaused, nativeSinkStats } from "./nativeVideoCapture";
 //   send_machine_held       ...spent over a tenth of its time held down by the machine
 //   send_paused             ...spent over a tenth of its time with nobody looking
 //   send_moving_picture     ...settled in the camera mode of the costly codec at some point
+// The same from both groups of sq-adapt-fix (lib/adaptFix), with these, which say how much
+// the adapters moved:
+//   send_link_downs         ...value = times its link held it down a step
+//   send_link_flaps         ...value = steps up its link took back within 25 s
+//   send_codec_switches     ...value = codec changes on the running connection
+//   send_camera_tries       ...value = tries of the costly codec's camera mode
+// And from both groups of sq-offcard-cap (lib/offCardCap), only for shares with a connection
+// off the card or five viewers or more, with the attributes `viewers` (1, 2-4, 5-9, 10p: most
+// at once) and `card` (on, off: whether this connection went off the card), and this one:
+//   send_off_card           ...spent over a tenth of its time past what the graphics card holds
 export const SEND_SESSION_EVENTS = {
   session: "send_session",
   fps: "send_session_fps",
@@ -75,6 +90,25 @@ export const SEND_SESSION_EVENTS = {
   machineHeld: "send_machine_held",
   paused: "send_paused",
   movingPicture: "send_moving_picture",
+  linkDowns: "send_link_downs",
+  linkFlaps: "send_link_flaps",
+  codecSwitches: "send_codec_switches",
+  cameraTries: "send_camera_tries",
+  offCard: "send_off_card",
+} as const;
+
+// One of each per connection of a GPU capture (see lib/nativeVideoCapture), at its end, from
+// both groups of experiment sq-key-pace (see lib/keyPace):
+//   gpu_send_session        a connection carrying our GPU capture
+//   gpu_send_keys           ...value = IDRs that reached it, per 10 minutes
+//   gpu_send_key_wait       ...value = seconds its picture waited for one, per 10 minutes
+//   gpu_send_holds          ...value = keyframes its viewer asked for, per 10 minutes
+// with the attribute `viewers` (1, 2-4, 5-9, 10p: most at once).
+export const GPU_SESSION_EVENTS = {
+  session: "gpu_send_session",
+  keys: "gpu_send_keys",
+  keyWait: "gpu_send_key_wait",
+  holds: "gpu_send_holds",
 } as const;
 
 const ENABLED = process.env.NEXT_PUBLIC_QUALITY_TELEMETRY_ENABLED !== "false";
@@ -123,6 +157,9 @@ export interface ConnectionQualityReport extends SessionSummary {
   nativeKeyHolds: number | null;
   nativeKeyStale: number | null;
   nativeResyncs: number | null;
+  /** ...and IDRs that reached it, and seconds its picture waited for one (experiment sq-key-pace). */
+  nativeKeys: number | null;
+  nativeKeyWaitS: number | null;
   settings: ShareSettings | null;
   device: {
     cores: number | null;
@@ -155,13 +192,24 @@ export function setTelemetryShareSettings(settings: ShareSettings | null) {
 function experimentsTag(): string | null {
   const send = isClassicSend()
     ? screenCodecTag()
-    : [NEW_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE]
+    : [NEW_SEND_FEATURE, isH264Send() && H264_SEND_FEATURE, isAdaptFix() && ADAPT_FIX_FEATURE, isOffCardCap() && OFF_CARD_CAP_FEATURE]
         .filter(Boolean)
         .map((key) => `${key}=on`)
         .join(";");
-  // The viewer's own, whichever way this machine sends (see lib/receiveCodecs).
-  const recv = isAv1HwOnly() ? `${AV1_HW_ONLY_FEATURE}=on` : null;
-  return [send, recv].filter(Boolean).join(";") || null;
+  // The GPU capture's, which goes through neither send path.
+  const gpu = isKeyPace() ? `${KEY_PACE_FEATURE}=on` : null;
+  // The viewer's own, whichever way this machine sends (see lib/receiveCodecs, lib/drawnSize).
+  const recv = [isAv1HwOnly() && AV1_HW_ONLY_FEATURE, isDrawnSize() && DRAWN_SIZE_FEATURE]
+    .filter(Boolean)
+    .map((key) => `${key}=on`)
+    .join(";");
+  return [send, gpu, recv].filter(Boolean).join(";") || null;
+}
+
+/** Most viewers at once, as an event attribute. */
+function viewersTag(viewersMax: number | null): string {
+  const n = viewersMax ?? 1;
+  return n <= 1 ? "1" : n <= 4 ? "2-4" : n <= 9 ? "5-9" : "10p";
 }
 
 interface Session {
@@ -315,10 +363,19 @@ class ConnectionTelemetry {
       if (control?.movingPicture) session.movingPicture = true;
       const visible =
         connection.direction === "recv" ? qualityNegotiator.isVisible(connection.channel, connection.peerId) : null;
-      const paused =
+      const pausedNow =
         connection.direction === "send"
           ? control?.paused === true || nativeSinkPaused(connection.pc)
           : qualityNegotiator.isIdle(connection.channel, connection.peerId);
+      // A sample that spans the end of a pause is mostly the pause. Its frame rate is averaged
+      // over the whole interval and its codec can be the one the stopped encoder was left on,
+      // so taken as a stream it read as a near-zero frame rate, and hardware H264 as hardware
+      // VP8. It counts as paused instead.
+      const changedAt =
+        connection.direction === "send"
+          ? Math.max(control?.pauseChangedAt ?? 0, nativeSinkPauseChangedAt(connection.pc))
+          : qualityNegotiator.idleChangedAt(connection.channel, connection.peerId);
+      const paused = pausedNow || (changedAt > 0 && changedAt > snapshot.at - snapshot.intervalSeconds * 1000);
       const page = this.pageSample(session, snapshot, visible, paused);
       addSnapshot(session.acc, snapshot, control, visible, paused, page);
       session.recent.push({
@@ -437,6 +494,9 @@ class ConnectionTelemetry {
 
   private buildReport(session: Session, endedBy: "close" | "pagehide"): ConnectionQualityReport | null {
     const { connection, acc } = session;
+    // The controller's counters as they ended, not as the last sample found them.
+    const control = connection.direction === "send" ? senderQualityState(connection.pc) : null;
+    if (control) noteSteps(acc, control);
     const summary = summarize(acc, Date.now(), connection.direction, connection.channel);
     // Too short to be a stream, or never measured over an interval at all —
     // unless that is the finding: a tile that never got a picture.
@@ -445,6 +505,7 @@ class ConnectionTelemetry {
     const provider = acc.relayUrl ? turnProvider(acc.relayUrl) : null;
     // Before the sampling below: the experiment counts every session.
     this.countSendSession(summary, connection, session.movingPicture);
+    this.countGpuSession(summary, connection);
     if (!summary.bad && Math.random() >= QUALITY_SAMPLE_RATE) return null;
     const native = connection.direction === "send" ? nativeSinkStats(connection.pc) : null;
 
@@ -468,6 +529,9 @@ class ConnectionTelemetry {
       nativeKeyHolds: native?.keyHolds ?? null,
       nativeKeyStale: native?.keyStale ?? null,
       nativeResyncs: native?.resyncs ?? null,
+      // A worker from before sq-key-pace does not count these.
+      nativeKeys: typeof native?.keys === "number" ? native.keys : null,
+      nativeKeyWaitS: typeof native?.keyWaitMs === "number" ? Math.round(native.keyWaitMs / 100) / 10 : null,
       // The dials as they stand now — see setTelemetryShareSettings. The
       // stored values only until useRoomMedia has said, with the defaults it
       // really uses.
@@ -494,18 +558,49 @@ class ConnectionTelemetry {
     const height = summary.heightAvg ?? 0;
     // The GPU capture's stand-in track measures 16 px tall; nothing else does.
     if (height > 0 && height < 40) return;
-    for (const feature of [NEW_SEND_FEATURE, H264_SEND_FEATURE]) {
-      trackFeatureEvent(SEND_SESSION_EVENTS.session, { feature });
-      trackFeatureEvent(SEND_SESSION_EVENTS.fps, { feature, value: summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg) });
-      trackFeatureEvent(SEND_SESSION_EVENTS.height, { feature, value: height });
-      if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) {
-        trackFeatureEvent(SEND_SESSION_EVENTS.slideshow, { feature });
-      }
-      if ((summary.linkCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.linkHeld, { feature });
-      if ((summary.machineCapShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.machineHeld, { feature });
-      if ((summary.pausedShare ?? 0) >= 0.1) trackFeatureEvent(SEND_SESSION_EVENTS.paused, { feature });
-      if (movingPicture) trackFeatureEvent(SEND_SESSION_EVENTS.movingPicture, { feature });
+    const offCard = (summary.offCardShare ?? 0) >= 0.1;
+    // sq-offcard-cap only changes anything with more connections than the card holds, so it
+    // counts only those shares, the same ones in both groups (any connection off the card, or
+    // five viewers or more), split by how many viewers and whether this one was off the card.
+    const offCardShare = (summary.offCardShare ?? 0) > 0 || (summary.viewersMax ?? 0) >= 5;
+    const features = [NEW_SEND_FEATURE, H264_SEND_FEATURE, ADAPT_FIX_FEATURE, ...(offCardShare ? [OFF_CARD_CAP_FEATURE] : [])];
+    for (const feature of features) {
+      const tags =
+        feature === OFF_CARD_CAP_FEATURE ? { viewers: viewersTag(summary.viewersMax), card: offCard ? "off" : "on" } : undefined;
+      const count = (name: string, value?: number) => trackFeatureEvent(name, { feature, value, tags });
+      count(SEND_SESSION_EVENTS.session);
+      count(SEND_SESSION_EVENTS.fps, summary.fpsAvg === null ? 0 : Math.round(summary.fpsAvg));
+      count(SEND_SESSION_EVENTS.height, height);
+      if (summary.fpsAvg !== null && summary.fpsAvg < 10 && (summary.kbpsAvg ?? 0) >= 300) count(SEND_SESSION_EVENTS.slideshow);
+      if ((summary.linkCapShare ?? 0) >= 0.1) count(SEND_SESSION_EVENTS.linkHeld);
+      if ((summary.machineCapShare ?? 0) >= 0.1) count(SEND_SESSION_EVENTS.machineHeld);
+      if ((summary.pausedShare ?? 0) >= 0.1) count(SEND_SESSION_EVENTS.paused);
+      if (movingPicture) count(SEND_SESSION_EVENTS.movingPicture);
+      if (feature === OFF_CARD_CAP_FEATURE && offCard) count(SEND_SESSION_EVENTS.offCard);
+      // The adapters' steps, for the experiment that changes them.
+      if (feature !== ADAPT_FIX_FEATURE) continue;
+      if (summary.linkDowns) count(SEND_SESSION_EVENTS.linkDowns, summary.linkDowns);
+      if (summary.linkFailedUps) count(SEND_SESSION_EVENTS.linkFlaps, summary.linkFailedUps);
+      if (summary.codecSwitches) count(SEND_SESSION_EVENTS.codecSwitches, summary.codecSwitches);
+      if (summary.cameraTries) count(SEND_SESSION_EVENTS.cameraTries, summary.cameraTries);
     }
+  }
+
+  // See GPU_SESSION_EVENTS.
+  private countGpuSession(summary: SessionSummary, connection: RegisteredConnection) {
+    if (connection.direction !== "send" || !connection.channel.startsWith("screen")) return;
+    const native = nativeSinkStats(connection.pc);
+    if (!native || typeof native.keys !== "number") return;
+    // Per 10 minutes of what was really sent, so long sessions and short ones weigh the same.
+    const minutes = (summary.durationS * (1 - (summary.pausedShare ?? 0))) / 60;
+    if (minutes < 0.5) return;
+    const per10 = (n: number) => Math.round((n * 10) / minutes);
+    const tags = { viewers: viewersTag(summary.viewersMax) };
+    const feature = KEY_PACE_FEATURE;
+    trackFeatureEvent(GPU_SESSION_EVENTS.session, { feature, tags });
+    trackFeatureEvent(GPU_SESSION_EVENTS.keys, { feature, tags, value: per10(native.keys) });
+    trackFeatureEvent(GPU_SESSION_EVENTS.keyWait, { feature, tags, value: per10(native.keyWaitMs / 1000) });
+    trackFeatureEvent(GPU_SESSION_EVENTS.holds, { feature, tags, value: per10(native.keyHolds) });
   }
 
   private scheduleFlush() {

@@ -35,12 +35,15 @@ import {
   SEND_GRACE_MS,
   SHARP_TAKE_WAIT_MS,
   watchCpuPressure,
+  type MachineCap,
   type SendObservation,
   type SharpCandidate,
 } from "./sendAdaptation";
 import { sendCodecFrom, sendHintFor, SHARP_CODEC } from "./videoCodecPreferences";
 import { isClassicSend, onClassicSendChange } from "./classicSend";
 import { isH264Send, onH264SendChange } from "./h264Send";
+import { isAdaptFix } from "./adaptFix";
+import { isOffCardCap, onOffCardCapChange } from "./offCardCap";
 import { isHardwareImplementation } from "./connectionDiagnostics";
 
 // What the broadcaster says they are sharing, which decides how the encoder
@@ -113,6 +116,14 @@ let cardH264: boolean | null = null;
 const ENCODER_START_KBPS = 1500;
 const ENCODER_START_MS = 1500;
 
+// Experiment sq-offcard-cap (see lib/offCardCap): the most a connection off the card goes out at.
+// A software encoder at 1080p30 is most of a core in VP8 on a moving picture; at 720p, under half.
+const OFF_CARD_CAP: Pick<MachineCap, "height" | "fps"> = { height: 720, fps: 30 };
+
+// Experiment sq-adapt-fix: until when camera mode came out worse on one connection of this
+// machine's shares, so no other tries it on the same picture (see PictureWatch.verdictUntil).
+let pictureVerdictUntil = 0;
+
 // Who goes out in the costly codec, over every connection on this machine, and who stays
 // off the graphics card.
 function planSharp() {
@@ -155,6 +166,7 @@ function ensureMachineWatch() {
   };
   onClassicSendChange(again);
   onH264SendChange(again);
+  onOffCardCapChange(again);
 }
 
 /** What a sender's controller is doing to one viewer, for the quality reports. */
@@ -174,6 +186,19 @@ export interface SenderQualityState {
   sharp: boolean;
   /** Whether that went to its camera mode for a moving picture. */
   movingPicture: boolean;
+  /** Whether it goes out past what the graphics card holds, in software (see CARD_STREAMS_MAX). */
+  offCard: boolean;
+  /**
+   * When this viewer last stopped or started looking (Date.now()), 0 if never: a sample that
+   * spans a resume is mostly paused time (see lib/connectionTelemetry).
+   */
+  pauseChangedAt: number;
+  /** Steps taken on this connection so far: its link's (see LinkAdapter), codec changes, camera-mode tries. */
+  linkDowns: number;
+  linkUps: number;
+  linkFailedUps: number;
+  codecSwitches: number;
+  cameraTries: number;
 }
 
 // The controller behind each send pc, for lib/connectionTelemetry: the reports
@@ -252,6 +277,11 @@ export class PeerQualityController {
   private codecChangedAt = 0;
   private availableKbps = 0;
   private picture = new PictureWatch();
+  // For the reports (see SenderQualityState): steps of link adapters already replaced, and the rest.
+  private linkSteps = { downs: 0, ups: 0, failedUps: 0 };
+  private codecSwitches = 0;
+  private cameraTries = 0;
+  private pauseChangedAt = 0;
 
   constructor(
     statsKey: string,
@@ -288,7 +318,23 @@ export class PeerQualityController {
       paused: this.paused,
       sharp: this.sharp,
       movingPicture: this.picture.proven,
+      offCard: this.choosesCodec && !this.sharp && this.offCard,
+      pauseChangedAt: this.pauseChangedAt,
+      linkDowns: this.linkSteps.downs + this.link.downs,
+      linkUps: this.linkSteps.ups + this.link.ups,
+      linkFailedUps: this.linkSteps.failedUps + this.link.failedUps,
+      codecSwitches: this.codecSwitches,
+      cameraTries: this.cameraTries,
     };
+  }
+
+  // A link adapter that starts from nothing, the way outside sq-adapt-fix. What the old one did
+  // still counts in the reports.
+  private replaceLink(now: number) {
+    this.linkSteps.downs += this.link.downs;
+    this.linkSteps.ups += this.link.ups;
+    this.linkSteps.failedUps += this.link.failedUps;
+    this.link = new LinkAdapter(now);
   }
 
   key(): string {
@@ -345,13 +391,48 @@ export class PeerQualityController {
     const moved = this.sharp !== sharp || (!sharp && this.offCard !== offCard);
     this.offCard = offCard;
     if (!moved) return;
+    const leftSharp = this.sharp && !sharp;
     this.sharp = sharp;
     // Nothing being encoded, nothing anyone could see change: no reason to make them wait.
-    if (!this.paused && this.appliedSharp !== null) this.codecChangedAt = now;
-    // What the link could carry in another codec says nothing about this one.
-    this.link = new LinkAdapter(now);
+    if (!this.paused && this.appliedSharp !== null) {
+      this.codecChangedAt = now;
+      this.codecSwitches += 1;
+    }
+    if (isAdaptFix()) {
+      // The link is the same whatever goes over it: what it taught stays, and only the clock
+      // starts over with the new encoder. Out of the costly codec on a short link, H264 starts
+      // at a height the link carries (see LinkAdapter.leftSharp).
+      if (leftSharp && !this.paused) this.link.leftSharp(now, this.degradation, this.topHeight());
+      else this.link.restart(now);
+    } else {
+      // Outside sq-adapt-fix: what the link could carry in another codec says nothing about
+      // this one, and the adapter starts over.
+      this.replaceLink(now);
+    }
     this.picture = new PictureWatch();
     this.apply();
+  }
+
+  // The height this connection would go out at with nothing holding it back.
+  private topHeight(): number {
+    const height = tierSpec(this.sentTier()).height;
+    const own = this.offCardCapped() ? OFF_CARD_CAP.height ?? height : height;
+    return Math.min(height, this.captureHeight || height, own);
+  }
+
+  // Experiment sq-offcard-cap: whether this connection is held to OFF_CARD_CAP.
+  private offCardCapped(): boolean {
+    return isOffCardCap() && !isClassicSend() && this.choosesCodec && !this.sharp && this.offCard;
+  }
+
+  // What the machine holds every connection to, and, off the card, what this one is held to.
+  private heldCap(): Pick<MachineCap, "height" | "fps"> {
+    const machineCap = machineCapFor(machine.level, this.degradation);
+    if (!this.offCardCapped()) return machineCap;
+    return {
+      height: Math.min(machineCap.height ?? Infinity, OFF_CARD_CAP.height ?? Infinity),
+      fps: Math.min(machineCap.fps ?? Infinity, OFF_CARD_CAP.fps ?? Infinity),
+    };
   }
 
   private preference(): RTCDegradationPreference {
@@ -364,9 +445,7 @@ export class PeerQualityController {
   private ceilingKbps(tier: QualityTier): number {
     const full = encoderCeilingKbps(tier, this.bitrateCeilingKbps);
     const spec = tierSpec(tier);
-    const ceiling = isClassicSend()
-      ? full
-      : heldCeilingKbps(full, machineCapFor(machine.level, this.degradation), spec.height, spec.frameRate);
+    const ceiling = isClassicSend() ? full : heldCeilingKbps(full, this.heldCap(), spec.height, spec.frameRate);
     return this.routeCapped() ? Math.min(ceiling, RELAY_ROUTE_MAX_KBPS) : ceiling;
   }
 
@@ -390,13 +469,21 @@ export class PeerQualityController {
     this.tier = tier;
     if (this.paused !== paused) {
       this.paused = paused;
+      this.pauseChangedAt = Date.now();
       if (paused) {
         machine.forget(this.statsKey);
       } else {
-        // What the link did while nothing was going over it says nothing.
-        const cap = this.link.capHeight;
-        this.link = new LinkAdapter(Date.now());
-        this.link.capHeight = cap;
+        if (isAdaptFix()) {
+          // The same link as before the pause: what it taught stays, height and bits alike,
+          // and only the clock starts over with the encoder.
+          this.link.restart(Date.now());
+        } else {
+          // Outside sq-adapt-fix: the height it was holding, but not the bits it was short at,
+          // which makes "the link has doubled" true at once and lets the hold go ~14 s later.
+          const cap = this.link.capHeight;
+          this.replaceLink(Date.now());
+          this.link.capHeight = cap;
+        }
         // Nor does it say what is on the screen now.
         this.picture = new PictureWatch();
       }
@@ -454,6 +541,7 @@ export class PeerQualityController {
     if (this.degradation === mode) return;
     this.degradation = mode;
     this.picture = new PictureWatch();
+    pictureVerdictUntil = 0;
     planSharp();
     this.apply();
     this.applyHint();
@@ -505,19 +593,30 @@ export class PeerQualityController {
     };
     const software = hardware === false;
     const now = Date.now();
-    const topHeight = Math.min(tier.height, this.captureHeight || tier.height);
+    // What it would go out at with nothing holding it back, its own cap off the card included:
+    // the machine's levels and the link's steps above that change nothing for it.
+    const topHeight = this.topHeight();
+    const topFps = this.offCardCapped() ? Math.min(tier.frameRate, OFF_CARD_CAP.fps ?? tier.frameRate) : tier.frameRate;
     if (now - this.startedAt >= SEND_GRACE_MS) {
-      machine.observe(this.statsKey, observation, this.degradation, software, { height: topHeight, fps: tier.frameRate, sharp: this.sharp }, now);
+      machine.observe(this.statsKey, observation, this.degradation, software, { height: topHeight, fps: topFps, sharp: this.sharp }, now);
     }
     if (this.link.update(observation, this.degradation, topHeight, now)) this.apply();
     if (this.watchesPicture()) {
-      const mayTry = ![...liveControllers].some((c) => c !== this && c.pictureTrying());
-      if (this.picture.update(observation, now, mayTry)) this.applyHint();
+      const fixed = isAdaptFix();
+      // One verdict for every connection of the share: they all carry the same capture.
+      const mayTry =
+        (!fixed || now >= pictureVerdictUntil) && ![...liveControllers].some((c) => c !== this && c.pictureTrying());
+      const wasMoving = this.picture.moving;
+      if (this.picture.update(observation, now, mayTry)) {
+        if (!wasMoving && this.picture.trying) this.cameraTries += 1;
+        this.applyHint();
+      }
+      if (fixed && this.picture.verdictUntil > pictureVerdictUntil) pictureVerdictUntil = this.picture.verdictUntil;
     }
   }
 
   private targetFps(): number {
-    const cap = isClassicSend() ? null : machineCapFor(machine.level, this.degradation).fps;
+    const cap = isClassicSend() ? null : this.heldCap().fps;
     const fps = tierSpec(this.sentTier()).frameRate;
     return cap ? Math.min(cap, fps) : fps;
   }
@@ -526,8 +625,8 @@ export class PeerQualityController {
   private sentHeight(): number {
     const height = tierSpec(this.sentTier()).height;
     if (isClassicSend()) return height;
-    const machineHeight = machineCapFor(machine.level, this.degradation).height;
-    return Math.min(height, this.link.capHeight ?? height, machineHeight ?? height);
+    const heldHeight = this.heldCap().height;
+    return Math.min(height, this.link.capHeight ?? height, heldHeight ?? height);
   }
 
   // Whether this connection stays off the graphics card, past what it holds or while it is paused.
@@ -685,6 +784,8 @@ export class PeerQualityController {
   dispose() {
     this.disposed = true;
     liveControllers.delete(this);
+    // The next share is another picture.
+    if (liveControllers.size === 0) pictureVerdictUntil = 0;
     machine.forget(this.statsKey);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;

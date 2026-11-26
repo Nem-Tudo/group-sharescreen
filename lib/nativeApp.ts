@@ -23,9 +23,26 @@ interface AppChromePlugin {
   setColors(options: { background: string; dark: boolean }): Promise<void>;
   haptic(options: { kind: HapticKind }): Promise<void>;
   share(options: { title?: string; text?: string; url?: string }): Promise<{ shared: boolean }>;
+  /** Android only, APKs from 2026-11-25 on (lib/androidJank.ts). */
+  takeRendererRecovery(): Promise<{ recovered: boolean; reason?: string; background?: boolean }>;
 }
 
 const AppChrome = registerPlugin<AppChromePlugin>("AppChrome");
+
+/**
+ * Whether this page was loaded because the previous one's renderer died, and
+ * how (android/…/MainActivity.java, RendererCrashRecovery). Answers once per
+ * death; null outside the Android app and on an APK without the method.
+ */
+export async function takeRendererRecovery(): Promise<{ reason: string; background: boolean } | null> {
+  if (!hasAppChrome() || Capacitor.getPlatform() !== "android") return null;
+  try {
+    const result = await AppChrome.takeRendererRecovery();
+    return result.recovered ? { reason: result.reason ?? "killed", background: Boolean(result.background) } : null;
+  } catch {
+    return null;
+  }
+}
 
 function hasAppChrome(): boolean {
   return (

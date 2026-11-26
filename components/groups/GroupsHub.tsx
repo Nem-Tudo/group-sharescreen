@@ -23,6 +23,7 @@ import { ExploreMap } from "@/components/groups/ExploreMap";
 import { useExploreMap } from "@/lib/exploreMap";
 import { setGroupsHomeQuery, useGroupsHomeQuery } from "@/components/groups/groupSearch";
 import { RoomStartForm } from "@/components/RoomStartForm";
+import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { useAuth } from "@/lib/AuthContext";
 import { useFeature } from "@/lib/features";
 import { GROUPS_EXPLORE_PATH, GROUPS_ROOMS_PATH, groupPath } from "@/lib/groupLinks";
@@ -46,8 +47,8 @@ import { HUB_CENTRAL_EVENTS, trackHubCentral, useHubCentral } from "@/lib/hubCen
 //                  that: the groups somebody is in are the rail's.
 
 const card = "rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950";
-const cardTitle = "text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50";
-const cardHint = "mt-0.5 text-sm text-zinc-500 dark:text-zinc-400";
+const cardHint = "mt-1 text-sm text-zinc-500 dark:text-zinc-400";
+const sectionTitle = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 const secondaryButton =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 const primaryButton =
@@ -123,117 +124,116 @@ export function GroupsHubHome() {
     );
   }
 
+  // One column with the room form as the page's centre: the form is what a
+  // new account comes here for, so it stands alone in the middle (the way the
+  // site's home draws it), and what follows is only what has something in it.
+  // "Acontecendo" shows up when a group is in a call — an empty card saying
+  // nobody is there was most of a new account's page, pushing the form aside.
   const startRoom = (
-        <section className={card}>
-          <h1 className={cardTitle}>{t("groups.hub.startRoom")}</h1>
-          <p className={cardHint}>{t("groups.hub.startRoomHint")}</p>
-          <div className="mt-4">{startRoomForm}</div>
-        </section>
+    <section className={`${card} w-full max-w-xl !p-6`}>
+      <h1 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("groups.hub.startRoom")}</h1>
+      <p className={cardHint}>{t("groups.hub.startRoomHint")}</p>
+      <div className="mt-5">{startRoomForm}</div>
+    </section>
   );
 
-  const happening = (
-          <section className={card}>
-            <h2 className={cardTitle}>{t("groups.hub.happening")}</h2>
-            {groups === null ? (
-              <div className="mt-3 flex flex-col gap-2">
-                {[0, 1].map((i) => (
-                  <span key={i} className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
-                ))}
-              </div>
-            ) : live.length === 0 ? (
-              <p className={cardHint}>{t("groups.hub.nothingHappening")}</p>
-            ) : (
-              <ul className="mt-3 flex flex-col gap-1.5">
-                {live.map((group) => (
-                  <LiveGroupRow key={group.id} group={group} />
-                ))}
-              </ul>
-            )}
-          </section>
+  const happening = live.length > 0 && (
+    <section className="w-full">
+      <h2 className={sectionTitle}>{t("groups.hub.happening")}</h2>
+      <ul className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {live.map((group) => (
+          <LiveGroupRow key={group.id} group={group} />
+        ))}
+      </ul>
+    </section>
   );
 
   const discover = (
-          <section className={card}>
-            <h2 className={cardTitle}>{t("groups.hub.discover")}</h2>
-            <ul className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              <HubLink href={GROUPS_EXPLORE_PATH} icon={<GlobeIcon className="h-5 w-5" />} label={t("groups.groupDialogs.exploreGroups")} />
-              <HubLink
-                href={roomsTab ? GROUPS_ROOMS_PATH : "/rooms"}
-                onClick={() => roomsTab && noteGroupsRoomsSource("hub")}
-                icon={<MdLiveTv className="h-5 w-5" />}
-                label={t("groups.roomsTab.title")}
-              />
-              <HubLink href="/worldmap" icon={<MdOutlineMap className="h-5 w-5" />} label={t("groups.hub.map")} />
-              <li>
-                <button
-                  type="button"
-                  onClick={() => void openPopup("join_group", { data: {} })}
-                  className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
-                    <MdLink className="h-5 w-5" />
-                  </span>
-                  {t("common.joinWithAnInvite")}
-                </button>
-              </li>
-            </ul>
-            <button
-              type="button"
-              onClick={() => void openPopup("create_group", { data: {} })}
-              disabled={!account}
-              title={account ? undefined : t("common.createAnAccountToCreateGroups")}
-              className={`${primaryButton} mt-3 w-full justify-center`}
-            >
-              <MdAdd className="h-4 w-4" />
-              {t("common.newGroup")}
-            </button>
-          </section>
+    <section className="w-full">
+      <h2 className={sectionTitle}>{t("groups.hub.discover")}</h2>
+      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <HubLink href={GROUPS_EXPLORE_PATH} icon={<GlobeIcon className="h-5 w-5" />} label={t("groups.groupDialogs.exploreGroups")} />
+        <HubLink
+          href={roomsTab ? GROUPS_ROOMS_PATH : "/rooms"}
+          onClick={() => roomsTab && noteGroupsRoomsSource("hub")}
+          icon={<MdLiveTv className="h-5 w-5" />}
+          label={t("groups.roomsTab.title")}
+        />
+        <HubLink href="/worldmap" icon={<MdOutlineMap className="h-5 w-5" />} label={t("groups.hub.map")} />
+        <HubLink onClick={() => void openPopup("join_group", { data: {} })} icon={<MdLink className="h-5 w-5" />} label={t("common.joinWithAnInvite")} />
+        <HubLink
+          onClick={() => void openPopup("create_group", { data: {} })}
+          disabled={!account}
+          title={account ? undefined : t("common.createAnAccountToCreateGroups")}
+          icon={<MdAdd className="h-5 w-5" />}
+          label={t("common.newGroup")}
+          className="col-span-2 sm:col-span-1"
+        />
+      </ul>
+    </section>
   );
 
   return (
-    // On a tall, wide screen the cards sit in the middle of the space (my-auto
-    // in a min-h-full column) instead of hugging the top with the rest of the
-    // screen empty below; when they don't fit, it scrolls from the top as usual.
+    // On a tall screen the column sits in the middle of the space (my-auto in
+    // a min-h-full column) instead of hugging the top with the rest empty
+    // below; when it doesn't fit, it scrolls from the top as usual.
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6 lg:my-auto lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:py-10 2xl:max-w-6xl 2xl:gap-6">
-        <div className="flex justify-center lg:col-span-2">
-          <GoliveOnline />
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 px-4 py-6 lg:my-auto lg:py-10">
+        <div className="flex w-full flex-col items-center gap-4">
+          {/* The site home's row: the count and, on a computer's browser, the app. */}
+          <div className="flex flex-wrap items-center justify-center gap-2 empty:hidden">
+            <GoliveOnline />
+            <DownloadAppButton source="groups-hub" />
+          </div>
+          {startRoom}
         </div>
-        {startRoom}
-        <div className="flex min-w-0 flex-col gap-4">
-          {happening}
-          {discover}
-        </div>
-        {chamados && <ChamadosSection className="lg:col-span-2" />}
+        {happening}
+        {discover}
+        {chamados && <ChamadosSection className="w-full" />}
       </div>
     </div>
   );
 }
 
+/** A way out of the home: a tile with the icon over the label, a link or a button. */
 function HubLink({
   href,
   icon,
   label,
   onClick,
+  disabled,
+  title,
+  className = "",
 }: {
-  href: string;
+  href?: string;
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+  className?: string;
 }) {
+  const look =
+    "flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl px-3 py-4 text-center text-sm font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-300 dark:ring-zinc-800 dark:hover:bg-zinc-900 dark:hover:text-zinc-50";
+  const inner = (
+    <>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+        {icon}
+      </span>
+      <span className="line-clamp-2 leading-tight">{label}</span>
+    </>
+  );
   return (
-    <li>
-      <GroupLink
-        href={href}
-        onClick={onClick}
-        className="flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
-      >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
-          {icon}
-        </span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <MdChevronRight className="h-5 w-5 shrink-0 text-zinc-400" />
-      </GroupLink>
+    <li className={className}>
+      {href ? (
+        <GroupLink href={href} onClick={onClick} className={look}>
+          {inner}
+        </GroupLink>
+      ) : (
+        <button type="button" onClick={onClick} disabled={disabled} title={title} className={look}>
+          {inner}
+        </button>
+      )}
     </li>
   );
 }

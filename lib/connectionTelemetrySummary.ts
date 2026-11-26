@@ -85,6 +85,8 @@ export interface SessionAccumulator {
   /** What our quality controller did to this viewer — send only, see SenderControlSample. */
   linkCapSeconds: number;
   machineCapSeconds: number;
+  offCardSeconds: number;
+  steps: SendSteps | null;
   /** Seconds nobody was looking, so nothing was going over this connection on purpose. */
   pausedSeconds: number;
   ceilingKbpsSum: number;
@@ -168,6 +170,23 @@ export interface SenderControlSample {
   linkCapHeight: number | null;
   machineLevel: number;
   paused: boolean;
+  /** Whether it went out past what the graphics card holds (see lib/peerQualityController). */
+  offCard?: boolean;
+  /** The controller's steps on this connection so far (see SenderQualityState). */
+  linkDowns?: number;
+  linkUps?: number;
+  linkFailedUps?: number;
+  codecSwitches?: number;
+  cameraTries?: number;
+}
+
+/** Send only: the controller's steps over a session, as last seen. */
+export interface SendSteps {
+  linkDowns: number;
+  linkUps: number;
+  linkFailedUps: number;
+  codecSwitches: number;
+  cameraTries: number;
 }
 
 // A session at 10-second sampling for three hours is ~1000 samples; the fps
@@ -212,6 +231,8 @@ export function createAccumulator(startedAt: number): SessionAccumulator {
     resolutionChanges: 0,
     linkCapSeconds: 0,
     machineCapSeconds: 0,
+    offCardSeconds: 0,
+    steps: null,
     pausedSeconds: 0,
     ceilingKbpsSum: 0,
     ceilingKbpsCount: 0,
@@ -287,6 +308,7 @@ export function addSnapshot(
   const { route, send, recv, intervalSeconds } = snapshot;
   if (paused) {
     if (intervalSeconds > 0) acc.pausedSeconds += intervalSeconds;
+    if (control) noteSteps(acc, control);
     acc.samples += 1;
     return acc;
   }
@@ -299,6 +321,7 @@ export function addSnapshot(
   if (control) {
     acc.tier = control.tier;
     acc.degradationPreference = control.degradationPreference;
+    noteSteps(acc, control);
   }
   if (route.kind !== "unknown") {
     if (!acc.routeKinds.includes(route.kind)) acc.routeKinds.push(route.kind);
@@ -313,7 +336,11 @@ export function addSnapshot(
     acc.rttCount += 1;
   }
   const video = send ?? recv;
-  if (video) {
+  // From a sample that carried frames, once there is one. A connection stopped for a viewer
+  // who is not looking is left on another codec (VP8, inactive) with the last encoder's name
+  // still on it, and a sample taken just as it came back read as that: hardware H264 sessions
+  // were being reported as hardware VP8.
+  if (video && (video.fps > 0 || acc.codec === null)) {
     acc.codec = video.codec ?? acc.codec;
     const implementation = send ? send.encoder : recv?.decoder ?? null;
     acc.implementation = implementation ?? acc.implementation;
@@ -360,6 +387,7 @@ export function addSnapshot(
       if (control) {
         if (control.linkCapHeight !== null) acc.linkCapSeconds += intervalSeconds;
         if (control.machineLevel > 0) acc.machineCapSeconds += intervalSeconds;
+        if (control.offCard) acc.offCardSeconds += intervalSeconds;
         acc.ceilingKbpsSum += control.ceilingKbps;
         acc.ceilingKbpsCount += 1;
       }
@@ -381,6 +409,18 @@ export function addSnapshot(
   }
   acc.samples += 1;
   return acc;
+}
+
+/** Keeps the controller's step counters, which only ever grow over a connection's life. */
+export function noteSteps(acc: SessionAccumulator, control: SenderControlSample) {
+  if (control.linkDowns === undefined) return;
+  acc.steps = {
+    linkDowns: control.linkDowns,
+    linkUps: control.linkUps ?? 0,
+    linkFailedUps: control.linkFailedUps ?? 0,
+    codecSwitches: control.codecSwitches ?? 0,
+    cameraTries: control.cameraTries ?? 0,
+  };
 }
 
 // A tile painting fewer frames than it decoded only counts once there is
@@ -467,6 +507,18 @@ export interface SessionSummary {
   machineCapShare: number | null;
   /** Share of the session nobody was looking and nothing was being sent on purpose, 0..1. */
   pausedShare: number | null;
+  /** Send only: share of the measured time it went out past what the graphics card holds, 0..1. */
+  offCardShare: number | null;
+  /**
+   * Send only, the controller's steps over the session: its link held down, let up, and let up
+   * only to be held again within 25 s; codec changes on a running connection; tries of the
+   * costly codec's camera mode. Null where there was no controller (classic send, GPU capture).
+   */
+  linkDowns: number | null;
+  linkUps: number | null;
+  linkFailedUps: number | null;
+  codecSwitches: number | null;
+  cameraTries: number | null;
   /** Send only: the degradation preference the encoder ran under, last seen. */
   degradationPreference: string | null;
   /** Send only: the capture's average frame rate (see SendVideoStats.sourceFps). */
@@ -688,6 +740,12 @@ export function summarize(
     linkCapShare: direction === "send" && seconds > 0 ? round(acc.linkCapSeconds / seconds, 2) : null,
     machineCapShare: direction === "send" && seconds > 0 ? round(acc.machineCapSeconds / seconds, 2) : null,
     pausedShare: seconds + acc.pausedSeconds > 0 ? round(acc.pausedSeconds / (seconds + acc.pausedSeconds), 2) : null,
+    offCardShare: direction === "send" && seconds > 0 && acc.steps ? round(acc.offCardSeconds / seconds, 2) : null,
+    linkDowns: direction === "send" ? acc.steps?.linkDowns ?? null : null,
+    linkUps: direction === "send" ? acc.steps?.linkUps ?? null : null,
+    linkFailedUps: direction === "send" ? acc.steps?.linkFailedUps ?? null : null,
+    codecSwitches: direction === "send" ? acc.steps?.codecSwitches ?? null : null,
+    cameraTries: direction === "send" ? acc.steps?.cameraTries ?? null : null,
     degradationPreference: direction === "send" ? acc.degradationPreference : null,
     sourceFpsAvg: direction === "send" && acc.sourceFpsCount ? round(acc.sourceFpsSum / acc.sourceFpsCount, 1) : null,
     encodeMsAvg: direction === "send" && acc.encodeMsCount ? round(acc.encodeMsSum / acc.encodeMsCount, 1) : null,

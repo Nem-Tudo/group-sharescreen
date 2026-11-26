@@ -9,7 +9,7 @@
 // takes the main thread out of that last hop too.
 
 import { ParameterSetKeeper } from "./nativeVideoFrames";
-import { SenderSink, type EncodedFrame, type NativeFrame, type SinkHost } from "./nativeVideoSink";
+import { KeyPacer, SenderSink, type EncodedFrame, type NativeFrame, type SinkHost } from "./nativeVideoSink";
 
 type InMessage =
   | { type: "frame"; data: ArrayBuffer; timeMs: number }
@@ -26,6 +26,7 @@ type InMessage =
   | { type: "state"; id: number; connected: boolean }
   | { type: "paused"; id: number; paused: boolean }
   | { type: "close"; id: number }
+  | { type: "pace"; on: boolean }
   | { type: "stop" };
 
 const scope = self as unknown as {
@@ -39,16 +40,29 @@ const keeper = new ParameterSetKeeper();
 let lastKeyFrame: NativeFrame | null = null;
 let previewActive = false;
 
-const host: SinkHost = {
-  requestKeyFrame: () => scope.postMessage({ type: "need-key" }),
-  lastKey: () => lastKeyFrame,
-};
+// Every sink's keyframe requests go through one pacer (experiment sq-key-pace, see
+// lib/keyPace), which passes them straight on outside the experiment.
+const pacer = new KeyPacer(() => scope.postMessage({ type: "need-key" }));
+
+function takingSinks(): number {
+  let n = 0;
+  for (const sink of sinks.values()) if (sink.taking) n += 1;
+  return n;
+}
+
+function hostFor(id: number): SinkHost {
+  return {
+    requestKeyFrame: (need) => pacer.request(id, need, takingSinks()),
+    lastKey: () => lastKeyFrame,
+  };
+}
 
 function onFrame(raw: Uint8Array, timeMs: number | undefined) {
   const { data, idr } = keeper.process(raw);
   const frame: NativeFrame = { key: idr, data, timeMs };
   if (idr) lastKeyFrame = frame;
   for (const sink of sinks.values()) sink.onNative(frame);
+  if (idr) pacer.keyArrived();
   if (previewActive) {
     // A copy: the frame stays here as the last IDR, and sinks read it again.
     const copy = data.slice(0);
@@ -71,7 +85,7 @@ scope.onmessage = (event) => {
       previewActive = message.active;
       break;
     case "sink": {
-      const sink = new SenderSink(message.writable.getWriter(), host);
+      const sink = new SenderSink(message.writable.getWriter(), hostFor(message.id));
       sinks.set(message.id, sink);
       const transform = new TransformStream<EncodedFrame, EncodedFrame>({
         transform: (frame, controller) => sink.onEncoded(frame, controller),
@@ -91,6 +105,10 @@ scope.onmessage = (event) => {
     case "close":
       sinks.get(message.id)?.close();
       sinks.delete(message.id);
+      pacer.forget(message.id);
+      break;
+    case "pace":
+      pacer.setEnabled(message.on);
       break;
     case "stop":
       for (const sink of sinks.values()) sink.close();

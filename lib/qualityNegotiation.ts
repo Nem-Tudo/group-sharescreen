@@ -53,6 +53,8 @@ interface Entry {
   /** What the broadcaster was last told. */
   tier: QualityTier | null;
   idle: boolean;
+  /** When `idle` last changed (Date.now()), 0 if never. */
+  idleChangedAt: number;
   lastSentAt: number;
   timer: ReturnType<typeof setTimeout> | null;
   /** Whether this tile is on screen in a page somebody is looking at. */
@@ -131,6 +133,7 @@ class QualityNegotiator {
       height: 0,
       tier: null,
       idle: false,
+      idleChangedAt: 0,
       lastSentAt: 0,
       timer: null,
       hidden: false,
@@ -260,6 +263,7 @@ class QualityNegotiator {
   private apply(entry: Entry, tier: QualityTier, idle: boolean, force: boolean) {
     if (!force && tier === entry.tier && idle === entry.idle) return;
     const resuming = entry.idle && !idle;
+    if (entry.idle !== idle) entry.idleChangedAt = Date.now();
     entry.tier = tier;
     entry.idle = idle;
     this.send(entry);
@@ -310,6 +314,11 @@ class QualityNegotiator {
   /** Whether we have asked this peer to stop sending for now. */
   isIdle(channel: string, peerId: string): boolean {
     return this.entries.get(this.key(channel, peerId))?.idle === true;
+  }
+
+  /** When that last changed (Date.now()), 0 if never. See lib/connectionTelemetry. */
+  idleChangedAt(channel: string, peerId: string): number {
+    return this.entries.get(this.key(channel, peerId))?.idleChangedAt ?? 0;
   }
 
   /**

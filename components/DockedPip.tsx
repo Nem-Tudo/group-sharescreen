@@ -12,6 +12,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { callPathFor, useCallSession } from "@/lib/callSession";
 import { useGroupNavigation } from "@/lib/groupNavigation";
 import { qualityNegotiator, type QualityChannel } from "@/lib/qualityNegotiation";
+import { reportedSize } from "@/lib/drawnSize";
 import { retainStream } from "@/lib/streamUse";
 import { speakingDetector } from "@/lib/speakingDetector";
 import { useT } from "@/lib/useI18n";
@@ -367,13 +368,24 @@ export function DockedPip({
     const video = videoRef.current;
     if (!video || !channel || !peerId || !stream) return;
     const release = retainStream(stream);
+    // The drawn picture rather than the box in experiment sq-drawn-size: see VideoTile.
+    let box: { width: number; height: number } | null = null;
+    const report = () => {
+      if (!box) return;
+      const size = reportedSize(box.width, box.height, video);
+      qualityNegotiator.report(channel, peerId, Math.round(size.width), Math.round(size.height));
+    };
     const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect;
-      if (box) qualityNegotiator.report(channel, peerId, Math.round(box.width), Math.round(box.height));
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      box = { width: rect.width, height: rect.height };
+      report();
     });
     observer.observe(video);
+    video.addEventListener("resize", report);
     return () => {
       observer.disconnect();
+      video.removeEventListener("resize", report);
       release();
     };
   }, [channel, peerId, stream, nativePip]);

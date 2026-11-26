@@ -38,7 +38,7 @@ public class CallServicePlugin extends Plugin {
     protected void handleOnDestroy() {
         // The page is going away, and the call with it.
         CallService.setActionListener(null);
-        getContext().stopService(new Intent(getContext(), CallService.class));
+        CallService.requestStop(getContext());
     }
 
     @PluginMethod
@@ -49,9 +49,11 @@ public class CallServicePlugin extends Plugin {
         intent.putExtra(CallService.EXTRA_MIC_ON, Boolean.TRUE.equals(call.getBoolean("micOn", false)));
         intent.putExtra(CallService.EXTRA_MUTE_LABEL, call.getString("muteLabel", ""));
         intent.putExtra(CallService.EXTRA_UNMUTE_LABEL, call.getString("unmuteLabel", ""));
+        CallService.willStart();
         try {
             ContextCompat.startForegroundService(getContext(), intent);
         } catch (RuntimeException ex) {
+            CallService.startFailed();
             // Android 12+ refuses to start a foreground service from the
             // background (ForegroundServiceStartNotAllowedException) — a call
             // that reconnected while the app was away. The page asks again as
@@ -67,7 +69,7 @@ public class CallServicePlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
-        getContext().stopService(new Intent(getContext(), CallService.class));
+        CallService.requestStop(getContext());
         call.resolve();
     }
 }

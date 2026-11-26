@@ -88,6 +88,55 @@ public class CallService extends Service {
         actionListener = listener;
     }
 
+    // A service started with startForegroundService() *must* reach
+    // startForeground() — stopping it before then makes Android kill the
+    // whole app ("did not then call Service.startForeground()"), and that is
+    // easy to hit: joining a room and leaving it straight away sends an update
+    // and a stop a few milliseconds apart, and the stop arrives before
+    // onStartCommand has run. So a stop that lands while a start is still on
+    // its way is parked, and the service ends itself the moment it has gone
+    // foreground. Plugin calls and onStartCommand run on different threads.
+    private static final Object startLock = new Object();
+    private static int pendingStarts = 0;
+    private static boolean stopWhenStarted = false;
+
+    /** Before every startForegroundService(); undone by {@link #startFailed} if that throws. */
+    static void willStart() {
+        synchronized (startLock) {
+            pendingStarts++;
+            stopWhenStarted = false;
+        }
+    }
+
+    static void startFailed() {
+        synchronized (startLock) {
+            if (pendingStarts > 0) pendingStarts--;
+        }
+    }
+
+    /** Stops the service now, or as soon as a start already on its way has gone foreground. */
+    static void requestStop(Context context) {
+        synchronized (startLock) {
+            if (pendingStarts > 0) {
+                stopWhenStarted = true;
+                return;
+            }
+        }
+        context.stopService(new Intent(context, CallService.class));
+    }
+
+    /** True when a stop was parked and this start was the last one owed. */
+    private static boolean startArrived() {
+        synchronized (startLock) {
+            if (pendingStarts > 0) pendingStarts--;
+            if (pendingStarts == 0 && stopWhenStarted) {
+                stopWhenStarted = false;
+                return true;
+            }
+            return false;
+        }
+    }
+
     private String title = "Go Live";
     private String text = "";
     private boolean micOn = false;
@@ -131,6 +180,11 @@ public class CallService extends Service {
 
         createNotificationChannel();
         goForeground(buildNotification());
+        if (startArrived()) {
+            stopForegroundCompat();
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         acquireLocks();
         return START_NOT_STICKY;
     }
@@ -166,7 +220,23 @@ public class CallService extends Service {
             // with the app on screen adds it.
             if (!withMic) throw ex;
             Log.w(TAG, "microphone type refused; running as mediaPlayback only", ex);
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            try {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } catch (RuntimeException again) {
+                // An update sent while the app is in the background, to a
+                // service that is already foreground: it keeps running as it
+                // was, only the notification text is stale until the next one.
+                Log.w(TAG, "could not refresh the call notification", again);
+            }
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
         }
     }
 

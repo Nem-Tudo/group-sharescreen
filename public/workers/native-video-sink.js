@@ -67,9 +67,11 @@
   var MAX_BACKLOG = 30;
   var MIN_WRITE_GAP_MS = 2;
   var SenderSink = class {
-    constructor(writer, host2) {
-      this.stats = { keyHolds: 0, keyStale: 0, resyncs: 0 };
+    constructor(writer, host) {
+      this.stats = { keyHolds: 0, keyStale: 0, resyncs: 0, keys: 0, keyWaitMs: 0 };
       this.closed = false;
+      // Since when this viewer's picture has been waiting for an IDR; null when it is not.
+      this.waitingSince = null;
       this.queue = [];
       this.inflight = null;
       this.held = null;
@@ -82,39 +84,56 @@
       this.lastWriteAt = -Infinity;
       this.gapTimer = null;
       this.writer = writer;
-      this.host = host2;
+      this.host = host;
       this.blank = new Uint8Array(16 * 16 + 2 * 8 * 8);
       this.blank.fill(16, 0, 16 * 16);
       this.blank.fill(128, 16 * 16);
+    }
+    /** Whether frames are going out to this viewer: connected, and looking. */
+    get taking() {
+      return !this.closed && this.connected && !this.paused;
     }
     setConnected(connected) {
       if (this.closed || this.connected === connected) return;
       this.connected = connected;
       if (connected) {
-        this.resync();
+        this.resync("fresh");
       } else {
         this.queue = [];
+        this.waitingSince = null;
       }
     }
     setPaused(paused) {
       if (this.closed || this.paused === paused) return;
       this.paused = paused;
       this.queue = [];
-      if (!paused) this.resync();
+      if (!paused) this.resync("fresh");
+      else this.waitingSince = null;
     }
     onNative(frame) {
       if (this.closed || !this.connected || this.paused) return;
+      if (frame.key) this.stats.keys += 1;
       if (this.held) {
         if (!frame.key) return;
         this.release(frame);
+        this.endWait();
         return;
       }
       if (this.needKey) {
         if (!frame.key) return;
         this.needKey = false;
+        this.endWait();
       }
       this.queue.push(frame);
       this.pump();
+    }
+    startWait() {
+      this.waitingSince ??= performance.now();
+    }
+    endWait() {
+      if (this.waitingSince === null) return;
+      this.stats.keyWaitMs += performance.now() - this.waitingSince;
+      this.waitingSince = null;
     }
     close() {
       if (this.closed) return;
@@ -130,18 +149,19 @@
       void this.writer.close().catch(() => {
       });
     }
-    resync() {
+    resync(need = "lost") {
       this.stats.resyncs += 1;
       this.inflight = null;
       this.queue = [];
       this.needKey = true;
-      this.host.requestKeyFrame();
+      this.startWait();
+      this.host.requestKeyFrame(need);
     }
     pump() {
       if (this.closed || this.inflight || this.held || this.queue.length === 0) return;
       if (!this.connected || this.paused) return;
       if (this.queue.length > MAX_BACKLOG) {
-        this.resync();
+        this.resync("lost");
         return;
       }
       const wait = this.lastWriteAt + MIN_WRITE_GAP_MS - performance.now();
@@ -167,7 +187,7 @@
       );
       if (this.stallTimer) clearTimeout(this.stallTimer);
       this.stallTimer = setTimeout(() => {
-        if (this.inflight) this.resync();
+        if (this.inflight) this.resync("lost");
       }, STALL_TIMEOUT_MS);
     }
     fill(frame, controller, native) {
@@ -197,7 +217,8 @@
         this.queue = [];
         this.needKey = true;
         this.stats.keyHolds += 1;
-        this.host.requestKeyFrame();
+        this.startWait();
+        this.host.requestKeyFrame("lost");
         return new Promise((resolve) => {
           this.held = { frame, controller, resolve };
           setTimeout(() => {
@@ -207,7 +228,7 @@
               this.stats.keyStale += 1;
               this.release(fallback);
               this.needKey = true;
-              this.host.requestKeyFrame();
+              this.host.requestKeyFrame("lost");
             } else {
               this.held = null;
               resolve();
@@ -216,11 +237,120 @@
         }).then(() => queueMicrotask(() => this.pump()));
       }
       if (!native) {
-        this.resync();
+        this.resync("lost");
         return;
       }
       this.fill(frame, controller, native);
       queueMicrotask(() => this.pump());
+    }
+  };
+  var PACE_MIN_GAP_MS = 1e3;
+  var PACE_FREE_VIEWERS = 3;
+  var PACE_GAP_PER_VIEWER_MS = 250;
+  var PACE_MAX_GAP_MS = 2500;
+  var PACE_BACKOFF_FIRST_MS = 2e3;
+  var PACE_BACKOFF_MAX_MS = 4e3;
+  var PACE_REPEAT_WINDOW_MS = 1e4;
+  var PACE_RESEND_MS = 2e3;
+  var realClock = {
+    now: () => performance.now(),
+    setTimeout: (callback, ms) => setTimeout(callback, ms),
+    clearTimeout: (handle) => clearTimeout(handle)
+  };
+  var KeyPacer = class {
+    constructor(send, clock = realClock) {
+      /** Whether this machine is in the experiment. Off: every request goes straight through. */
+      this.enabled = false;
+      /** IDRs asked of the helper, for the tests. */
+      this.sent = 0;
+      // Who is waiting, and from when they may be served.
+      this.pending = /* @__PURE__ */ new Map();
+      this.history = /* @__PURE__ */ new Map();
+      this.active = 0;
+      this.lastSentAt = -Infinity;
+      this.timer = null;
+      this.timerAt = Infinity;
+      this.send = send;
+      this.clock = clock;
+    }
+    /** `sink` needs an IDR; `active` is how many viewers are taking frames right now. */
+    request(sink, need, active) {
+      this.active = active;
+      if (!this.enabled || active < 2) {
+        this.sent += 1;
+        this.send();
+        return;
+      }
+      const now = this.clock.now();
+      const past = this.history.get(sink);
+      const at = need === "lost" && past && now - past.servedAt < PACE_REPEAT_WINDOW_MS ? past.servedAt + past.backoff : now;
+      const before = this.pending.get(sink);
+      this.pending.set(sink, before === void 0 ? at : Math.min(before, at));
+      this.schedule();
+    }
+    /** An IDR from the helper went out: whoever was waiting has it. */
+    keyArrived() {
+      if (this.pending.size === 0) return;
+      const now = this.clock.now();
+      for (const sink of this.pending.keys()) {
+        const past = this.history.get(sink);
+        const again = past !== void 0 && now - past.servedAt < PACE_REPEAT_WINDOW_MS;
+        this.history.set(sink, {
+          servedAt: now,
+          backoff: again ? Math.min(past.backoff * 2, PACE_BACKOFF_MAX_MS) : PACE_BACKOFF_FIRST_MS
+        });
+      }
+      this.pending.clear();
+      this.cancel();
+    }
+    /** This viewer is gone. */
+    forget(sink) {
+      this.pending.delete(sink);
+      this.history.delete(sink);
+      if (this.pending.size === 0) this.cancel();
+    }
+    /** The experiment turned off: whoever is waiting goes now. */
+    setEnabled(enabled) {
+      if (this.enabled === enabled) return;
+      this.enabled = enabled;
+      if (enabled || this.pending.size === 0) return;
+      this.pending.clear();
+      this.cancel();
+      this.sent += 1;
+      this.send();
+    }
+    gap() {
+      const extra = Math.max(0, this.active - PACE_FREE_VIEWERS);
+      return Math.min(PACE_MAX_GAP_MS, PACE_MIN_GAP_MS + extra * PACE_GAP_PER_VIEWER_MS);
+    }
+    cancel() {
+      if (this.timer !== null) this.clock.clearTimeout(this.timer);
+      this.timer = null;
+      this.timerAt = Infinity;
+    }
+    schedule() {
+      if (this.pending.size === 0) return;
+      const at = Math.max(Math.min(...this.pending.values()), this.lastSentAt + this.gap());
+      if (this.timer !== null && this.timerAt <= at) return;
+      this.cancel();
+      this.timerAt = at;
+      this.timer = this.clock.setTimeout(() => this.fire(), Math.max(0, at - this.clock.now()));
+    }
+    fire() {
+      this.timer = null;
+      this.timerAt = Infinity;
+      if (this.pending.size === 0) return;
+      const now = this.clock.now();
+      const due = Math.min(...this.pending.values());
+      if (due > now || now < this.lastSentAt + this.gap()) {
+        this.schedule();
+        return;
+      }
+      this.lastSentAt = now;
+      this.sent += 1;
+      this.send();
+      this.timerAt = now + PACE_RESEND_MS;
+      this.timer = this.clock.setTimeout(() => this.fire(), PACE_RESEND_MS);
     }
   };
 
@@ -230,15 +360,24 @@
   var keeper = new ParameterSetKeeper();
   var lastKeyFrame = null;
   var previewActive = false;
-  var host = {
-    requestKeyFrame: () => scope.postMessage({ type: "need-key" }),
-    lastKey: () => lastKeyFrame
-  };
+  var pacer = new KeyPacer(() => scope.postMessage({ type: "need-key" }));
+  function takingSinks() {
+    let n = 0;
+    for (const sink of sinks.values()) if (sink.taking) n += 1;
+    return n;
+  }
+  function hostFor(id) {
+    return {
+      requestKeyFrame: (need) => pacer.request(id, need, takingSinks()),
+      lastKey: () => lastKeyFrame
+    };
+  }
   function onFrame(raw, timeMs) {
     const { data, idr } = keeper.process(raw);
     const frame = { key: idr, data, timeMs };
     if (idr) lastKeyFrame = frame;
     for (const sink of sinks.values()) sink.onNative(frame);
+    if (idr) pacer.keyArrived();
     if (previewActive) {
       const copy = data.slice(0);
       scope.postMessage({ type: "preview-frame", key: idr, data: copy.buffer }, [copy.buffer]);
@@ -259,7 +398,7 @@
         previewActive = message.active;
         break;
       case "sink": {
-        const sink = new SenderSink(message.writable.getWriter(), host);
+        const sink = new SenderSink(message.writable.getWriter(), hostFor(message.id));
         sinks.set(message.id, sink);
         const transform = new TransformStream({
           transform: (frame, controller) => sink.onEncoded(frame, controller)
@@ -281,6 +420,10 @@
       case "close":
         sinks.get(message.id)?.close();
         sinks.delete(message.id);
+        pacer.forget(message.id);
+        break;
+      case "pace":
+        pacer.setEnabled(message.on);
         break;
       case "stop":
         for (const sink of sinks.values()) sink.close();

@@ -127,4 +127,23 @@ public class AppChromePlugin extends Plugin {
         result.put("shared", true);
         call.resolve(result);
     }
+
+    /**
+     * Whether this page was loaded because the previous one's renderer died
+     * (see MainActivity.RendererCrashRecovery), and how: "crashed" or
+     * "killed", then "fg"/"bg" for whether the app was on screen. Answers
+     * once per death. Read by lib/androidJank.ts (experiment android-jank).
+     */
+    @PluginMethod
+    public void takeRendererRecovery(PluginCall call) {
+        String recovery = MainActivity.takeRendererRecovery();
+        JSObject result = new JSObject();
+        result.put("recovered", recovery != null);
+        if (recovery != null) {
+            String[] parts = recovery.split(":", 2);
+            result.put("reason", parts[0]);
+            result.put("background", parts.length > 1 && "bg".equals(parts[1]));
+        }
+        call.resolve(result);
+    }
 }

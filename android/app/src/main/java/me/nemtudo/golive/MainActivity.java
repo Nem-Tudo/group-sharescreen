@@ -4,8 +4,16 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.util.Log;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.WebView;
+import androidx.annotation.Nullable;
+import androidx.lifecycle.Lifecycle;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 
 public class MainActivity extends BridgeActivity {
 
@@ -22,8 +30,72 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CallServicePlugin.class);
         registerPlugin(DualCameraPlugin.class);
         registerPlugin(InAppReviewPlugin.class);
+        bridgeBuilder.addWebViewListener(new RendererCrashRecovery());
         showOverLockScreenForCall(getIntent());
         super.onCreate(savedInstanceState);
+    }
+
+    private static final String TAG = "GoLiveMain";
+
+    /** Two renderer deaths closer together than this and the app gives up
+     *  on reloading: a page that kills its renderer straight away would
+     *  otherwise spin in a reload loop the person cannot get out of. */
+    private static final long RENDERER_RETRY_WINDOW_MS = 15_000L;
+    private static long lastRendererGoneAt = 0L;
+
+    /** "crashed:fg", "killed:bg"… set when the renderer died, read once by the next page. */
+    @Nullable
+    private static volatile String pendingRecovery = null;
+
+    @Nullable
+    static String takeRendererRecovery() {
+        String value = pendingRecovery;
+        pendingRecovery = null;
+        return value;
+    }
+
+    /**
+     * The single biggest source of this app's crashes. The page runs in a
+     * separate renderer process, and Android kills that process on its own —
+     * for memory, most often with the app in the background during a call,
+     * or it crashes outright (a GPU driver, a video decoder). WebView then
+     * asks the app what to do, and Capacitor's answer when no listener
+     * claims it is "nothing", which makes Android kill the *whole app* and
+     * count it as a crash in Play's vitals.
+     *
+     * Claiming it and rebuilding the activity loads the site again in a
+     * fresh renderer instead: the person sees the app reopen rather than
+     * close. The dead WebView is taken off the screen first (it can no
+     * longer draw); the bridge destroys it when the old activity's window
+     * goes away.
+     */
+    private final class RendererCrashRecovery extends WebViewListener {
+        @Override
+        public boolean onRenderProcessGone(WebView webView, RenderProcessGoneDetail detail) {
+            boolean crashed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && detail != null && detail.didCrash();
+            Log.w(TAG, "WebView renderer gone (" + (crashed ? "crashed" : "killed by the system") + "); reloading");
+
+            if (webView != null && webView.getParent() instanceof ViewGroup) {
+                ((ViewGroup) webView.getParent()).removeView(webView);
+            }
+
+            // For the page that loads next (AppChromePlugin.takeRendererRecovery,
+            // experiment android-jank): how often this happens, and whether it
+            // was with the app on screen or away during a call.
+            boolean onScreen = getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
+            pendingRecovery = (crashed ? "crashed" : "killed") + (onScreen ? ":fg" : ":bg");
+
+            long now = SystemClock.elapsedRealtime();
+            boolean looping = lastRendererGoneAt != 0L && now - lastRendererGoneAt < RENDERER_RETRY_WINDOW_MS;
+            lastRendererGoneAt = now;
+            if (isFinishing() || isDestroyed()) return true;
+            if (looping) {
+                finish();
+            } else {
+                recreate();
+            }
+            return true;
+        }
     }
 
     @Override

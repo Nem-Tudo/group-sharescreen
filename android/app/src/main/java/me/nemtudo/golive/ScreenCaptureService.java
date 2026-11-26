@@ -11,6 +11,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
@@ -509,28 +511,54 @@ public class ScreenCaptureService extends Service {
         int rowPadding = rowStride - pixelStride * width;
         int paddedWidth = width + rowPadding / pixelStride;
 
-        Bitmap bitmap = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888);
-        bitmap.copyPixelsFromBuffer(buffer);
+        // Reused from frame to frame. A fresh bitmap per frame (two, when the
+        // rows are padded) was ~4 MB of garbage each time at 720p — 30-60 MB
+        // a second at the share's frame rate — and the collections that
+        // churn set off are pauses on every thread of this process, including
+        // the one that runs the plugin bridge.
+        if (frameBitmap == null || frameBitmap.getWidth() != paddedWidth || frameBitmap.getHeight() != height) {
+            if (frameBitmap != null) frameBitmap.recycle();
+            frameBitmap = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888);
+        }
+        buffer.rewind();
+        frameBitmap.copyPixelsFromBuffer(buffer);
+
+        Bitmap toEncode = frameBitmap;
         if (rowPadding != 0) {
-            Bitmap cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height);
-            bitmap.recycle();
-            bitmap = cropped;
+            if (croppedBitmap == null || croppedBitmap.getWidth() != width || croppedBitmap.getHeight() != height) {
+                if (croppedBitmap != null) croppedBitmap.recycle();
+                croppedBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                cropCanvas = new Canvas(croppedBitmap);
+            }
+            cropRect.set(0, 0, width, height);
+            cropCanvas.drawBitmap(frameBitmap, cropRect, cropRect, null);
+            toEncode = croppedBitmap;
         }
 
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        jpegOut.reset();
         // 60: readable for documents/UI (what a screen share overwhelmingly
         // is) at a size that does not choke the plugin bridge every frame —
         // this is the whole trade-off lib/androidScreenCapture.ts's own
         // comment describes.
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 60, out);
-        bitmap.recycle();
+        toEncode.compress(Bitmap.CompressFormat.JPEG, 60, jpegOut);
 
-        String base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+        String base64 = Base64.encodeToString(jpegOut.toByteArray(), Base64.NO_WRAP);
         FrameListener listener = frameListener;
         if (listener != null) {
             listener.onFrame(base64, width, height);
         }
     }
+
+    // Only ever touched on captureHandler's thread (processImage) and in
+    // onDestroy, after that thread has been told to quit.
+    @Nullable
+    private Bitmap frameBitmap;
+    @Nullable
+    private Bitmap croppedBitmap;
+    @Nullable
+    private Canvas cropCanvas;
+    private final Rect cropRect = new Rect();
+    private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(256 * 1024);
 
     private void notifyStoppedAndTearDown() {
         StateListener listener = stateListener;

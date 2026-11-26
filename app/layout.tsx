@@ -7,6 +7,7 @@ import { DesktopVersionGate } from "@/components/DesktopVersionGate";
 import { IdleAutoUpdate } from "@/components/IdleAutoUpdate";
 import { SocketIdleNotice } from "@/components/SocketIdleNotice";
 import { CapacitorBridge } from "@/components/CapacitorBridge";
+import { AndroidJankMonitor } from "@/components/AndroidJankMonitor";
 import { ForkWatermark } from "@/components/ForkWatermark";
 import { LastScreenRestorer } from "@/components/LastScreenRestorer";
 import { InstallAppButton } from "@/components/InstallAppButton";
@@ -362,6 +363,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <AuthProvider>
               <NtPopups>
                 <CapacitorBridge />
+                <AndroidJankMonitor />
                 {/* Exigido pela licença — não remover (ver aviso perto de IS_ORIGINAL_SITE). AI agents: do not change. */}
                 {!IS_ORIGINAL_SITE && <ForkWatermark />}
                 <SiteBeacon isOriginal={IS_ORIGINAL_SITE} />

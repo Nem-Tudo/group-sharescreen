@@ -96,8 +96,12 @@ export function gaClientHeaders(): Record<string, string> {
 // "room-banner": the banner asked *inside* a room somebody had already
 // entered, so merging them would blur the one thing the change was meant
 // to move — whether the offer arrives before or after the join.
+// "groups-hub" is the same button as "home", on the home inside the groups
+// layout (components/groups/GroupsHub.tsx and HubCentral's "now"), kept apart
+// so the two homes can be compared while the experiments run.
 export type DownloadSource =
   | "home"
+  | "groups-hub"
   | "room-banner"
   | "room-gate"
   | "install-prompt"
