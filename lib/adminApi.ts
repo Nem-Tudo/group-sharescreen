@@ -620,7 +620,16 @@ export type LiteModification = {
   updatedAt: string;
 };
 
-export type LiteConfig = { release: LiteRelease | null; modifications: LiteModification[]; setupUrl?: string | null };
+/** A version that was published and then replaced or taken down. */
+export type LiteReleaseHistoryEntry = LiteRelease & { replacedAt: string; reason: "replaced" | "unpublished" };
+
+export type LiteConfig = {
+  release: LiteRelease | null;
+  modifications: LiteModification[];
+  setupUrl?: string | null;
+  /** Newest first; absent on an API from before the history existed. */
+  history?: LiteReleaseHistoryEntry[];
+};
 
 export type LiteReleaseInput = Omit<LiteRelease, "publishedAt">;
 export type LiteModificationInput = Partial<Omit<LiteModification, "updatedAt">>;

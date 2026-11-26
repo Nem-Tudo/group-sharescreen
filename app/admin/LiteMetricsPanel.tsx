@@ -119,21 +119,28 @@ export function LiteMetricsPanel({ config }: { config: LiteConfig | null }) {
   const [loading, setLoading] = useState(false);
   const [showTable, setShowTable] = useState(false);
 
-  const load = useCallback(async () => {
+  // State is only set once the request settles, so the effect below never sets
+  // it synchronously; the refresh button flags "loading" itself.
+  const fetchData = useCallback(
+    () =>
+      fetchLiteMetrics(days)
+        .then((m) => {
+          setData(m);
+          setError(null);
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setLoading(false)),
+    [days]
+  );
+
+  const load = () => {
     setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchLiteMetrics(days));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [days]);
+    void fetchData();
+  };
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchData();
+  }, [fetchData]);
 
   const modName = (id: string) => config?.modifications.find((m) => m.id === id)?.name ?? id;
   const p = data?.period;
