@@ -620,7 +620,7 @@ export type LiteModification = {
   updatedAt: string;
 };
 
-export type LiteConfig = { release: LiteRelease | null; modifications: LiteModification[] };
+export type LiteConfig = { release: LiteRelease | null; modifications: LiteModification[]; setupUrl?: string | null };
 
 export type LiteReleaseInput = Omit<LiteRelease, "publishedAt">;
 export type LiteModificationInput = Partial<Omit<LiteModification, "updatedAt">>;
@@ -654,6 +654,82 @@ export async function updateLiteModification(id: string, patch: LiteModification
 
 export async function deleteLiteModification(id: string): Promise<LiteConfig> {
   return adminFetch<LiteConfig>(`/admin/lite/modifications/${encodeURIComponent(id)}`, jsonInit("DELETE"));
+}
+
+/** Where the setup is hosted; GET /lite/download counts and redirects there. null takes it down. */
+export async function setLiteSetupUrl(setupUrl: string | null): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/setup", jsonInit("PUT", { setupUrl }));
+}
+
+// Go Live - Lite metrics (API: liteMetricsStore.ts). RAM in MB, CPU in % of the machine.
+export type LiteDailyRow = {
+  date: string;
+  dau: number;
+  downloads: number;
+  downloadsUnique: number;
+  setupOpen: number;
+  setupInstall: number;
+  setupUpdate: number;
+  setupFail: number;
+  setupOffline: number;
+  newInstalls: number;
+  updates: number;
+  uninstalls: number;
+  opens: number;
+  roomJoins: number;
+  useMinutes: number;
+  ramIdleAvg: number | null;
+  ramMediaAvg: number | null;
+  ramPerMediaAvg: number | null;
+  ramIdleOverPct: number | null;
+  ramMediaOverPct: number | null;
+  cpuAvg: number | null;
+};
+
+export type LiteMetrics = {
+  generatedAt: string;
+  days: number;
+  budget: { idleMb: number; perMediaMb: number };
+  totals: {
+    installs: number;
+    active1d: number;
+    active7d: number;
+    active30d: number;
+    uninstalled: number;
+    downloads: number;
+    setupOpen: number;
+    setupInstall: number;
+    setupUpdate: number;
+    setupFail: number;
+    setupOffline: number;
+    roomJoins: number;
+    useMinutes: number;
+  };
+  period: {
+    dauAvg: number;
+    downloads: number;
+    downloadsUnique: number;
+    newInstalls: number;
+    uninstalls: number;
+    updates: number;
+    setupInstall: number;
+    setupFail: number;
+    ramIdleAvg: number | null;
+    ramMediaAvg: number | null;
+    ramPerMediaAvg: number | null;
+    ramIdleOverPct: number | null;
+    ramMediaOverPct: number | null;
+    cpuAvg: number | null;
+    ramSamples: number;
+  };
+  daily: LiteDailyRow[];
+  versions: { version: string; installs: number }[];
+  mods: { id: string; installs: number; added: number; removed: number; setupPicks: number }[];
+  live: { online: number; inRooms: number; sharing: number; micOn: number; versions: Record<string, number> };
+};
+
+export async function fetchLiteMetrics(days: number): Promise<LiteMetrics> {
+  return adminFetch<LiteMetrics>(`/admin/lite/stats?days=${days}`);
 }
 
 export async function fetchAdminSupporters(): Promise<Supporter[]> {

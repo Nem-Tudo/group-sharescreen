@@ -7,6 +7,7 @@ import {
   deleteLiteModification,
   fetchLiteConfig,
   publishLiteRelease,
+  setLiteSetupUrl,
   unpublishLiteRelease,
   updateLiteModification,
   type LiteConfig,
@@ -16,6 +17,8 @@ import {
 } from "@/lib/adminApi";
 import { useT } from "@/lib/useI18n";
 import { formatLocale } from "@/lib/i18n";
+import { getSignalingHttpBase } from "@/lib/roomsApi";
+import { LiteMetricsPanel } from "./LiteMetricsPanel";
 
 // Go Live - Lite (the native Rust client, goliveRust): what version it updates
 // to, and the catalogue of "modificações" its setup offers. The setup reads the
@@ -81,12 +84,14 @@ export function LitePanel() {
   // The modification open in the editor: an id, "new", or nothing.
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<ModDraft>(draftOf());
+  const [setupUrl, setSetupUrl] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const cfg = await fetchLiteConfig();
       setConfig(cfg);
+      setSetupUrl(cfg.setupUrl ?? "");
       // The form starts from what is published, so a new version is "change the
       // number and the links" rather than typing everything again.
       if (cfg.release) {
@@ -162,6 +167,40 @@ export function LitePanel() {
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</p>}
       {notice && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{notice}</p>}
+
+      {/* --- Métricas -------------------------------------------------------- */}
+      <LiteMetricsPanel config={config} />
+
+      {/* --- Download do setup (conta downloads) ------------------------------ */}
+      <section className="flex flex-col gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t("admin.litePanel.setupTitle")}</h3>
+        <p className="text-xs text-zinc-500">{t("admin.litePanel.setupHint")}</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className={`${label} min-w-0 flex-1`}>
+            {t("admin.litePanel.setupUrl")}
+            <input
+              className={input}
+              value={setupUrl}
+              placeholder="https://…/Go-Live-Lite-Setup.exe"
+              onChange={(e) => setSetupUrl(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || setupUrl.trim() === (config?.setupUrl ?? "")}
+            onClick={() => void run(() => setLiteSetupUrl(nullable(setupUrl)), t("admin.litePanel.setupSaved"))}
+            className={primaryButton}
+          >
+            {t("admin.litePanel.save")}
+          </button>
+        </div>
+        {config?.setupUrl && (
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+            {t("admin.litePanel.setupShare")}{" "}
+            <code className="select-all rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-900">{`${getSignalingHttpBase()}/lite/download`}</code>
+          </p>
+        )}
+      </section>
 
       {/* --- Atualização ------------------------------------------------------ */}
       <section className="flex flex-col gap-3">
