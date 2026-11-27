@@ -37,6 +37,23 @@ export type PlanCycle = {
   monthlyEquivalentLabel: string;
   /** What a single Pix charge buys, in days. */
   periodDays: number;
+  /**
+   * What a subscription renews at after its first cycle. Differs from
+   * priceCents only during a sale (see lib/proSale.ts). Absent from an older
+   * API, which means "the same as priceCents".
+   */
+  renewalPriceCents?: number;
+  renewalPriceLabel?: string;
+};
+
+/** A sale running on a plan, as the API describes it (its planSale.ts). */
+export type PlanSale = {
+  id: string;
+  percentOff: number;
+  /** Epoch ms. */
+  endsAt: number;
+  /** Whether a new subscription's first cycle is discounted too (Pix always is). */
+  onSubscription: boolean;
 };
 
 /**
@@ -91,6 +108,8 @@ export type PremiumPlan = {
    * Absent from an older API, which the page reads as "monthly only".
    */
   cycles?: PlanCycle[];
+  /** The sale on this plan right now, or null/absent when there is none. */
+  sale?: PlanSale | null;
   /** Points credited the moment a charge is approved — every charge. */
   purchasePoints: number;
   /** Points credited per whole day the subscription stays active. */

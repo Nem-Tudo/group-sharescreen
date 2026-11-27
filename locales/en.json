@@ -6793,7 +6793,6 @@
   "anniversary.recap.summary.call": "in calls",
   "anniversary.recap.summary.share": "Share my recap",
   "anniversary.recap.summary.streaming": "streaming",
-
   "anniversary.recap.summary.mic": "talking",
   "anniversary.recap.summary.messages": "messages",
   "anniversary.recap.summary.friends": "friends",
@@ -6981,5 +6980,18 @@
   "videoTile.stallReport": "Stuttering? Let us know",
   "videoTile.stallReportSent": "Thanks! We saved the last minute of this stream to look into it.",
   "videoTile.stallReportTooSoon": "Already received, thanks.",
-  "videoTile.stallReportFailed": "Could not send right now."
+  "videoTile.stallReportFailed": "Could not send right now.",
+  "proSale.label": "Black Friday: {percent}% off Go Live Pro",
+  "proSale.off": "{percent}% off",
+  "proSale.kicker": "Go Live Black Friday",
+  "proSale.titleHalf": "Everything at half price.",
+  "proSale.title": "Everything {percent}% off.",
+  "proSale.subtitle": "Pro, Pro Max and Pro Ultra, by Pix or card. Only until {until}.",
+  "proSale.subtitleGift": "Gifts are half price too. Only until {until}.",
+  "proSale.endsIn": "Ends in",
+  "proSale.finePrint": "With Pix and gifts, the discount covers the whole payment. On a subscription it covers the first payment; renewals are at the regular price.",
+  "proSale.finePrintPixOnly": "Discount on Pix and gifts. Subscriptions are at the regular price.",
+  "proSale.finePrintGift": "The discount covers the whole gift.",
+  "proSale.renewsAt": "On a subscription, the discount covers the first payment. After that it renews at {value}{period}. Cancel anytime.",
+  "proSale.subscriptionFullPrice": "The Black Friday discount applies to Pix. Subscriptions are at the regular price: {value}{period}."
 }

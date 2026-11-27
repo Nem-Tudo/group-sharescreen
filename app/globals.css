@@ -2135,3 +2135,29 @@ html[data-app-shell="ios"] [data-ios-only] {
     animation: none;
   }
 }
+
+/* Black Friday on /pro (components/ProSaleBanner): the tape runs, the price
+   tag swings on its string. Both stand still for reduced motion. */
+@keyframes golive-bf-tape {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes golive-bf-swing {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(4deg); }
+}
+.golive-bf-tape {
+  animation: golive-bf-tape 22s linear infinite;
+}
+.golive-bf-swing {
+  animation: golive-bf-swing 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .golive-bf-tape,
+  .golive-bf-swing {
+    animation: none;
+  }
+  .golive-bf-swing {
+    transform: rotate(-4deg);
+  }
+}

@@ -27,6 +27,8 @@ import {
 import { useI18n } from "@/lib/useI18n";
 import { holdPaymentShake, useShake } from "@/lib/useShake";
 import { proHref } from "@/lib/proSourceAttribution";
+import { ProSaleBanner } from "@/components/ProSaleBanner";
+import { saleOf } from "@/lib/proSale";
 
 // "Presentear": buy a plan for somebody else.
 //
@@ -609,6 +611,10 @@ export function GiftPlanDialog({
                   )}
                 </div>
 
+                {/* Black Friday, while it runs (see lib/proSale). Not once a
+                    code is on screen: by then the price is settled. */}
+                {saleOf(plans) && !charge && <ProSaleBanner sale={saleOf(plans)!} compact gift />}
+
                 {/* Cards side by side, one per plan, each in its own colour.
                     Only with something to choose between, exactly as on /pro. */}
                 {plans.length > 1 && (
@@ -641,6 +647,13 @@ export function GiftPlanDialog({
                             <span className="block truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                               {entry.title.replace(/^Go\s*Live\s+/i, "")}
                             </span>
+                            {/* The regular price struck above the sale's, so the
+                                discount is visible on the card being picked. */}
+                            {entry.sale && entry.cycles?.find((c) => c.cycle === cycle)?.fullPriceLabel && (
+                              <span className="block text-xs text-zinc-400 line-through dark:text-zinc-500">
+                                {entry.cycles.find((c) => c.cycle === cycle)!.fullPriceLabel}
+                              </span>
+                            )}
                             <span className="mt-0.5 block text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
                               {entry.cycles?.find((c) => c.cycle === cycle)?.priceLabel ?? entry.priceLabel}
                             </span>

@@ -6793,7 +6793,6 @@
   "anniversary.recap.summary.call": "em call",
   "anniversary.recap.summary.share": "Compartilhar meu recap",
   "anniversary.recap.summary.streaming": "transmitindo",
-
   "anniversary.recap.summary.mic": "falando",
   "anniversary.recap.summary.messages": "mensagens",
   "anniversary.recap.summary.friends": "amigos",
@@ -6981,5 +6980,18 @@
   "videoTile.stallReport": "Travou? Avise a gente",
   "videoTile.stallReportSent": "Valeu! Guardamos o último minuto desta transmissão para investigar.",
   "videoTile.stallReportTooSoon": "Já recebemos, obrigado.",
-  "videoTile.stallReportFailed": "Não deu para enviar agora."
+  "videoTile.stallReportFailed": "Não deu para enviar agora.",
+  "proSale.label": "Black Friday: {percent}% de desconto no Go Live Pro",
+  "proSale.off": "{percent}% off",
+  "proSale.kicker": "Black Friday Go Live",
+  "proSale.titleHalf": "Tudo pela metade.",
+  "proSale.title": "Tudo com {percent}% off.",
+  "proSale.subtitle": "Pro, Pro Max e Pro Ultra, no Pix ou no cartão. Só até {until}.",
+  "proSale.subtitleGift": "Presentear também sai pela metade. Só até {until}.",
+  "proSale.endsIn": "Acaba em",
+  "proSale.finePrint": "No Pix e nos presentes, o desconto vale no pagamento inteiro. Na assinatura, vale no primeiro pagamento; as renovações seguem o preço normal.",
+  "proSale.finePrintPixOnly": "Desconto no Pix e nos presentes. Assinaturas seguem o preço normal.",
+  "proSale.finePrintGift": "O desconto vale no valor do presente inteiro.",
+  "proSale.renewsAt": "Na assinatura, o desconto vale no primeiro pagamento. Depois, renova por {value}{period}. Cancele quando quiser.",
+  "proSale.subscriptionFullPrice": "O desconto da Black Friday vale no Pix. A assinatura sai pelo preço normal: {value}{period}."
 }

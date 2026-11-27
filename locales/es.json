@@ -6981,5 +6981,18 @@
   "videoTile.stallReport": "¿Se trabó? Avísanos",
   "videoTile.stallReportSent": "¡Gracias! Guardamos el último minuto de esta transmisión para investigarlo.",
   "videoTile.stallReportTooSoon": "Ya lo recibimos, gracias.",
-  "videoTile.stallReportFailed": "No se pudo enviar ahora."
+  "videoTile.stallReportFailed": "No se pudo enviar ahora.",
+  "proSale.label": "Black Friday: {percent}% de descuento en Go Live Pro",
+  "proSale.off": "{percent}% off",
+  "proSale.kicker": "Black Friday Go Live",
+  "proSale.titleHalf": "Todo a mitad de precio.",
+  "proSale.title": "Todo con {percent}% off.",
+  "proSale.subtitle": "Pro, Pro Max y Pro Ultra, con Pix o tarjeta. Solo hasta {until}.",
+  "proSale.subtitleGift": "Regalar también sale a mitad de precio. Solo hasta {until}.",
+  "proSale.endsIn": "Termina en",
+  "proSale.finePrint": "Con Pix y en regalos, el descuento vale en el pago completo. En la suscripción vale en el primer pago; las renovaciones siguen el precio normal.",
+  "proSale.finePrintPixOnly": "Descuento en Pix y en regalos. Las suscripciones siguen el precio normal.",
+  "proSale.finePrintGift": "El descuento vale en el regalo completo.",
+  "proSale.renewsAt": "En la suscripción, el descuento vale en el primer pago. Después se renueva por {value}{period}. Cancela cuando quieras.",
+  "proSale.subscriptionFullPrice": "El descuento de Black Friday vale en Pix. La suscripción sale a precio normal: {value}{period}."
 }

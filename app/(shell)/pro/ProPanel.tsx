@@ -39,6 +39,8 @@ import { PixChargeModal } from "@/components/PixChargeModal";
 import { holdPaymentShake } from "@/lib/useShake";
 import { noteProPageVisit, trackProEntryCheckout, trackProSourceCheckout } from "@/lib/proSourceAttribution";
 import { CardCheckoutModal } from "@/components/CardCheckoutModal";
+import { ProSaleBanner } from "@/components/ProSaleBanner";
+import { saleOf } from "@/lib/proSale";
 import { DeferredDowngradeModal } from "@/components/DeferredDowngradeModal";
 import useNtPopups from "ntpopups";
 import { isIosDevice, isStandaloneDisplay } from "@/lib/browserEnv";
@@ -992,6 +994,19 @@ export function ProPanel({
     viewReported.current = accountId;
     trackFeatureEvent("pro_view");
   }, [accountId]);
+  // Bumped when a running sale ends, so the page reads its prices again rather
+  // than keep showing the sale's after the API has stopped charging them.
+  const [saleEpoch, setSaleEpoch] = useState(0);
+  const sale = saleOf(plans);
+  const saleEndsAt = sale?.endsAt ?? null;
+  useEffect(() => {
+    if (saleEndsAt === null) return;
+    // A couple of seconds past the end, so this worker's clock and the API's
+    // agree that it is over. Capped: setTimeout overflows past ~24.8 days.
+    const wait = Math.min(saleEndsAt - Date.now() + 2000, 2_000_000_000);
+    const timer = setTimeout(() => setSaleEpoch((n) => n + 1), Math.max(0, wait));
+    return () => clearTimeout(timer);
+  }, [saleEndsAt]);
   useEffect(() => {
     const controller = new AbortController();
     void fetchPremiumPlans(controller.signal, { personal: true }).then((loaded) => {
@@ -999,7 +1014,7 @@ export function ProPanel({
       setLoadingPlan(false);
     });
     return () => controller.abort();
-  }, [accountId]);
+  }, [accountId, saleEpoch]);
 
   // Re-reads the subscription from its provider (through the API) and pulls
   // the account down again, so `features` and the copy below reflect it.
@@ -1453,6 +1468,7 @@ export function ProPanel({
             : `mx-auto w-full ${compareLayout ? "max-w-3xl" : "max-w-2xl"} px-4 py-10`
       }
     >
+      {sale && cardsLayout && <ProSaleBanner sale={sale} className="mb-8" />}
       {cardsLayout && (
         <ProCardsHero
           cycles={plans[0]?.cycles ?? []}
@@ -1537,6 +1553,8 @@ export function ProPanel({
           both render this panel. It disappears on its own once the date is
           past (see EARLY_SUPPORTER_CUTOFF_MS): an offer that outlives its
           deadline is a promise the site cannot keep. */}
+      {sale && !cardsLayout && <ProSaleBanner sale={sale} compact={isModal} className="mt-5" />}
+
       {earlySupporterOpen && (
         <div className="relative mt-5 flex items-start gap-3 overflow-hidden rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3.5">
           {/* The sweep. Behind the text rather than over it — a highlight that
@@ -1741,8 +1759,14 @@ export function ProPanel({
                 {cycle === "yearly" ? "/ ano" : t("pro.proPanel.month")}
               </span>
               {pricing && pricing.discountPercent > 0 && (
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  {pricing.discountPercent}% de desconto
+                <span
+                  className={
+                    sale
+                      ? "rounded-md bg-zinc-950 px-2 py-0.5 text-xs font-black uppercase tracking-wide text-[#FFD400] dark:bg-[#FFD400] dark:text-black"
+                      : "rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                  }
+                >
+                  {sale ? `Black Friday -${pricing.discountPercent}%` : `${pricing.discountPercent}% de desconto`}
                 </span>
               )}
             </div>
@@ -2055,7 +2079,7 @@ export function ProPanel({
                           ) : (
                             <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                               {t("pro.proPanel.upgradeSubscriptionHint", {
-                                value: pricing?.priceLabel ?? plan.priceLabel,
+                                value: pricing?.renewalPriceLabel ?? pricing?.priceLabel ?? plan.priceLabel,
                                 date: premium ? periodEndLabel(premium.currentPeriodEnd) : "",
                               })}
                             </p>
@@ -2171,7 +2195,9 @@ export function ProPanel({
                         {busy
                           ? t("pro.proPanel.openingThePayment")
                           : `${activeHere ? t("pro.proPanel.renew") : active ? t("common.change") : t("pro.proPanel.subscribe")} por ${
-                              pricing?.priceLabel ?? plan.priceLabel
+                              (sale && !sale.onSubscription ? pricing?.renewalPriceLabel : null) ??
+                              pricing?.priceLabel ??
+                              plan.priceLabel
                             }${cycle === "yearly" ? "/ano" : t("pro.proPanel.month2")}`}
                       </button>
                       {/* Pix's own teal rather than the page's neutral: it is
@@ -2202,6 +2228,22 @@ export function ProPanel({
                       )}
                     </div>
                   )}
+                  {/* The sale on a subscription is its first payment only (see
+                      the API's planSale.ts): said next to the button, with the
+                      number it renews at, before anybody presses it. */}
+                  {sale &&
+                    !checkoutUrl &&
+                    !pixPending &&
+                    !lowerThanCurrent &&
+                    pricing?.renewalPriceLabel &&
+                    pricing.renewalPriceLabel !== pricing.priceLabel && (
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {t(sale.onSubscription ? "proSale.renewsAt" : "proSale.subscriptionFullPrice", {
+                          value: pricing.renewalPriceLabel,
+                          period: cycle === "yearly" ? "/ano" : t("pro.proPanel.month2"),
+                        })}
+                      </p>
+                    )}
                   {/* What "trocar" actually does, said before the money
                       moves rather than discovered after it. */}
                   {active && !activeHere && !lowerThanCurrent && !checkoutUrl && !pixPending && (
