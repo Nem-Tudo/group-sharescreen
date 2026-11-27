@@ -33,6 +33,7 @@ export const ADMIN_PERMISSIONS = [
   "announcement",
   "supporters",
   "desktop_update",
+  "lite",
   "event_promos",
   "ads",
   "logs",

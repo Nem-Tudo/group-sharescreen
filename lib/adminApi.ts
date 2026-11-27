@@ -589,6 +589,158 @@ export async function setDesktopVersionPolicy(patch: {
   );
 }
 
+// --- Go Live - Lite (the native Rust client): version + modification catalogue.
+// See the API's liteStore.ts / liteRoutes.ts.
+
+export type LiteModificationStatus = "active" | "coming-soon" | "disabled";
+
+export type LiteRelease = {
+  version: string;
+  minVersion: string | null;
+  mandatory: boolean;
+  downloadUrl: string;
+  sha256: string | null;
+  modsDownloadUrl: string | null;
+  modsSha256: string | null;
+  releasePageUrl: string | null;
+  notes: string | null;
+  publishedAt: string;
+};
+
+export type LiteModification = {
+  id: string;
+  name: string;
+  description: string;
+  status: LiteModificationStatus;
+  version: string;
+  downloadUrl: string | null;
+  fileName: string | null;
+  sha256: string | null;
+  order: number;
+  updatedAt: string;
+};
+
+/** A version that was published and then replaced or taken down. */
+export type LiteReleaseHistoryEntry = LiteRelease & { replacedAt: string; reason: "replaced" | "unpublished" };
+
+export type LiteConfig = {
+  release: LiteRelease | null;
+  modifications: LiteModification[];
+  setupUrl?: string | null;
+  /** Newest first; absent on an API from before the history existed. */
+  history?: LiteReleaseHistoryEntry[];
+};
+
+export type LiteReleaseInput = Omit<LiteRelease, "publishedAt">;
+export type LiteModificationInput = Partial<Omit<LiteModification, "updatedAt">>;
+
+export async function fetchLiteConfig(): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite");
+}
+
+const jsonInit = (method: string, body?: unknown): RequestInit => ({
+  method,
+  headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+
+/** Publishes a version; open Lite clients check for it right away. */
+export async function publishLiteRelease(input: LiteReleaseInput): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/release", jsonInit("PUT", input));
+}
+
+export async function unpublishLiteRelease(): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/release", jsonInit("DELETE"));
+}
+
+export async function createLiteModification(input: LiteModificationInput & { id: string; name: string }): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/modifications", jsonInit("POST", input));
+}
+
+export async function updateLiteModification(id: string, patch: LiteModificationInput): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>(`/admin/lite/modifications/${encodeURIComponent(id)}`, jsonInit("PATCH", patch));
+}
+
+export async function deleteLiteModification(id: string): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>(`/admin/lite/modifications/${encodeURIComponent(id)}`, jsonInit("DELETE"));
+}
+
+/** Where the setup is hosted; GET /lite/download counts and redirects there. null takes it down. */
+export async function setLiteSetupUrl(setupUrl: string | null): Promise<LiteConfig> {
+  return adminFetch<LiteConfig>("/admin/lite/setup", jsonInit("PUT", { setupUrl }));
+}
+
+// Go Live - Lite metrics (API: liteMetricsStore.ts). RAM in MB, CPU in % of the machine.
+export type LiteDailyRow = {
+  date: string;
+  dau: number;
+  downloads: number;
+  downloadsUnique: number;
+  setupOpen: number;
+  setupInstall: number;
+  setupUpdate: number;
+  setupFail: number;
+  setupOffline: number;
+  newInstalls: number;
+  updates: number;
+  uninstalls: number;
+  opens: number;
+  roomJoins: number;
+  useMinutes: number;
+  ramIdleAvg: number | null;
+  ramMediaAvg: number | null;
+  ramPerMediaAvg: number | null;
+  ramIdleOverPct: number | null;
+  ramMediaOverPct: number | null;
+  cpuAvg: number | null;
+};
+
+export type LiteMetrics = {
+  generatedAt: string;
+  days: number;
+  budget: { idleMb: number; perMediaMb: number };
+  totals: {
+    installs: number;
+    active1d: number;
+    active7d: number;
+    active30d: number;
+    uninstalled: number;
+    downloads: number;
+    setupOpen: number;
+    setupInstall: number;
+    setupUpdate: number;
+    setupFail: number;
+    setupOffline: number;
+    roomJoins: number;
+    useMinutes: number;
+  };
+  period: {
+    dauAvg: number;
+    downloads: number;
+    downloadsUnique: number;
+    newInstalls: number;
+    uninstalls: number;
+    updates: number;
+    setupInstall: number;
+    setupFail: number;
+    ramIdleAvg: number | null;
+    ramMediaAvg: number | null;
+    ramPerMediaAvg: number | null;
+    ramIdleOverPct: number | null;
+    ramMediaOverPct: number | null;
+    cpuAvg: number | null;
+    ramSamples: number;
+  };
+  daily: LiteDailyRow[];
+  versions: { version: string; installs: number }[];
+  mods: { id: string; installs: number; added: number; removed: number; setupPicks: number }[];
+  live: { online: number; inRooms: number; sharing: number; micOn: number; versions: Record<string, number> };
+};
+
+export async function fetchLiteMetrics(days: number): Promise<LiteMetrics> {
+  return adminFetch<LiteMetrics>(`/admin/lite/stats?days=${days}`);
+}
+
 export async function fetchAdminSupporters(): Promise<Supporter[]> {
   const data = await adminFetch<{ supporters: Supporter[] }>("/admin/supporters");
   return data.supporters;

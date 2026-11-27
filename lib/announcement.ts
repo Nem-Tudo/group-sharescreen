@@ -25,6 +25,8 @@ export type AnnouncementSound = "always" | "live-only" | "off";
 export type AnnouncementDevice =
   | "desktop-browser"
   | "desktop-app"
+  // Go Live - Lite (cliente nativo em Rust). O site nunca e ele; so o admin mira nele.
+  | "desktop-lite"
   | "mobile-browser"
   | "mobile-app"
   | "android-app"
@@ -33,6 +35,7 @@ export type AnnouncementDevice =
 export const ANNOUNCEMENT_DEVICES: AnnouncementDevice[] = [
   "desktop-browser",
   "desktop-app",
+  "desktop-lite",
   "mobile-browser",
   "mobile-app",
   "android-app",
@@ -42,6 +45,7 @@ export const ANNOUNCEMENT_DEVICES: AnnouncementDevice[] = [
 export const ANNOUNCEMENT_DEVICE_LABELS: Record<AnnouncementDevice, string> = {
   get "desktop-browser"() { return translate("announcement.browserPc"); },
   get "desktop-app"() { return translate("announcement.appPc"); },
+  get "desktop-lite"() { return translate("announcement.liteApp"); },
   get "mobile-browser"() { return translate("announcement.browserMobile"); },
   get "mobile-app"() { return translate("announcement.appMobile"); },
   get "android-app"() { return translate("announcement.appAndroid"); },
@@ -197,7 +201,8 @@ export function isMobileDevice(): boolean {
  * in this codebase, and calling it an app here would mean "App (celular)"
  * silently targeting people who never installed anything of the sort.
  */
-export function currentAnnouncementDevice(): AnnouncementDevice {
+// The site is never the Go Live - Lite (that is the native Rust client), hence the Exclude.
+export function currentAnnouncementDevice(): Exclude<AnnouncementDevice, "desktop-lite"> {
   if (isMobileDevice()) {
     if (!isMobileApp()) return "mobile-browser";
     return mobileAppOS() === "ios" ? "ios-app" : "android-app";

@@ -9185,6 +9185,7 @@ function WatchRoomView({
             isAdmin={p.userId ? adminIds.has(p.userId) : false}
             isApp={p.app}
             desktopAppOS={p.desktopAppOS ?? null}
+            isLiteApp={p.liteApp === true}
             isMobileApp={p.mobileApp}
             mobileAppOS={p.mobileAppOS ?? null}
             handRaised={micsLockedForMembers && Boolean(p.userId && raisedHandIds.has(p.userId))}

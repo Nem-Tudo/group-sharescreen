@@ -80,7 +80,9 @@ export default function AdminPage() {
       window.removeEventListener(PARTNER_ORDERS_CHANGED_EVENT, load);
     };
   }, [canAds]);
-  const sections = ADMIN_SECTIONS.filter((section) => section.needs.some((permission) => permissions.has(permission)));
+  const sections = ADMIN_SECTIONS.filter(
+    (section) => section.everyAdmin || section.needs.some((permission) => permissions.has(permission))
+  );
   const tabs = [
     ...sections.map((section) => ({ id: section.id, label: section.label })),
     ...(permissions.has("logs") ? [{ id: "registros", label: translate("admin.logs") }] : []),
