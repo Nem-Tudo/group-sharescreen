@@ -23,6 +23,7 @@
 // ignores the rest.
 
 import type { ExtraCameraSlot } from "./multiCamera";
+import { isMobileDevice } from "./announcement";
 import type { ExtraScreenSlot } from "./multiScreen";
 import { signalingClient } from "./signalingClient";
 import { isStreamRetained, onStreamUseChange } from "./streamUse";
@@ -44,6 +45,20 @@ export type QualityChannel =
   | "file3"
   | ExtraScreenSlot
   | ExtraCameraSlot;
+
+// The pixel density a tile's request is sized at. The screen's own, except a
+// camera on a phone, which stops at 2: a phone reports 3, which turned a
+// full-width camera tile (390 CSS px) into a 720p request, three at a time
+// with three cameras on, for a face nobody can tell from its 576p. A shared
+// screen keeps the full density: there the extra pixels are text.
+const PHONE_CAMERA_DENSITY = 2;
+export function tileDensity(
+  channel: QualityChannel,
+  devicePixelRatio: number,
+  mobile: boolean = isMobileDevice()
+): number {
+  return mobile && channel.startsWith("camera") ? Math.min(devicePixelRatio, PHONE_CAMERA_DENSITY) : devicePixelRatio;
+}
 
 interface Entry {
   channel: QualityChannel;
@@ -199,7 +214,7 @@ class QualityNegotiator {
 
   private sizedTier(entry: Entry): QualityTier | null {
     if (entry.width <= 0) return null;
-    const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+    const dpr = tileDensity(entry.channel, typeof window !== "undefined" ? window.devicePixelRatio : 1);
     // MAX_TIER_FPS: tile size decides pixels, never frames, so the request asks
     // for the fastest rung at that size and the broadcaster's fps dial caps it.
     const sized = tierForRenderedSize(entry.width, entry.height, dpr, MAX_TIER_FPS);
